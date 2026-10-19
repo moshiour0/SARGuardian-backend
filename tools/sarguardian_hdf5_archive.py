@@ -732,33 +732,33 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                     archive_attrs = _ordinary_attrs_json(archive_verify[gp])
                     if _canonical_json(source_attrs) != _canonical_json(archive_attrs):
                         verification_errors.append(f"group attrs mismatch: {gp}")
-            for item in derived_records:
-                p = item["path"]
-                source_path = item["source_path"]
-                if p not in archive_verify or source_path not in src_verify:
-                    verification_errors.append(f"derived wrapped-phase dataset missing: {p} (source {source_path})")
-                    continue
-                phase_ds = archive_verify[p]
-                complex_ds = src_verify[source_path]
-                if list(phase_ds.shape) != item["shape"] or str(phase_ds.dtype) != item["dtype"]:
-                    verification_errors.append(f"derived wrapped-phase shape/dtype mismatch: {p}")
-                    continue
-                if dataset_digest(phase_ds) != item["logical_data_sha256"]:
-                    verification_errors.append(f"derived wrapped-phase checksum mismatch: {p}")
-                source_hash = hashlib.sha256()
-                for slc in _slices_for_dataset(complex_ds):
-                    complex_values = complex_ds[slc]
-                    source_hash.update(_logical_chunk_bytes(complex_values, complex_ds.dtype))
-                    expected_phase = np.angle(complex_values).astype(phase_ds.dtype, copy=False)
-                    if not _value_equal(phase_ds[slc], expected_phase):
-                        verification_errors.append(f"derived wrapped-phase values mismatch: {p}")
-                        break
-                if source_hash.hexdigest() != item["source_logical_data_sha256"]:
-                    verification_errors.append(f"derived wrapped-phase source checksum mismatch: {source_path}")
-                if _canonical_json(_ordinary_attrs_json(phase_ds)) != _canonical_json(item["ordinary_attrs"]):
-                    verification_errors.append(f"derived wrapped-phase metadata mismatch: {p}")
-                if _dimension_links(complex_ds) != _dimension_links(phase_ds):
-                    verification_errors.append(f"derived wrapped-phase coordinates mismatch: {p}")
+                for item in derived_records:
+                    p = item["path"]
+                    source_path = item["source_path"]
+                    if p not in archive_verify or source_path not in src_verify:
+                        verification_errors.append(f"derived wrapped-phase dataset missing: {p} (source {source_path})")
+                        continue
+                    phase_ds = archive_verify[p]
+                    complex_ds = src_verify[source_path]
+                    if list(phase_ds.shape) != item["shape"] or str(phase_ds.dtype) != item["dtype"]:
+                        verification_errors.append(f"derived wrapped-phase shape/dtype mismatch: {p}")
+                        continue
+                    if dataset_digest(phase_ds) != item["logical_data_sha256"]:
+                        verification_errors.append(f"derived wrapped-phase checksum mismatch: {p}")
+                    source_hash = hashlib.sha256()
+                    for slc in _slices_for_dataset(complex_ds):
+                        complex_values = complex_ds[slc]
+                        source_hash.update(_logical_chunk_bytes(complex_values, complex_ds.dtype))
+                        expected_phase = np.angle(complex_values).astype(phase_ds.dtype, copy=False)
+                        if not _value_equal(phase_ds[slc], expected_phase):
+                            verification_errors.append(f"derived wrapped-phase values mismatch: {p}")
+                            break
+                    if source_hash.hexdigest() != item["source_logical_data_sha256"]:
+                        verification_errors.append(f"derived wrapped-phase source checksum mismatch: {source_path}")
+                    if _canonical_json(_ordinary_attrs_json(phase_ds)) != _canonical_json(item["ordinary_attrs"]):
+                        verification_errors.append(f"derived wrapped-phase metadata mismatch: {p}")
+                    if _dimension_links(complex_ds) != _dimension_links(phase_ds):
+                        verification_errors.append(f"derived wrapped-phase coordinates mismatch: {p}")
             if verification_errors:
                 raise RuntimeError("Archive verification failed: " + "; ".join(verification_errors[:20]))
             os.replace(tmp_path, archive)
