@@ -309,6 +309,7 @@ def test_full_lossless_profile_preserves_all_source_datasets(tmp_path):
     assert not doc["excluded_datasets"]
     assert not doc["derived_datasets"]
     assert result["policy"]["retention_profile"] == "full-lossless"
+    assert result["policy"]["include_wrapped_interferogram"] is True
 
 
 def test_h5ocopy_preserves_source_chunking_and_lossless_filters(tmp_path):
@@ -339,3 +340,21 @@ def test_h5ocopy_preserves_source_chunking_and_lossless_filters(tmp_path):
         assert a.fletcher32 == b.fletcher32 is True
         assert a.fillvalue == b.fillvalue == np.float32(-9999.0)
         assert np.array_equal(a[()], b[()])
+
+
+def test_engine_ready_exclusion_reasons_are_dataset_specific():
+    wrapped = "/science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/coherenceMagnitude"
+    radar = "/science/LSAR/GUNW/metadata/radarGrid/someOtherCube"
+    auxiliary = "/science/LSAR/GUNW/grids/frequencyA/someOtherBigGrid"
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", False, "engine-ready") is None
+    assert "high-posting wrappedInterferogram-grid" in archive_tool.exclusion_reason(
+        wrapped, "GUNW", "engine-ready", False
+    )
+    assert "losUnitVectorX/Y and incidenceAngle" in archive_tool.exclusion_reason(
+        radar, "GUNW", "engine-ready", False
+    )
+    assert "no reader or downstream processing path" in archive_tool.exclusion_reason(
+        auxiliary, "GUNW", "engine-ready", False
+    )
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", False, "full-lossless") == "full_lossless_source_dataset"
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", True, "engine-ready") == "wrapped_grid_retained_by_explicit_include_wrapped"
