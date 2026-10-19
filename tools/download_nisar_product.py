@@ -84,17 +84,17 @@ def safe_exception_diagnostics(exc: BaseException) -> dict[str, str | None]:
         current = current.__cause__ or current.__context__
 
     detail = " ".join(details)
-    detail = re.sub(r"https?://[^\\s\"'<>]+", "[URL]", detail)
+    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL]", detail)
     detail = re.sub(
-        r"(?i)\\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
-        r"authorization|client[_-]?secret|secret)\\b\\s*[:=]\\s*[^,;\\s<>]+",
-        r"\\1=[REDACTED]",
+        r"(?i)\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
+        r"authorization|client[_-]?secret|secret)\b\s*[:=]\s*[^,;\s<>]+",
+        r"\1=[REDACTED]",
         detail,
     )
     detail = re.sub(r"<[^>]+>", " ", detail)
     detail = html.unescape(detail)
-    detail = re.sub(r"\\s+", " ", detail).strip()
-    # Keep only the leading explanatory phrase; never emit raw request/response dumps.
+    detail = re.sub(r"\s+", " ", detail).strip()
+    # Keep only a short diagnostic; never emit raw response payloads or URLs.
     detail = detail[:180]
     return {
         "type": type(exc).__name__,
