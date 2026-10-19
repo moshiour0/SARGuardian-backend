@@ -16,15 +16,15 @@
 
 ## কী retention policy ব্যবহার করা হয়েছে?
 
-Archive tool-এর compact mode-এ সব HDF5 dataset, scalar/1-D axes, metadata, offsets, masks, QA, unknown auxiliary grids এবং coherence retain হয়। শুধু বড় multidimensional GUNW `wrappedInterferogram` complex dataset default-এ বাদ থাকে; এর বদলে একই grid-এ `wrappedPhase` নামে phase-only array (`numpy.angle`, radians) তৈরি হয়, exact values/checksum ও coordinate-scale links যাচাই করে manifest-এ রাখা হয়।
+ডিফল্ট `engine-ready` profile মূল scientific engine-এর বাস্তব HDF5 dependencies ধরে: GUNW-এর সব `unwrappedInterferogram` ও `pixelOffsets` array, GOFF-এর সব `pixelOffsets` layer/polarisation, সব scalar/1-D metadata এবং `geometry_merge.los_from_product`-এ সরাসরি পড়া radar-grid LOS geometry arrays রাখা হয়। Pinned `src/` code যেসব high-posting GUNW `wrappedInterferogram`-grid raster ও অন্য multidimensional metadata ব্যবহার করে না, compact profile সেগুলো বাদ দেয়; প্রতিটি বাদ দেওয়া dataset-এর path, shape, dtype ও attributes manifest-এ থাকে, পাশাপাশি পুরো source inventory ও source-file SHA-256 রাখা হয়।
 
-এই derived `wrappedPhase` future phase-domain diagnostics/unwrapping experiments-এ কাজে লাগবে, কিন্তু complex amplitude পুনরুদ্ধার করে না এবং নিজে spatial phase unwrapping করে না। **যে ভবিষ্যৎ algorithm-এর original complex samples দরকার, তার জন্য `include_wrapped=true` চালাতে হবে**—এতে archive অনেক বড় হতে পারে।
+আগের ১৭ মিনিটের খরচের মূল কারণ ছিল Python দিয়ে বড় array পড়া, নতুন chunk/compression layout-এ আবার লেখা, এবং একই source/archive-এর পূর্ণ verification scan একাধিকবার চালানো। এখন HDF5 native object copy source-এর exact values, chunking ও compression filter বজায় রাখে; logical data/checksum, metadata এবং dimension-scale links এখনও যাচাই হয়। `full-lossless` profile supported standard NISAR HDF5 hierarchy-এর সব dataset রাখে। `include_wrapped=true` উচ্চ-resolution wrapped grid-টিও রাখে; `derive_wrapped_phase=true` আলাদা optional phase-only radians output তৈরি করে—এটি spatial unwrapping নয়, complex amplitude-ও ধরে রাখে না।
 
 ## GitHub Actions pilot চালানোর ধাপ
 
 1. `SARGuardian_GitHub_Actions_Retention_Pilot_Patch.zip`-এর contents `Sagormodak/SARGuardian-backend` repository-র root-এ **নতুন branch-এ** copy করো। Existing `main`-এ সরাসরি overwrite কোরো না।
 2. Repository Secrets-এ বর্তমান secrets থাকতে হবে: `EARTHDATA_USERNAME`, `EARTHDATA_PASSWORD`, `GOOGLE_DRIVE_OAUTH_CLIENT_JSON`, `GOOGLE_DRIVE_REFRESH_TOKEN`, `GOOGLE_DRIVE_PARENT_FOLDER_ID`। Token/password workflow input বা source code-এ রেখো না।
-3. GitHub Actions-এ **SARGuardian Retention Pilot (single granule, non-destructive)** নির্বাচন করে প্রথমে AOI-র সঙ্গে intersect করা একটি exact GUNW granule চালাও; পরে আলাদা GOFF granule চালাও। ASF metadata থেকে size estimate পাওয়া না গেলে `expected_source_bytes` পূরণ করো।
+3. GitHub Actions-এ **SARGuardian Retention Pilot (single granule, non-destructive)** চালাও। প্রথমে AOI preflight দিয়ে যাচাই হবে product grid সত্যিই AOI-তে পড়ে কি না; না পড়লে ব্যয়বহুল archive তৈরির আগেই run fail করবে। Default `engine-ready`; unrestricted retention দরকার হলে `full-lossless` বেছে নাও। ASF metadata-তে size estimate না থাকলে `expected_source_bytes` পূরণ করো।
 4. Drive-এর nested folder-এ curated HDF5, source inventory, retention manifest, download provenance, reader-equivalence report ও verification receipt পরীক্ষা করো। Source raw HDF5 Drive-এ upload হয় না।
 
 এটি public multi-user queue নয় এবং complete multi-product GUNW+GOFF time-series pipeline নয়। এটি one-product-at-a-time retention validation।
