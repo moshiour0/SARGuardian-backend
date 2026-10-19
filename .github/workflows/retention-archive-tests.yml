@@ -50,3 +50,8 @@ jobs:
           # database dependencies; the retention utility tests are intentionally
           # isolated so this job validates only the retention subsystem.
           python -m pytest -q "$root/tests" --confcutdir="$root"
+
+      - name: Validate Python syntax and scientific audit manifest
+        run: |
+          python -m compileall -q tools
+          python -m json.tool docs/RAW_DATA_DEPENDENCY_MANIFEST_BN.json > /dev/null
