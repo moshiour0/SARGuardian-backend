@@ -1,0 +1,57 @@
+name: Retention Archive Regression Tests
+
+on:
+  push:
+    branches:
+      - main
+      - "fix/**"
+    paths:
+      - "tools/sarguardian_hdf5_archive.py"
+      - "tests/test_hdf5_archive.py"
+      - "tests/test_pipeline_helpers.py"
+      - ".github/workflows/retention-archive-tests.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/sarguardian_hdf5_archive.py"
+      - "tests/test_hdf5_archive.py"
+      - "tests/test_pipeline_helpers.py"
+      - ".github/workflows/retention-archive-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  hdf5-retention-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r tools/requirements-retention.txt pytest
+
+      - name: Run archive and pipeline regression tests in isolated fixture tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/retention-regression"
+          mkdir -p "$root/tools" "$root/tests"
+          cp tools/sarguardian_hdf5_archive.py tools/download_nisar_product.py \
+            tools/drive_resumable_upload.py tools/verify_reader_equivalence.py "$root/tools/"
+          cp tests/test_hdf5_archive.py tests/test_pipeline_helpers.py "$root/tests/"
+          # The app-wide tests/conftest.py initializes the web backend and its
+          # database dependencies; the retention utility tests are intentionally
+          # isolated so this job validates only the retention subsystem.
+          python -m pytest -q "$root/tests" --confcutdir="$root"
+
+      - name: Validate Python syntax and scientific audit manifest
+        run: |
+          python -m compileall -q tools
+          python -m json.tool docs/RAW_DATA_DEPENDENCY_MANIFEST_BN.json > /dev/null

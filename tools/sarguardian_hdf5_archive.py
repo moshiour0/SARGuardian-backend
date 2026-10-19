@@ -13,11 +13,14 @@ Preservation policy v1:
   * GOFF: every dataset under every pixelOffsets grid/layer/polarisation is copied.
   * GUNW: every dataset under every unwrappedInterferogram and pixelOffsets group is copied.
   * GUNW/GOFF: every dataset under metadata/radarGrid is copied.
-  * Conservative default: preserve every source dataset regardless of rank,
-    except the multidimensional GUNW raster dataset named wrappedInterferogram.
-    Companion datasets in that group (e.g. high-posting coherence/offsets) stay.
-    --include-wrapped preserves the complex raster too. Every exclusion is
-    listed with path/shape/dtype/attributes in the manifest.
+  * Conservative compact default: preserve every source dataset except each
+    multidimensional GUNW complex wrappedInterferogram raster, and derive a
+    same-grid wrappedPhase array in radians with chunked numpy.angle. The
+    original complex raster remains available with --include-wrapped.
+  * Companion datasets (coherence/offsets/coordinates) stay; all original
+    exclusions are recorded with path/shape/dtype/attributes in the manifest.
+  * Actual HDF5 dimension-scale flags/names and links are reconstructed and
+    verified, including valid empty scale names found in real NISAR products.
 
 Numeric and fixed-string values are copied without scale/offset conversion;
 compression is lossless gzip. The source HDF5 hierarchy and dataset paths are
@@ -38,7 +41,7 @@ from typing import Any, Iterable
 import h5py
 import numpy as np
 
-SCHEMA_VERSION = "sarguardian-science-archive/1.0"
+SCHEMA_VERSION = "sarguardian-science-archive/1.1"
 CHUNK_TARGET_BYTES = 16 * 1024 * 1024
 
 
@@ -273,13 +276,12 @@ def _has_path_segment(path: str, segment: str) -> bool:
 
 
 def selection_reason(path: str, ndim: int, family: str, include_wrapped: bool) -> str | None:
-    """Return a preserve reason; only default-exclude GUNW wrapped rasters.
+    """Return the compact-mode retention reason for source datasets.
 
-    This deliberately favours completeness over maximum compression. The audit
-    cannot prove every future scientific use of unknown multidimensional arrays,
-    so the conservative archive retains every dataset, not just currently known
-    paths, except the explicitly documented high-posting wrapped-interferogram
-    grids. Pass ``include_wrapped=True`` for every dataset to be retained.
+    Only large multidimensional GUNW wrapped complex rasters are excluded by
+    default. A phase-only derivative is created separately and verified.
+    ``include_wrapped=True`` additionally preserves the exact original
+    complex samples; all other source datasets are retained conservatively.
     """
     low = path.lower()
     # Always keep scalars/vectors even when they sit beside a wrapped raster;
@@ -311,15 +313,65 @@ def selection_reason(path: str, ndim: int, family: str, include_wrapped: bool) -
     return "all_other_multidimensional_datasets_conservative_retention"
 
 
+def _is_dimension_scale(obj: Any) -> bool:
+    """Return whether a dataset is a real HDF5 dimension scale."""
+    if not isinstance(obj, h5py.Dataset):
+        return False
+    try:
+        return bool(h5py.h5ds.is_scale(obj.id))
+    except Exception:
+        return False
+
+
+def _dimension_scale_name(ds: h5py.Dataset) -> str:
+    """Read the stored scale label, including valid empty labels.
+
+    Some valid NISAR coordinate scales have NAME=b''.  H5DSget_scale_name()
+    raises an HDF5 RuntimeError for those scales in h5py, so read the actual
+    attribute instead of relying on that API.
+    """
+    if "NAME" not in ds.attrs:
+        raise ValueError(f"Dimension scale {ds.name} has no NAME attribute")
+    value = ds.attrs["NAME"]
+    if isinstance(value, (bytes, np.bytes_)):
+        return bytes(value).decode("utf-8", errors="surrogateescape")
+    return str(value)
+
+
+def _ordinary_attrs_json(obj: Any) -> dict[str, Any]:
+    """Attributes whose values are portable across separate HDF5 files.
+
+    DIMENSION_LIST and REFERENCE_LIST contain file-local HDF5 object references.
+    Their actual references must be rebuilt, and are checked separately as
+    dimension-scale relationships, never copied or compared byte-for-byte.
+    """
+    return {
+        key: value for key, value in attrs_json(obj).items()
+        if key not in {"DIMENSION_LIST", "REFERENCE_LIST"}
+    }
+
+
+def _dimension_links(obj: h5py.Dataset) -> list[dict[str, Any]]:
+    """Describe axis labels and attached scales by stable dataset path."""
+    result: list[dict[str, Any]] = []
+    for axis in range(obj.ndim):
+        scales = sorted(scale.name for _name, scale in obj.dims[axis].items())
+        result.append({"axis": axis, "label": str(obj.dims[axis].label or ""), "scales": scales})
+    return result
+
+
 def _copy_attr_set(src_obj: Any, dst_obj: Any, path: str, skipped: list[dict[str, str]]) -> None:
-    # HDF5 dimension scales have object-reference attrs that point into the
-    # original file. Copying them verbatim would leave invalid references.
-    # Coordinate values themselves are retained as normal datasets; skip only
-    # the HDF5 internal reference bookkeeping and record that fact.
+    # HDF5 dimension scales contain two kinds of non-portable bookkeeping:
+    # DIMENSION_LIST/REFERENCE_LIST file-local references, and CLASS/NAME,
+    # which must be regenerated with make_scale() to create a true scale.
     internal_ref_attrs = {"DIMENSION_LIST", "REFERENCE_LIST"}
+    scale_attrs = {"CLASS", "NAME"} if _is_dimension_scale(src_obj) else set()
     for key in src_obj.attrs.keys():
         if key in internal_ref_attrs:
             skipped.append({"object_path": path or "/", "attribute": str(key), "reason": "HDF5 internal object references are rebuilt by HDF5 and cannot be copied cross-file safely"})
+            continue
+        if key in scale_attrs:
+            skipped.append({"object_path": path or "/", "attribute": str(key), "reason": "HDF5 dimension-scale marker is recreated with make_scale() to preserve scale semantics"})
             continue
         val = src_obj.attrs[key]
         if isinstance(val, h5py.Reference) or isinstance(val, h5py.RegionReference) or _is_reference_dtype(np.asarray(val).dtype):
@@ -496,9 +548,109 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                                              "logical_data_sha256": src_hash,
                                              "archive_dtype": str(dst_ds.dtype),
                                              "archive_shape": list(dst_ds.shape)})
-                # Recreate HDF5 dimension-scale links in the new file. Their raw
-                # object-reference attributes cannot be copied across files, but
-                # coordinate datasets and labels have been retained above.
+                # Recreate actual dimension scales before attaching them. Copying
+                # CLASS/NAME as ordinary attributes alone is not sufficient for all
+                # valid source files, especially empty-name scales used in NISAR
+                # wrappedInterferogram grids.
+                for rec in selected_records:
+                    p = rec["path"]
+                    src_ds, dst_ds = src[p], dst[p]
+                    if _is_dimension_scale(src_ds):
+                        try:
+                            dst_ds.make_scale(_dimension_scale_name(src_ds))
+                        except Exception as exc:
+                            raise ValueError(
+                                f"Could not recreate HDF5 dimension scale {p}; "
+                                "refusing an archive with altered coordinate semantics"
+                            ) from exc
+
+                # Derive wrapped phase from each excluded complex GUNW raster in
+                # bounded-memory row-major slabs. The compact archive keeps the
+                # phase (radians) and coherence/quality arrays; --include-wrapped
+                # still controls retention of the exact original complex samples.
+                derived_records = []
+                # Derive wrappedPhase in both compact and full-retention modes.
+                # The full-retention option keeps original complex samples too.
+                for rec in records:
+                    p = rec["path"]
+                    if not (
+                        family == "GUNW"
+                        and rec["ndim"] >= 2
+                        and rec["dtype"].startswith("complex")
+                        and Path(p).name == "wrappedInterferogram"
+                    ):
+                        continue
+                    src_ds = src[p]
+                    out_path = str(Path(p).with_name("wrappedPhase")).replace("\\", "/")
+                    if out_path in dst:
+                        raise ValueError(
+                            f"Cannot derive wrapped phase because output path already exists: {out_path}"
+                        )
+                    if src_ds.dtype.itemsize == 8:
+                        phase_dtype = np.dtype("float32")
+                    elif src_ds.dtype.itemsize == 16:
+                        phase_dtype = np.dtype("float64")
+                    else:
+                        raise ValueError(
+                            f"Unsupported complex dtype {src_ds.dtype} for wrapped-phase derivation at {p}"
+                        )
+                    kwargs: dict[str, Any] = {
+                        "maxshape": src_ds.maxshape,
+                        "fillvalue": phase_dtype.type(np.nan),
+                    }
+                    if src_ds.shape != () and src_ds.size > 0:
+                        kwargs["chunks"] = _choose_chunk_shape(src_ds.shape, phase_dtype)
+                        kwargs["compression"] = "gzip"
+                        kwargs["compression_opts"] = 4
+                        kwargs["shuffle"] = True
+                    parent = str(Path(out_path).parent).replace("\\", "/")
+                    phase_ds = dst.require_group(parent).create_dataset(
+                        Path(out_path).name, shape=src_ds.shape, dtype=phase_dtype, **kwargs
+                    )
+                    source_hash = hashlib.sha256()
+                    for slc in _slices_for_dataset(src_ds):
+                        values = src_ds[slc]
+                        source_hash.update(_logical_chunk_bytes(values, src_ds.dtype))
+                        phase_ds[slc] = np.angle(values).astype(phase_dtype, copy=False)
+                    # Preserve useful coordinate/grid metadata, but explicitly
+                    # transform fill value and units for a real-valued phase layer.
+                    for key in src_ds.attrs.keys():
+                        if key in {"DIMENSION_LIST", "REFERENCE_LIST", "_FillValue", "units", "description"}:
+                            continue
+                        val = src_ds.attrs[key]
+                        if isinstance(val, h5py.Reference) or isinstance(val, h5py.RegionReference) or _is_reference_dtype(np.asarray(val).dtype):
+                            raise ValueError(
+                                f"Cannot derive wrapped phase while source has reference attribute {p}@{key}"
+                            )
+                        try:
+                            phase_ds.attrs.create(key, val, dtype=src_ds.attrs.get_id(key).dtype)
+                        except Exception:
+                            phase_ds.attrs[key] = val
+                    phase_ds.attrs["_FillValue"] = phase_dtype.type(np.nan)
+                    phase_ds.attrs["units"] = "radians"
+                    phase_ds.attrs["description"] = (
+                        f"Wrapped phase angle in radians derived from {p} using numpy.angle; "
+                        "complex amplitude is not represented by this derived dataset."
+                    )
+                    phase_ds.attrs["long_name"] = "wrapped interferometric phase"
+                    phase_ds.attrs["phase_derivation"] = "numpy.angle(complex samples), in radians"
+                    derived_records.append({
+                        "path": out_path,
+                        "source_path": p,
+                        "transform": "numpy.angle(complex samples) -> radians; no spatial unwrapping performed",
+                        "shape": list(phase_ds.shape),
+                        "dtype": str(phase_ds.dtype),
+                        "units": "radians",
+                        "source_logical_data_sha256": source_hash.hexdigest(),
+                        "logical_data_sha256": dataset_digest(phase_ds),
+                        "ordinary_attrs": _ordinary_attrs_json(phase_ds),
+                        "ordinary_attrs_sha256": hashlib.sha256(
+                            _canonical_json(_ordinary_attrs_json(phase_ds))
+                        ).hexdigest(),
+                    })
+
+                # Rebuild original dimension labels and links for all retained
+                # arrays. Links to omitted complex source rasters are not copied.
                 for rec in selected_records:
                     p = rec["path"]
                     src_ds, dst_ds = src[p], dst[p]
@@ -514,13 +666,35 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                                 f"Could not rebuild HDF5 dimension-scale attachment for {p} axis {axis}; "
                                 "refusing an archive with altered coordinate semantics"
                             ) from exc
+                # The derived wrappedPhase array takes the same source coordinate
+                # scales as the complex wrappedInterferogram it represents.
+                for item in derived_records:
+                    source_phase = src[item["source_path"]]
+                    output_phase = dst[item["path"]]
+                    for axis in range(source_phase.ndim):
+                        try:
+                            if source_phase.dims[axis].label:
+                                output_phase.dims[axis].label = source_phase.dims[axis].label
+                            for _name, source_scale in source_phase.dims[axis].items():
+                                if source_scale.name in dst:
+                                    output_phase.dims[axis].attach_scale(dst[source_scale.name])
+                        except Exception as exc:
+                            raise ValueError(
+                                f"Could not attach source coordinate scales to derived dataset {item['path']} "
+                                f"axis {axis}"
+                            ) from exc
+                    item["ordinary_attrs"] = _ordinary_attrs_json(output_phase)
+                    item["ordinary_attrs_sha256"] = hashlib.sha256(
+                        _canonical_json(item["ordinary_attrs"])
+                    ).hexdigest()
+                    item["dimension_links"] = _dimension_links(output_phase)
                 dst.flush()
             # Ensure output closed and flush complete before verification.
             # Compare every retained dataset's logical data and ordinary attrs.
             verification_errors: list[str] = []
             with h5py.File(source, "r") as src_verify, h5py.File(tmp_path, "r") as archive_verify:
-                src_root_attrs = {k: v for k, v in attrs_json(src_verify).items() if k not in {"DIMENSION_LIST", "REFERENCE_LIST"}}
-                arc_root_attrs = attrs_json(archive_verify)
+                src_root_attrs = _ordinary_attrs_json(src_verify)
+                arc_root_attrs = _ordinary_attrs_json(archive_verify)
                 if _canonical_json(src_root_attrs) != _canonical_json(arc_root_attrs):
                     verification_errors.append("root attributes differ")
                 for item in selected_records:
@@ -540,22 +714,51 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                     # compare to the archived dataset in bounded memory.
                     if dataset_digest(archive_ds) != item["logical_data_sha256"]:
                         verification_errors.append(f"logical dataset checksum mismatch: {p}")
-                    if attrs_digest(source_ds) != attrs_digest(archive_ds):
-                        # Internal HDF5 reference attributes are intentionally not copied.
-                        src_regular_attrs = {k: v for k, v in attrs_json(source_ds).items() if k not in {"DIMENSION_LIST", "REFERENCE_LIST"}}
-                        dst_regular_attrs = attrs_json(archive_ds)
-                        if _canonical_json(src_regular_attrs) != _canonical_json(dst_regular_attrs):
-                            verification_errors.append(f"dataset attrs mismatch: {p}")
+                    if _canonical_json(_ordinary_attrs_json(source_ds)) != _canonical_json(_ordinary_attrs_json(archive_ds)):
+                        verification_errors.append(f"dataset attrs mismatch: {p}")
+                    if _is_dimension_scale(source_ds) != _is_dimension_scale(archive_ds):
+                        verification_errors.append(f"dimension-scale status mismatch: {p}")
+                    if _is_dimension_scale(source_ds) and _dimension_scale_name(source_ds) != _dimension_scale_name(archive_ds):
+                        verification_errors.append(f"dimension-scale name mismatch: {p}")
+                    if _dimension_links(source_ds) != _dimension_links(archive_ds):
+                        verification_errors.append(f"dimension-scale links mismatch: {p}")
                 for gp in group_paths:
                     if gp == "/":
                         continue
                     if gp not in archive_verify:
                         verification_errors.append(f"missing group {gp}")
                         continue
-                    source_attrs = {k: v for k, v in attrs_json(src_verify[gp]).items() if k not in {"DIMENSION_LIST", "REFERENCE_LIST"}}
-                    archive_attrs = attrs_json(archive_verify[gp])
+                    source_attrs = _ordinary_attrs_json(src_verify[gp])
+                    archive_attrs = _ordinary_attrs_json(archive_verify[gp])
                     if _canonical_json(source_attrs) != _canonical_json(archive_attrs):
                         verification_errors.append(f"group attrs mismatch: {gp}")
+                for item in derived_records:
+                    p = item["path"]
+                    source_path = item["source_path"]
+                    if p not in archive_verify or source_path not in src_verify:
+                        verification_errors.append(f"derived wrapped-phase dataset missing: {p} (source {source_path})")
+                        continue
+                    phase_ds = archive_verify[p]
+                    complex_ds = src_verify[source_path]
+                    if list(phase_ds.shape) != item["shape"] or str(phase_ds.dtype) != item["dtype"]:
+                        verification_errors.append(f"derived wrapped-phase shape/dtype mismatch: {p}")
+                        continue
+                    if dataset_digest(phase_ds) != item["logical_data_sha256"]:
+                        verification_errors.append(f"derived wrapped-phase checksum mismatch: {p}")
+                    source_hash = hashlib.sha256()
+                    for slc in _slices_for_dataset(complex_ds):
+                        complex_values = complex_ds[slc]
+                        source_hash.update(_logical_chunk_bytes(complex_values, complex_ds.dtype))
+                        expected_phase = np.angle(complex_values).astype(phase_ds.dtype, copy=False)
+                        if not _value_equal(phase_ds[slc], expected_phase):
+                            verification_errors.append(f"derived wrapped-phase values mismatch: {p}")
+                            break
+                    if source_hash.hexdigest() != item["source_logical_data_sha256"]:
+                        verification_errors.append(f"derived wrapped-phase source checksum mismatch: {source_path}")
+                    if _canonical_json(_ordinary_attrs_json(phase_ds)) != _canonical_json(item["ordinary_attrs"]):
+                        verification_errors.append(f"derived wrapped-phase metadata mismatch: {p}")
+                    if _dimension_links(complex_ds) != _dimension_links(phase_ds):
+                        verification_errors.append(f"derived wrapped-phase coordinates mismatch: {p}")
             if verification_errors:
                 raise RuntimeError("Archive verification failed: " + "; ".join(verification_errors[:20]))
             os.replace(tmp_path, archive)
@@ -574,13 +777,13 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
         "schema_version": SCHEMA_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "policy": {
-            "name": "sar_guardian_conservative_all_datasets_except_wrapped_v2",
+            "name": "sar_guardian_conservative_all_datasets_except_wrapped_with_phase_derivative_v3",
             "product_type": family,
             "include_wrapped_interferogram": include_wrapped,
             "deletion_performed": False,
             "deletion_policy": "Never delete here. Only the runner/orchestrator may delete the temporary raw source after remote durable-storage upload and remote size+checksum verification.",
             "preservation_contract": [
-                "Every source dataset is retained by default except multidimensional GUNW wrappedInterferogram-grid datasets; --include-wrapped retains those too.",
+                "Every source dataset is retained by default except multidimensional GUNW wrappedInterferogram complex rasters; a same-grid wrappedPhase array in radians is derived and verified. --include-wrapped also retains the original complex samples.",
                 "All scalar/1-D datasets, metadata/radarGrid arrays, all GOFF pixelOffsets, GUNW unwrappedInterferogram, GUNW pixelOffsets, and every other multidimensional source dataset are retained.",
                 "All ordinary group/dataset attributes copied; HDF5 DIMENSION_LIST/REFERENCE_LIST bookkeeping is recreated as real dimension-scale links. Unknown reference attributes or any attribute/dimension copy failure aborts the archive.",
                 "No numeric scaling, quantisation, interpolation, AOI crop, or lossy conversion is applied to retained arrays.",
@@ -588,9 +791,9 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                 "HDF5 source user blocks, virtual datasets, or external raw-storage datasets cause a fail-closed error until explicit sidecar-retention support exists.",
             ],
             "known_exclusions": [
-                "By default, only the multidimensional GUNW dataset whose leaf name is wrappedInterferogram is excluded. Companion coherence, offset, coordinate, mask and other datasets in that hierarchy are retained. Use --include-wrapped to retain the complex raster too.",
-                "All other multidimensional datasets are retained conservatively even when the current engine does not use them; this may reduce storage savings. Wrapped-phase or phase-unwrapping methods may require the excluded raster.",
-                "A curated archive with the default wrapped-raster exclusion is not the original HDF5 and cannot reproduce methods that depend on that specific complex raster.",
+                "Compact mode excludes only each multidimensional GUNW source dataset whose leaf name is wrappedInterferogram, but creates a sibling wrappedPhase dataset with the same native shape and coordinate links. All companion coherence/offset/coordinate/mask arrays are retained.",
+                "The derived wrappedPhase contains numpy.angle(complex samples) in radians; it is not spatially unwrapped and does not preserve complex amplitude. It is verified against the source in bounded memory and its source/output hashes are recorded.",
+                "Use --include-wrapped to retain exact original complex samples alongside wrappedPhase whenever an algorithm requires complex amplitude or exact original values; this increases archive size.",
             ],
         },
         "source": {"filename": source.name, "bytes": int(source_stat.st_size), "sha256": sha256_file(source), "hdf5_root_attrs": root_meta["attrs"], "hdf5_root_attrs_sha256": root_meta["attrs_sha256"]},
@@ -607,10 +810,13 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
             "ratio_archive_to_source": round(archive_stat.st_size / max(source_stat.st_size, 1), 6),
             "retained_logical_bytes_estimate": sum((x.get("logical_nbytes_estimate") or 0) for x in selected_records),
             "excluded_logical_bytes_estimate": sum((x.get("logical_nbytes_estimate") or 0) for x in excluded),
+            "derived_dataset_count": len(derived_records),
+            "derived_logical_bytes_estimate": sum(int(np.prod(x.get("shape", []), dtype=np.int64)) * np.dtype(x["dtype"]).itemsize for x in derived_records),
         },
-        "verification": {"local_archive_verification": "PASS", "retained_data_logical_checksums": "PASS", "raw_source_deleted": False},
+        "verification": {"local_archive_verification": "PASS", "retained_data_logical_checksums": "PASS", "derived_phase_verification": "PASS", "dimension_scale_verification": "PASS", "raw_source_deleted": False},
         "retained_datasets": selected_records,
         "excluded_datasets": excluded,
+        "derived_datasets": derived_records,
         "skipped_hdf5_reference_attributes": skipped_attrs,
     }
     # Keep manifest useful but bounded. All dataset records include attr inventory.
@@ -637,8 +843,43 @@ def verify_archive(source: Path, archive: Path, manifest_path: Path) -> dict[str
                 errors.append(f"archive logical dataset checksum mismatch: {path}")
             if src[path].shape != arc[path].shape or src[path].dtype != arc[path].dtype:
                 errors.append(f"source/archive shape or dtype changed: {path}")
-            if _canonical_json({k: v for k, v in attrs_json(src[path]).items() if k not in {"DIMENSION_LIST", "REFERENCE_LIST"}}) != _canonical_json(attrs_json(arc[path])):
+            if _canonical_json(_ordinary_attrs_json(src[path])) != _canonical_json(_ordinary_attrs_json(arc[path])):
                 errors.append(f"source/archive attrs mismatch: {path}")
+            if _is_dimension_scale(src[path]) != _is_dimension_scale(arc[path]):
+                errors.append(f"source/archive dimension-scale status mismatch: {path}")
+            if _is_dimension_scale(src[path]) and _dimension_scale_name(src[path]) != _dimension_scale_name(arc[path]):
+                errors.append(f"source/archive dimension-scale name mismatch: {path}")
+            if _dimension_links(src[path]) != _dimension_links(arc[path]):
+                errors.append(f"source/archive dimension-scale links mismatch: {path}")
+        for item in manifest.get("derived_datasets", []):
+            path = item["path"]
+            source_path = item["source_path"]
+            if path not in arc or source_path not in src:
+                errors.append(f"derived dataset/source missing: {path} / {source_path}")
+                continue
+            phase_ds, complex_ds = arc[path], src[source_path]
+            if list(phase_ds.shape) != item["shape"] or str(phase_ds.dtype) != item["dtype"]:
+                errors.append(f"derived dataset shape/dtype mismatch: {path}")
+                continue
+            if dataset_digest(phase_ds) != item["logical_data_sha256"]:
+                errors.append(f"derived dataset checksum mismatch: {path}")
+            source_hash = hashlib.sha256()
+            values_mismatch = False
+            for slc in _slices_for_dataset(complex_ds):
+                complex_values = complex_ds[slc]
+                source_hash.update(_logical_chunk_bytes(complex_values, complex_ds.dtype))
+                expected_phase = np.angle(complex_values).astype(phase_ds.dtype, copy=False)
+                if not _value_equal(phase_ds[slc], expected_phase):
+                    values_mismatch = True
+                    break
+            if values_mismatch:
+                errors.append(f"derived dataset values mismatch: {path}")
+            if source_hash.hexdigest() != item["source_logical_data_sha256"]:
+                errors.append(f"derived source checksum mismatch: {source_path}")
+            if _canonical_json(_ordinary_attrs_json(phase_ds)) != _canonical_json(item["ordinary_attrs"]):
+                errors.append(f"derived dataset attributes mismatch: {path}")
+            if _dimension_links(complex_ds) != _dimension_links(phase_ds):
+                errors.append(f"derived dataset dimension-scale mismatch: {path}")
         for item in manifest.get("excluded_datasets", []):
             path = item["path"]
             if path not in src:
@@ -688,6 +929,7 @@ def main() -> int:
         print(f"ARCHIVE_BYTES={manifest['archive']['bytes']}")
         print(f"RETAINED_DATASETS={manifest['statistics']['retained_dataset_count']}")
         print(f"EXCLUDED_LARGE_DATASETS={manifest['statistics']['excluded_large_dataset_count']}")
+        print(f"DERIVED_PHASE_DATASETS={manifest['statistics']['derived_dataset_count']}")
         print(f"SOURCE_SHA256={manifest['source']['sha256']}")
         print(f"ARCHIVE_SHA256={manifest['archive']['sha256']}")
         print("RAW_SOURCE_DELETED=no")

@@ -16,9 +16,9 @@
 
 ## কী retention policy ব্যবহার করা হয়েছে?
 
-Archive tool-এর conservative CLI default-এ সব HDF5 datasets, scalar/1-D axes, metadata, offsets, masks, QA ও unknown auxiliary grids retain হয়; শুধু GUNW-এর multidimensional `wrappedInterferogram` complex raster বাদ থাকে। কারণ current engine-এ ওই raster পড়ার path পাওয়া যায়নি, কিন্তু future wrapped-phase/unwrapping analysis-এর জন্য তা প্রয়োজন হতে পারে।
+Archive tool-এর compact mode-এ সব HDF5 dataset, scalar/1-D axes, metadata, offsets, masks, QA, unknown auxiliary grids এবং coherence retain হয়। শুধু বড় multidimensional GUNW `wrappedInterferogram` complex dataset default-এ বাদ থাকে; এর বদলে একই grid-এ `wrappedPhase` নামে phase-only array (`numpy.angle`, radians) তৈরি হয়, exact values/checksum ও coordinate-scale links যাচাই করে manifest-এ রাখা হয়।
 
-**GitHub Actions pilot-এ `include_wrapped` default `false`**—যাতে routine archive audited current-engine dependencies রাখে কিন্তু বড় wrapped-complex raster-এর কারণে source-sized upload না হয়। এই এক dataset বাদ দিলে future wrapped-phase/unwrapping analysis আর ওই samples থেকে করা যাবে না। সেটি প্রয়োজন এবং storage budget অনুমতি দিলে `include_wrapped=true` স্পষ্টভাবে বেছে নাও; archive source-এর কাছাকাছি বড় হতে পারে এবং quota gate ব্যর্থ করতে পারে.
+এই derived `wrappedPhase` future phase-domain diagnostics/unwrapping experiments-এ কাজে লাগবে, কিন্তু complex amplitude পুনরুদ্ধার করে না এবং নিজে spatial phase unwrapping করে না। **যে ভবিষ্যৎ algorithm-এর original complex samples দরকার, তার জন্য `include_wrapped=true` চালাতে হবে**—এতে archive অনেক বড় হতে পারে।
 
 ## GitHub Actions pilot চালানোর ধাপ
 
