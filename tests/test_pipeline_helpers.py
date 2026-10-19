@@ -133,12 +133,14 @@ def test_downloader_exact_catalogue_search_falls_back_to_narrow_temporal_query()
             assert kwargs["temporal"] == ("2026-07-23", "2026-08-17")
             return [{"umm": {"GranuleUR": wanted}}]
 
-    matches, mode, exact_error = download.search_exact_granule(
+    matches, mode, diagnostics = download.search_exact_granule(
         FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
     )
     assert len(matches) == 1
     assert mode == "temporal_collection_fallback"
-    assert exact_error == "RuntimeError"
+    assert diagnostics["exact_search"]["type"] == "RuntimeError"
+    assert diagnostics["exact_search"]["match_count"] is None
+    assert diagnostics["temporal_search"]["match_count"] == 1
     assert len(calls) == 2
     assert calls[0]["granule_name"] == wanted
     assert "temporal" in calls[1]
@@ -151,3 +153,39 @@ def test_downloader_temporal_bounds_use_product_date_interval_and_exclusive_end(
         "P05023_N_F_J_001.h5"
     )
     assert download.temporal_bounds_for_granule(wanted) == ("2026-07-23", "2026-08-17")
+
+
+def test_safe_cmr_exception_diagnostic_reports_http_status_without_leaking_url_or_token():
+    class FakeResponse:
+        status_code = 503
+        reason = "Service Unavailable"
+
+    from requests.exceptions import HTTPError
+    low = HTTPError("https://cmr.example.test/query?token=secret-token-abc")
+    low.response = FakeResponse()
+    wrapped = RuntimeError("CMR request failed")
+    wrapped.__cause__ = low
+
+    info = download.safe_exception_diagnostics(wrapped)
+    assert info["type"] == "RuntimeError"
+    assert info["http_status"] == "503"
+    assert "https://" not in (info["detail_safe"] or "")
+    assert "secret-token-abc" not in (info["detail_safe"] or "")
+    assert "[URL]" in (info["detail_safe"] or "")
+
+
+def test_earthdata_service_status_returns_only_public_status_labels():
+    class FakeEarthaccess:
+        @staticmethod
+        def status():
+            return {
+                "Earthdata Login": "OK",
+                "Common Metadata Repository": "Warning",
+                "details": "sensitive details should not be emitted",
+            }
+
+    status = download.earthdata_service_status(FakeEarthaccess)
+    assert status == {
+        "Earthdata Login": "OK",
+        "Common Metadata Repository": "Warning",
+    }

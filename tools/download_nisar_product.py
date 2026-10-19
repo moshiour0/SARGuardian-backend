@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import importlib.metadata
 import json
 import os
@@ -62,14 +63,73 @@ def temporal_bounds_for_granule(name: str) -> tuple[str, str] | None:
     return start_iso, end_exclusive.isoformat()
 
 
-def search_exact_granule(earthaccess_module: Any, collection: str, wanted: str) -> tuple[list[Any], str, str | None]:
-    """Search exact granule first; on query failure/empty result, narrow by time then exact-match locally.
+def safe_exception_diagnostics(exc: BaseException) -> dict[str, str | None]:
+    """Summarise a CMR/HTTP exception without logging URLs or authentication material."""
+    status_code: str | None = None
+    details: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        code = getattr(response, "status_code", None)
+        if code is not None and status_code is None:
+            status_code = str(code)
+        reason = getattr(response, "reason", None)
+        if reason:
+            details.append(str(reason))
+        for arg in getattr(current, "args", ()):
+            if isinstance(arg, str) and arg.strip():
+                details.append(arg)
+        current = current.__cause__ or current.__context__
 
-    Returns (exact_matches, discovery_mode, exact_query_error_type). Full exception
-    strings are deliberately not returned because clients can embed URLs or auth
-    details in exceptions.
+    detail = " ".join(details)
+    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL]", detail)
+    detail = re.sub(
+        r"(?i)\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
+        r"authorization|client[_-]?secret|secret)\b\s*[:=]\s*[^,;\s<>]+",
+        r"\1=[REDACTED]",
+        detail,
+    )
+    detail = re.sub(r"<[^>]+>", " ", detail)
+    detail = html.unescape(detail)
+    detail = re.sub(r"\s+", " ", detail).strip()
+    # Keep only a short diagnostic; never emit raw response payloads or URLs.
+    detail = detail[:180]
+    return {
+        "type": type(exc).__name__,
+        "http_status": status_code,
+        "detail_safe": detail or None,
+    }
+
+
+def earthdata_service_status(earthaccess_module: Any) -> dict[str, str]:
+    """Return only public service-status labels; do not log status API payloads."""
+    try:
+        statuses = earthaccess_module.status()
+        if not isinstance(statuses, dict):
+            return {"Earthdata Login": "Unknown", "Common Metadata Repository": "Unknown"}
+        return {
+            "Earthdata Login": str(statuses.get("Earthdata Login", "Unknown"))[:40],
+            "Common Metadata Repository": str(statuses.get("Common Metadata Repository", "Unknown"))[:40],
+        }
+    except Exception:
+        return {"Earthdata Login": "Unknown", "Common Metadata Repository": "Unknown"}
+
+
+def search_exact_granule(
+    earthaccess_module: Any, collection: str, wanted: str
+) -> tuple[list[Any], str, dict[str, Any]]:
+    """Search exact granule first; fall back to a narrow temporal query on error/empty results.
+
+    Returns exact local matches, discovery mode and safe diagnostics. Exact matching
+    happens client-side after each candidate search; another product is never selected
+    just because it was present in the fallback result page.
     """
-    exact_error_type = None
+    diagnostics: dict[str, Any] = {
+        "exact_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None},
+        "temporal_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None},
+    }
     try:
         results = earthaccess_module.search_data(
             short_name=collection, granule_name=wanted, count=10
@@ -77,24 +137,29 @@ def search_exact_granule(earthaccess_module: Any, collection: str, wanted: str) 
         exact_matches = [
             item for item in results if normal_name(safe_name(item)) == wanted
         ]
+        diagnostics["exact_search"]["match_count"] = len(exact_matches)
         if len(exact_matches) == 1:
-            return exact_matches, "exact_granule_name", None
+            return exact_matches, "exact_granule_name", diagnostics
         if len(exact_matches) > 1:
-            return exact_matches, "exact_granule_name_ambiguous", None
+            return exact_matches, "exact_granule_name_ambiguous", diagnostics
     except Exception as exc:
-        exact_error_type = type(exc).__name__
+        diagnostics["exact_search"].update(safe_exception_diagnostics(exc))
 
     temporal = temporal_bounds_for_granule(wanted)
     if temporal is None:
-        return [], "no_temporal_fallback_available", exact_error_type
+        return [], "no_temporal_fallback_available", diagnostics
     try:
         candidates = earthaccess_module.search_data(
             short_name=collection, temporal=temporal, count=2000
         )
+        matches = [
+            item for item in candidates if normal_name(safe_name(item)) == wanted
+        ]
+        diagnostics["temporal_search"]["match_count"] = len(matches)
+        return matches, "temporal_collection_fallback", diagnostics
     except Exception as exc:
-        return [], f"temporal_fallback_failed:{type(exc).__name__}", exact_error_type
-    matches = [item for item in candidates if normal_name(safe_name(item)) == wanted]
-    return matches, "temporal_collection_fallback", exact_error_type
+        diagnostics["temporal_search"].update(safe_exception_diagnostics(exc))
+        return [], "temporal_fallback_failed", diagnostics
 
 
 def find_size_bytes(result: Any) -> int | None:
@@ -170,16 +235,27 @@ def main() -> int:
         print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
         return 2
 
-    matches, discovery_mode, exact_search_error = search_exact_granule(earthaccess, collection, wanted)
+    matches, discovery_mode, diagnostics = search_exact_granule(earthaccess, collection, wanted)
     print(f"DISCOVERY_MODE={discovery_mode}")
-    if exact_search_error:
-        print(f"EXACT_SEARCH_EXCEPTION_TYPE={exact_search_error}")
     if len(matches) != 1:
-        error_type = discovery_mode.partition(":")[2] if discovery_mode.startswith("temporal_fallback_failed:") else "none"
+        exact_diag = diagnostics["exact_search"]
+        temporal_diag = diagnostics["temporal_search"]
+        statuses = earthdata_service_status(earthaccess)
+        print(
+            f"CMR_STATUS={statuses['Common Metadata Repository']} "
+            f"EARTHDATA_LOGIN_STATUS={statuses['Earthdata Login']}"
+        )
+        print(
+            "EXACT_QUERY_DIAGNOSTIC="
+            + json.dumps(exact_diag, sort_keys=True, separators=(",", ":"))
+        )
+        print(
+            "TEMPORAL_QUERY_DIAGNOSTIC="
+            + json.dumps(temporal_diag, sort_keys=True, separators=(",", ":"))
+        )
         print(
             f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} "
-            f"COLLECTION={collection} DISCOVERY_MODE={discovery_mode} "
-            f"TEMPORAL_FALLBACK_ERROR_TYPE={error_type}",
+            f"COLLECTION={collection} DISCOVERY_MODE={discovery_mode}",
             file=sys.stderr,
         )
         return 2
