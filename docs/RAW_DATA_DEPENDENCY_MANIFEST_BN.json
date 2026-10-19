@@ -20,7 +20,7 @@
     "Never AOI-crop a source grid before data retention: current GUNW reference selection and GOFF auto-reference/deramp use spatial pixels outside the AOI.",
     "Never round, resample, cast to lower precision, or mask away source values in the retained scientific arrays.",
     "Preserve exact dataset path, dtype, shape, values, coordinates, projection/CRS, units, ordinary attributes, full granule identity, source checksum and extraction software version.",
-    "Default archive retains every source dataset regardless of rank except multidimensional GUNW wrappedInterferogram raster datasets; --include-wrapped retains those too.",
+    "Default archive retains every source dataset regardless of rank except multidimensional GUNW wrappedInterferogram raster datasets; a float wrappedPhase (radians) derivative is generated in bounded-memory chunks and verified. --include-wrapped retains the exact original complex samples as well.",
     "Retain all GOFF pixelOffsets arrays for all available layers and polarizations, all GUNW unwrappedInterferogram arrays, all GUNW pixelOffsets arrays, all metadata/radarGrid arrays, and all other auxiliary multidimensional arrays.",
     "Do not delete source until local archive verification, durable cloud upload, remote byte-size/checksum verification, and scientific-reader equivalence gates all pass.",
     "Unknown future algorithms may require wrapped-interferogram grids; use --include-wrapped and measure actual storage before any deletion if complete source dataset retention is required.",
@@ -102,8 +102,9 @@
     ],
     "explicit_exclusion_default": {
       "pattern": "*/wrappedInterferogram/*/wrappedInterferogram where the dataset is multidimensional",
-      "reason": "Current main-engine executable paths do not read the high-posting wrapped complex interferogram raster. Other datasets in that group, including coherence, offsets and coordinate vectors, are retained.",
-      "future_risk": "May be needed for wrapped-phase diagnostics, validation of unwrapping, or methods not currently implemented.",
+      "reason": "Current main-engine executable paths do not read the high-posting wrapped complex raster. Compact mode retains a verified phase-only sibling dataset named wrappedPhase (radians), plus coherence, offsets and coordinate vectors.",
+      "future_risk": "The phase-only derivative supports phase-domain diagnostics and future experiments, but discards complex amplitude and does not spatially unwrap phase. Algorithms needing exact original complex samples must use include_wrapped=true.",
+      "derived_output": "Sibling wrappedPhase dataset; chunked numpy.angle; radians; same native shape and coordinate dimension-scale attachments; output hash and source hash are recorded and verified.",
       "opt_in": "tools/sarguardian_hdf5_archive.py archive --include-wrapped; workflow input include_wrapped=true explicitly includes this large raster.",
       "measurement_required": "Real-product schema, storage delta, integrity and raw-vs-curated science-equivalence tests required before production deletion.",
       "cli_default": "excluded unless --include-wrapped is passed to the archive tool",
@@ -222,19 +223,19 @@
     ]
   },
   "archive_policy": {
-    "name": "conservative_all_datasets_except_wrapped_v2",
-    "default_retained": "All HDF5 datasets, all scalar/1-D axes and metadata, all group/dataset attributes that can be copied without file-local reference remapping, and all multidimensional auxiliary grids.",
-    "default_excluded": "Only multidimensional GUNW datasets whose leaf name is wrappedInterferogram; companion datasets in that group (e.g. coherenceMagnitude/offsets) remain retained.",
+    "name": "conservative_all_datasets_except_wrapped_with_phase_derivative_v3",
+    "default_retained": "All HDF5 datasets except the original multidimensional GUNW wrappedInterferogram complex raster, plus a derived sibling wrappedPhase dataset in radians with verified values, metadata and coordinate dimension scales. All scalar/1-D axes, metadata and multidimensional auxiliary grids are retained.",
+    "default_excluded": "Only multidimensional GUNW datasets whose leaf name is wrappedInterferogram; companion datasets in that group (e.g. coherenceMagnitude, offsets and coordinate axes) remain retained; phase is derived separately.",
     "include_wrapped_flag": "tools/sarguardian_hdf5_archive.py archive --include-wrapped",
     "no_delete": "The archiver never deletes raw source and does not upload to Drive.",
     "fail_closed": "Reference-containing datasets, non-standard reference-valued attributes, noncanonical links/aliases, ordinary attribute-copy failures, and dimension-scale reconstruction failures stop archive generation; only HDF5 DIMENSION_LIST/REFERENCE_LIST bookkeeping is intentionally rebuilt in the output file. HDF5 user blocks, virtual datasets, and external raw-storage datasets also stop archive generation.",
-    "cli_default_excluded": "Only multidimensional GUNW datasets with leaf name wrappedInterferogram; all companion arrays and every other dataset remain retained.",
-    "workflow_pilot_default": "include_wrapped=false to avoid source-sized uploads; use true only if future wrapped-phase/unwrapping methods require this raster and storage budget permits."
+    "cli_default_excluded": "Only the original multidimensional GUNW dataset with leaf name wrappedInterferogram; its wrappedPhase derivative plus companion arrays and every other dataset remain retained.",
+    "workflow_pilot_default": "include_wrapped=false generates and retains the phase-only derivative; use true when future science requires original complex samples/amplitude and storage budget permits."
   },
   "validation_status": {
     "main_engine_tests": "178 passed; 2 known NumPy undefined-correlation warnings",
     "retention_prototype_tests": "21 passed using synthetic HDF5 only; not a real NASA HDF5 or Google Drive integration test",
-    "real_nisar_hdf5": "not yet tested; no .h5/.hdf5 source product included in uploaded zips",
+    "real_nisar_hdf5": "A real GUNW product was downloaded and inventoried (219 datasets, 45 groups); first archive build failed closed on xCoordinates/yCoordinates dimension-scale attribute mismatch. Fix branch recreates scale metadata and derives wrappedPhase; fresh real run pending.",
     "google_drive_integration": "not yet tested; no user OAuth credentials used",
     "production_deletion": "prohibited until real-product equivalence + remote checksum/storage gates pass"
   },
@@ -264,15 +265,15 @@
     "remote_archive_and_reader_equivalence_required": true,
     "deletion_authorized": false,
     "hosted_runner_semantics": "GitHub-hosted runner storage is ephemeral and is discarded when the job ends; failures require source re-download on retry.",
-    "wrapped_interferogram_rationale": "Not used by current executable main-engine paths; companion high-posting coherence/offset/coordinate arrays remain retained. Set include_wrapped=true only when future wrapped-phase/unwrapping analysis is in scope and storage capacity has been checked.",
-    "wrapped_interferogram_default_reason": "Routine compact mode excludes only the multidimensional wrapped complex raster not read by the current main-engine executable paths. Future wrapped-phase/unwrapping analysis on the raw complex samples will not be possible without retaining this dataset.",
+    "wrapped_interferogram_rationale": "Compact mode excludes the high-posting complex raster but derives wrappedPhase in radians using chunked numpy.angle and retains coordinate-scale links plus companion coherence/quality arrays. This is phase-only and does not preserve complex amplitude or perform spatial unwrapping.",
+    "wrapped_interferogram_default_reason": "Use include_wrapped=true when exact original complex samples or amplitude information are needed; the option retains both the raw complex dataset and derived phase output.",
     "archiver_cli_wrapped_interferogram_default": false
   },
   "verification_status": {
     "retention_prototype_tests": "21 passed; synthetic HDF5 only, not a real NASA HDF5 or Google Drive integration test",
     "main_engine_tests": "178 passed with two NumPy undefined-correlation warnings",
     "workflow_validation": "YAML parsed; 9 embedded Bash run blocks passed bash -n",
-    "real_granule_validation": "NOT RUN — supplied source ZIPs do not include raw HDF5 products",
+    "real_granule_validation": "First live GUNW download/inventory completed; archive verification exposed empty-name dimension-scale mismatch. Fix branch pending CI and fresh live run; no Drive integration verified.",
     "automatic_raw_deletion": "DISABLED"
   }
 }
