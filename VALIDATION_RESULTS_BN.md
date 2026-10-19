@@ -1,7 +1,7 @@
 # SARGuardian Retention Audit — Validation Results (বাংলা)
 
-**তারিখ:** ১৯ অক্টোবর ২০২৬
-**অবস্থা:** Code/synthetic validation complete; real-product validation pending.
+**তারিখ:** ২০ অক্টোবর ২০২৬
+**অবস্থা:** Real GUNW download/inventory exercised; first real archive attempt failed closed on coordinate dimension-scale attributes. Corrective branch adds scale reconstruction and a verified wrapped-phase derivative; CI and a fresh live run are still required.
 
 ## Local validation
 
@@ -14,7 +14,7 @@
 
 ## Not yet validated
 
-- No raw NISAR `.h5`/`.hdf5` product was present in either uploaded ZIP, so no real-product dataset inventory, schema, retention size, compression ratio, or live reader equivalence was measured.
+- A live GUNW pilot downloaded a real 2,411,724,800-byte product and inventoried 219 datasets / 45 groups. Archive generation failed closed because empty-name `xCoordinates` and `yCoordinates` dimension-scale metadata did not compare equal. Reader-equivalence and Google Drive upload steps were not reached; no real archive or remote checksum was verified. The corrective branch now recreates actual scales and adds phase-domain derivation, but must pass CI and a fresh live run.
 - Google Drive OAuth credentials were not supplied or used; no real remote upload, remote checksum check, quota preflight, or sharing-permission check was run.
 - The workflow was not dispatched on GitHub from this environment.
 - The current workflow is a single-granule retention pilot, not the complete public user queue or the full multi-product GUNW+GOFF processing service.
@@ -23,6 +23,6 @@
 
 - The archive builder never deletes the input file.
 - The workflow has **no explicit raw-file delete step**. GitHub-hosted runner storage is ephemeral, so raw files are discarded by the host at job end; if the job fails, the next run must download the original product again.
-- The pilot uploads a curated HDF5 only—not the original raw path—plus inventory/manifests/provenance/reader-equivalence receipts. The default pilot run excludes only the multidimensional GUNW `wrappedInterferogram` raster to preserve current-engine dependencies without accidentally uploading a source-sized data archive. Setting `include_wrapped=true` is explicit and may leave the archive near source size, potentially failing the Drive quota check.
-- The archiver CLI compact mode excludes only the multidimensional GUNW `wrappedInterferogram` raster; all companion datasets and all other datasets are kept. This loses the original wrapped complex samples for possible future wrapped-phase/unwrapping methods, so do not choose it until that scope trade-off is explicitly accepted.
+- The pilot uploads a curated HDF5 only—not the original raw path—plus inventory/manifests/provenance/reader-equivalence receipts, after all verification gates pass. Compact mode excludes the original multidimensional GUNW `wrappedInterferogram` complex array, but creates and retains a sibling `wrappedPhase` float array in radians derived with chunked `numpy.angle`; coherence, coordinate axes and other datasets remain retained. This is not spatial phase unwrapping and does not preserve complex amplitude.
+- If future algorithms need original complex samples or amplitude information, set `include_wrapped=true`; this retains the original complex array as well as derived phase, and the archive may approach source size or exceed Drive quota. The option is not silently changed by the workflow.
 - **No automatic production deletion is authorized.** Real GUNW and GOFF pilots, whole-stack regression, output comparison, remote archive verification and scientific review are required before designing a deletion step.
