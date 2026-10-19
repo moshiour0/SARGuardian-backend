@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/sarguardian-live-validation.yml"
+      - "tools/download_nisar_product.py"
+      - "tools/validate_product_aoi.py"
+      - "tools/sarguardian_hdf5_archive.py"
+      - "tools/verify_reader_equivalence.py"
+      - "tools/drive_resumable_upload.py"
   workflow_dispatch:
 
 permissions:
