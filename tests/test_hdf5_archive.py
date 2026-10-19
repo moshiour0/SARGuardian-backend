@@ -350,7 +350,7 @@ def test_engine_ready_exclusion_reasons_are_dataset_specific():
     assert "high-posting wrappedInterferogram-grid" in archive_tool.exclusion_reason(
         wrapped, "GUNW", "engine-ready", False
     )
-    assert "losUnitVectorX/Y and incidenceAngle" in archive_tool.exclusion_reason(
+    assert "LOS unit vector X/Y and incidenceAngle" in archive_tool.exclusion_reason(
         radar, "GUNW", "engine-ready", False
     )
     assert "no reader or downstream processing path" in archive_tool.exclusion_reason(
