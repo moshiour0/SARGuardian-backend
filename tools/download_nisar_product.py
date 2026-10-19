@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,56 @@ def safe_name(result: Any) -> str:
         if val:
             return Path(str(val)).name
     return ""
+
+
+def temporal_bounds_for_granule(name: str) -> tuple[str, str] | None:
+    """Build a narrow CMR time window from a NISAR interferogram filename."""
+    dates = re.findall(r"_(\d{8})T\d{6}", normal_name(name))
+    if len(dates) < 2:
+        return None
+    start_day = min(dates)
+    end_day = max(dates)
+    try:
+        end_exclusive = datetime.strptime(end_day, "%Y%m%d").date() + timedelta(days=1)
+    except ValueError:
+        return None
+    start_iso = f"{start_day[:4]}-{start_day[4:6]}-{start_day[6:]}"
+    return start_iso, end_exclusive.isoformat()
+
+
+def search_exact_granule(earthaccess_module: Any, collection: str, wanted: str) -> tuple[list[Any], str, str | None]:
+    """Search exact granule first; on query failure/empty result, narrow by time then exact-match locally.
+
+    Returns (exact_matches, discovery_mode, exact_query_error_type). Full exception
+    strings are deliberately not returned because clients can embed URLs or auth
+    details in exceptions.
+    """
+    exact_error_type = None
+    try:
+        results = earthaccess_module.search_data(
+            short_name=collection, granule_name=wanted, count=10
+        )
+        exact_matches = [
+            item for item in results if normal_name(safe_name(item)) == wanted
+        ]
+        if len(exact_matches) == 1:
+            return exact_matches, "exact_granule_name", None
+        if len(exact_matches) > 1:
+            return exact_matches, "exact_granule_name_ambiguous", None
+    except Exception as exc:
+        exact_error_type = type(exc).__name__
+
+    temporal = temporal_bounds_for_granule(wanted)
+    if temporal is None:
+        return [], "no_temporal_fallback_available", exact_error_type
+    try:
+        candidates = earthaccess_module.search_data(
+            short_name=collection, temporal=temporal, count=2000
+        )
+    except Exception as exc:
+        return [], f"temporal_fallback_failed:{type(exc).__name__}", exact_error_type
+    matches = [item for item in candidates if normal_name(safe_name(item)) == wanted]
+    return matches, "temporal_collection_fallback", exact_error_type
 
 
 def find_size_bytes(result: Any) -> int | None:
@@ -108,19 +158,30 @@ def main() -> int:
     collection = f"NISAR_L2_{args.product_type}_{args.maturity}_V1"
     try:
         import earthaccess
-        auth = earthaccess.login(strategy="environment")
-        if auth is None or auth is False:
-            print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
-            return 2
-        results = earthaccess.search_data(short_name=collection, granule_name=wanted, count=10)
     except Exception as exc:
-        # Avoid exception strings: client libraries may include credentials/URLs.
-        print(f"ERROR=EARTHACCESS_SEARCH_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print(f"ERROR=EARTHACCESS_IMPORT_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        return 2
+    try:
+        auth = earthaccess.login(strategy="environment")
+    except Exception as exc:
+        print(f"ERROR=EARTHDATA_LOGIN_EXCEPTION TYPE={type(exc).__name__}", file=sys.stderr)
+        return 2
+    if auth is None or auth is False:
+        print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
         return 2
 
-    matches = [item for item in results if normal_name(safe_name(item)) == wanted]
+    matches, discovery_mode, exact_search_error = search_exact_granule(earthaccess, collection, wanted)
+    print(f"DISCOVERY_MODE={discovery_mode}")
+    if exact_search_error:
+        print(f"EXACT_SEARCH_EXCEPTION_TYPE={exact_search_error}")
     if len(matches) != 1:
-        print(f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} COLLECTION={collection}", file=sys.stderr)
+        error_type = discovery_mode.partition(":")[2] if discovery_mode.startswith("temporal_fallback_failed:") else "none"
+        print(
+            f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} "
+            f"COLLECTION={collection} DISCOVERY_MODE={discovery_mode} "
+            f"TEMPORAL_FALLBACK_ERROR_TYPE={error_type}",
+            file=sys.stderr,
+        )
         return 2
     item = matches[0]
     metadata_bytes = find_size_bytes(item)

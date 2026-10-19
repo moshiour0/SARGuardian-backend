@@ -113,3 +113,41 @@ def test_product_grid_preflight_detects_intersection_before_archive_work(tmp_pat
         bad = tool._grid(f, datasets, engine, group, None, "GOFF_pixelOffsets")
     assert bad["intersects_aoi"] is False
     assert bad["grid_pixels_inside_aoi"] == 0
+
+
+def test_downloader_exact_catalogue_search_falls_back_to_narrow_temporal_query():
+    wanted = (
+        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
+        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
+        "P05023_N_F_J_001"
+    )
+    calls = []
+
+    class FakeEarthaccess:
+        @staticmethod
+        def search_data(**kwargs):
+            calls.append(kwargs)
+            if "granule_name" in kwargs:
+                raise RuntimeError("client details intentionally hidden")
+            assert kwargs["short_name"] == "NISAR_L2_GUNW_PROVISIONAL_V1"
+            assert kwargs["temporal"] == ("2026-07-23", "2026-08-17")
+            return [{"umm": {"GranuleUR": wanted}}]
+
+    matches, mode, exact_error = download.search_exact_granule(
+        FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
+    )
+    assert len(matches) == 1
+    assert mode == "temporal_collection_fallback"
+    assert exact_error == "RuntimeError"
+    assert len(calls) == 2
+    assert calls[0]["granule_name"] == wanted
+    assert "temporal" in calls[1]
+
+
+def test_downloader_temporal_bounds_use_product_date_interval_and_exclusive_end():
+    wanted = (
+        "NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_"
+        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
+        "P05023_N_F_J_001.h5"
+    )
+    assert download.temporal_bounds_for_granule(wanted) == ("2026-07-23", "2026-08-17")
