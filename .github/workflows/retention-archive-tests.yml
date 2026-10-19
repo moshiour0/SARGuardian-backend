@@ -37,5 +37,15 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check "h5py>=3.10" "numpy>=1.26" pytest
 
-      - name: Run archive and pipeline regression tests
-        run: python -m pytest -q tests/test_hdf5_archive.py tests/test_pipeline_helpers.py
+      - name: Run archive and pipeline regression tests in isolated fixture tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/retention-regression"
+          mkdir -p "$root/tools" "$root/tests"
+          cp tools/sarguardian_hdf5_archive.py "$root/tools/"
+          cp tests/test_hdf5_archive.py tests/test_pipeline_helpers.py "$root/tests/"
+          # The app-wide tests/conftest.py initializes the web backend and its
+          # database dependencies; the retention utility tests are intentionally
+          # isolated so this job validates only the retention subsystem.
+          python -m pytest -q "$root/tests" --confcutdir="$root"
