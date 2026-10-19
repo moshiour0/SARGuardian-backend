@@ -304,7 +304,6 @@ def test_full_lossless_profile_preserves_all_source_datasets(tmp_path):
     with h5py.File(source, "r") as raw, h5py.File(archive, "r") as kept:
         expected = set()
         raw.visititems(lambda name, obj: expected.add("/" + name) if isinstance(obj, h5py.Dataset) else None)
-        assert expected <= set(kept.keys()) | {"/" + name for name in kept}
         assert all(path in kept for path in expected)
         assert all(archive_tool._value_equal(raw[path][()], kept[path][()]) for path in expected)
     assert not doc["excluded_datasets"]
