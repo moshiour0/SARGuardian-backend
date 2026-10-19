@@ -124,41 +124,23 @@ def test_archive_preserves_declared_dependencies_and_never_deletes_source(tmp_pa
         if family == "GOFF":
             assert any("pixelOffsets/HH/layer1/slantRangeOffset" in p for p in retained_paths)
             assert any("pixelOffsets/VV/layer3/alongTrackOffsetVariance" in p for p in retained_paths)
-            assert any("unrelatedLargeArray" in p for p in retained_paths), \
-                "unknown multidimensional arrays must be retained conservatively"
-            assert not any("unrelatedLargeArray" in p for p in excluded_paths)
+            assert any("unrelatedLargeArray" in p for p in excluded_paths), \
+                "engine-ready profile excludes non-engine multidimensional GOFF arrays"
         else:
             assert any(p.endswith("/unwrappedPhase") for p in retained_paths)
             assert any(p.endswith("/ionospherePhaseScreen") for p in retained_paths)
             assert any(p.endswith("/losUnitVectorX") for p in retained_paths)
+            assert any(p.endswith("/losUnitVectorY") for p in retained_paths)
+            assert any(p.endswith("/incidenceAngle") for p in retained_paths)
             assert any(p.endswith("/lookDirection") for p in retained_paths)
             assert any("GUNW/grids/frequencyA/pixelOffsets/HH/layer1/slantRangeOffset" in p for p in retained_paths)
             assert any("GUNW/grids/frequencyA/pixelOffsets/HH/layer1/correlationSurfacePeak" in p for p in retained_paths)
             assert any(p.endswith("/wrappedInterferogram/HH/wrappedInterferogram") for p in excluded_paths)
-            assert any(p.endswith("/wrappedInterferogram/HH/coherenceMagnitude") for p in retained_paths), \
-                "companion coherence must not be dropped with the wrapped complex raster"
-            derived = doc.get("derived_datasets", [])
-            assert len(derived) == 1, "compact GUNW archive must retain a phase-domain derivative for the omitted complex raster"
-            phase = derived[0]
-            assert phase["source_path"].endswith("/wrappedInterferogram/HH/wrappedInterferogram")
-            assert phase["path"].endswith("/wrappedInterferogram/HH/wrappedPhase")
-            assert phase["dtype"] == "float32" and phase["units"] == "radians"
-            assert "no spatial unwrapping performed" in phase["transform"]
-            assert phase["logical_data_sha256"]
-            with h5py.File(archive, "r") as kept:
-                phase_ds = kept[phase["path"]]
-                assert phase_ds.attrs["units"] == "radians"
-                assert phase_ds.shape == (24, 28)
-                assert phase_ds.dims[0].label == "y" and phase_ds.dims[1].label == "x"
-                assert [scale.name.rsplit("/", 1)[-1] for _, scale in phase_ds.dims[0].items()] == ["yCoordinates"]
-                assert [scale.name.rsplit("/", 1)[-1] for _, scale in phase_ds.dims[1].items()] == ["xCoordinates"]
-            with h5py.File(source, "r") as raw, h5py.File(archive, "r") as kept:
-                expected = np.angle(raw[phase["source_path"]][()])
-                actual = kept[phase["path"]][()]
-                assert np.array_equal(actual, expected, equal_nan=True)
-            assert any("someOtherBigGrid" in p for p in retained_paths), \
-                "unknown multidimensional science grids must be retained conservatively"
-            assert not any("someOtherBigGrid" in p for p in excluded_paths)
+            assert any(p.endswith("/wrappedInterferogram/HH/coherenceMagnitude") for p in excluded_paths), \
+                "engine-ready excludes high-posting wrapped-grid coherence that no pinned engine path reads"
+            assert doc["derived_datasets"] == [], "wrappedPhase derivation is explicit opt-in, not part of every engine-ready archive"
+            assert any("someOtherBigGrid" in p for p in excluded_paths), \
+                "non-engine multidimensional auxiliary grids are excluded explicitly from engine-ready profile"
 
 
 def test_include_wrapped_is_explicit_opt_in(tmp_path):
@@ -166,13 +148,13 @@ def test_include_wrapped_is_explicit_opt_in(tmp_path):
     (make_gunw)(source)
     archive = tmp_path / "with-wrapped.h5"
     manifest = tmp_path / "with-wrapped.json"
-    doc = archive_tool.build_archive(source, archive, manifest, "GUNW", include_wrapped=True)
+    doc = archive_tool.build_archive(source, archive, manifest, "GUNW", include_wrapped=True, derive_wrapped_phase=True)
     assert doc["policy"]["include_wrapped_interferogram"] is True
     with h5py.File(archive, "r") as f:
         assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/wrappedInterferogram" in f
         assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/coherenceMagnitude" in f
-        # Full retention keeps the exact complex samples as well as the useful
-        # compact phase-domain product.
+        # Phase derivation is explicit opt-in; when requested it sits beside
+        # the retained complex array and is verified against its exact samples.
         assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/wrappedPhase" in f
 
 
@@ -308,3 +290,71 @@ def test_hdf5_userblock_fails_closed_without_deleting_source(tmp_path):
     assert source.exists()
     assert not archive.exists()
     assert not manifest.exists()
+
+
+def test_full_lossless_profile_preserves_all_source_datasets(tmp_path):
+    source = tmp_path / "NISAR_L2_PR_GUNW_full.h5"
+    archive = tmp_path / "full-lossless.science.h5"
+    manifest = tmp_path / "full-lossless.manifest.json"
+    make_gunw(source)
+    result = archive_tool.build_archive(
+        source, archive, manifest, "GUNW", retention_profile="full-lossless"
+    )
+    doc = json.loads(manifest.read_text(encoding="utf-8"))
+    with h5py.File(source, "r") as raw, h5py.File(archive, "r") as kept:
+        expected = set()
+        raw.visititems(lambda name, obj: expected.add("/" + name) if isinstance(obj, h5py.Dataset) else None)
+        assert all(path in kept for path in expected)
+        assert all(archive_tool._value_equal(raw[path][()], kept[path][()]) for path in expected)
+    assert not doc["excluded_datasets"]
+    assert not doc["derived_datasets"]
+    assert result["policy"]["retention_profile"] == "full-lossless"
+    assert result["policy"]["include_wrapped_interferogram"] is True
+
+
+def test_h5ocopy_preserves_source_chunking_and_lossless_filters(tmp_path):
+    source = tmp_path / "NISAR_L2_PR_GOFF_filters.h5"
+    archive = tmp_path / "filters.science.h5"
+    manifest = tmp_path / "filters.manifest.json"
+    values = np.arange(128 * 64, dtype=np.float32).reshape(128, 64)
+    with h5py.File(source, "w") as raw:
+        group = raw.require_group("science/LSAR/GOFF/grids/frequencyA/pixelOffsets/HH/layer2")
+        ds = group.create_dataset(
+            "slantRangeOffset", data=values, chunks=(16, 64),
+            compression="gzip", compression_opts=4, shuffle=True, fletcher32=True,
+            fillvalue=np.float32(-9999.0),
+        )
+        ds.attrs["units"] = "meters"
+        group.create_dataset("xCoordinates", data=np.arange(64, dtype=np.float64))
+        group.create_dataset("yCoordinates", data=np.arange(128, dtype=np.float64))
+        p = group.create_dataset("projection", data=np.array(32645, dtype=np.uint32))
+        p.attrs["epsg_code"] = 32645
+    archive_tool.build_archive(source, archive, manifest, "GOFF")
+    with h5py.File(source, "r") as raw, h5py.File(archive, "r") as kept:
+        a = raw["science/LSAR/GOFF/grids/frequencyA/pixelOffsets/HH/layer2/slantRangeOffset"]
+        b = kept[a.name]
+        assert a.chunks == b.chunks == (16, 64)
+        assert a.compression == b.compression == "gzip"
+        assert a.compression_opts == b.compression_opts == 4
+        assert a.shuffle == b.shuffle is True
+        assert a.fletcher32 == b.fletcher32 is True
+        assert a.fillvalue == b.fillvalue == np.float32(-9999.0)
+        assert np.array_equal(a[()], b[()])
+
+
+def test_engine_ready_exclusion_reasons_are_dataset_specific():
+    wrapped = "/science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/coherenceMagnitude"
+    radar = "/science/LSAR/GUNW/metadata/radarGrid/someOtherCube"
+    auxiliary = "/science/LSAR/GUNW/grids/frequencyA/someOtherBigGrid"
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", False, "engine-ready") is None
+    assert "high-posting wrappedInterferogram-grid" in archive_tool.exclusion_reason(
+        wrapped, "GUNW", "engine-ready", False
+    )
+    assert "LOS unit vector X/Y and incidenceAngle" in archive_tool.exclusion_reason(
+        radar, "GUNW", "engine-ready", False
+    )
+    assert "no reader or downstream processing path" in archive_tool.exclusion_reason(
+        auxiliary, "GUNW", "engine-ready", False
+    )
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", False, "full-lossless") == "full_lossless_source_dataset"
+    assert archive_tool.selection_reason(wrapped, 2, "GUNW", True, "engine-ready") == "wrapped_grid_retained_by_explicit_include_wrapped"

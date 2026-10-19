@@ -1,5 +1,5 @@
 {
-  "schema_version": "sarguardian-raw-data-dependencies/1.2",
+  "schema_version": "sarguardian-raw-data-dependencies/1.3",
   "project": "SARGuardian",
   "audit_scope": {
     "primary_source_archive": "SARGuardian-main.zip",
@@ -7,7 +7,7 @@
     "backend_source_archive": "SARGuardian-backend-main.zip",
     "backend_source_sha256": "1a84bfb417b2b01ae414ce6818a981cd9a14465d7b69785b31e20ced0eda18a1",
     "raw_hdf5_products_in_uploaded_zips": 0,
-    "limitation": "Dependencies have been traced in source code and documentation. Concrete real-product dataset shapes/attributes have not yet been inventoried because the uploaded archives contain no .h5/.hdf5 source products.",
+    "limitation": "A real GUNW product was downloaded and fully inventoried (219 datasets, 45 groups). The first compact archive built successfully but used an over-broad retain-everything policy and took about 14m25s for archive creation/verification; the chosen AOI did not intersect that granule's science/geometry grids. A second live run must use a known intersecting GUNW/GOFF pair and the new engine-ready profile.",
     "verified_science_commit": "moshiour0/SARGuardian@77cc9646cfa46d3aff3669d351912f984cf67aa3",
     "pinned_key_file_blob_hashes_verified": [
       "src/gunw_reader.py",
@@ -17,14 +17,15 @@
     ]
   },
   "retention_principles": [
-    "Never AOI-crop a source grid before data retention: current GUNW reference selection and GOFF auto-reference/deramp use spatial pixels outside the AOI.",
-    "Never round, resample, cast to lower precision, or mask away source values in the retained scientific arrays.",
-    "Preserve exact dataset path, dtype, shape, values, coordinates, projection/CRS, units, ordinary attributes, full granule identity, source checksum and extraction software version.",
-    "Default archive retains every source dataset regardless of rank except multidimensional GUNW wrappedInterferogram raster datasets; a float wrappedPhase (radians) derivative is generated in bounded-memory chunks and verified. --include-wrapped retains the exact original complex samples as well.",
-    "Retain all GOFF pixelOffsets arrays for all available layers and polarizations, all GUNW unwrappedInterferogram arrays, all GUNW pixelOffsets arrays, all metadata/radarGrid arrays, and all other auxiliary multidimensional arrays.",
-    "Do not delete source until local archive verification, durable cloud upload, remote byte-size/checksum verification, and scientific-reader equivalence gates all pass.",
-    "Unknown future algorithms may require wrapped-interferogram grids; use --include-wrapped and measure actual storage before any deletion if complete source dataset retention is required.",
-    "Preserve and verify dataset maxshape and fillvalue; inventory original chunks/compression/filter settings. Physical chunking/compression may be changed only losslessly for size, with originals recorded in manifest."
+    "Never AOI-crop a source grid before retention: current GUNW reference selection and GOFF auto-reference/deramp use stable pixels outside the AOI.",
+    "Never round, resample, cast to lower precision, quantise, or mask away source values in retained scientific arrays.",
+    "Preserve exact dataset path, dtype, shape, values, coordinates, projection/CRS, units, ordinary attributes, granule identity, source checksum, dataset creation properties and extraction software version.",
+    "Default engine-ready profile retains all scalar/1-D metadata axes; every GUNW unwrappedInterferogram and pixelOffsets array; every GOFF pixelOffsets array; and the exact metadata/radarGrid LOS fields read by geometry_merge.los_from_product: xCoordinates, yCoordinates, projection, losUnitVectorX, losUnitVectorY and incidenceAngle.",
+    "Engine-ready deliberately excludes multidimensional GUNW wrappedInterferogram-grid rasters and other multidimensional fields not consumed by pinned engine source paths. Every such exclusion, original path, shape, dtype, size and attrs is recorded in the manifest; source HDF5 SHA-256 identifies the complete original input.",
+    "Use --retention-profile full-lossless when unrestricted future reprocessing requires every dataset in the normal NISAR HDF5 hierarchy; use --include-wrapped for the complete high-posting wrapped grid in engine-ready mode.",
+    "Use --derive-wrapped-phase only when an explicit phase-domain derivative is needed. It stores angle in radians, but does not spatially unwrap phase or preserve complex amplitude.",
+    "Never delete source data until local value/metadata verification, raw-versus-curated science-reader equivalence, cloud upload and remote size/checksum verification all pass.",
+    "Native HDF5 object copy preserves dataset values, stored chunks and compression filters; dimension-scale links and file-local reference bookkeeping are recreated and verified. Unsupported links, user blocks, virtual/external datasets or unresolved object references fail closed."
   ],
   "GUNW": {
     "product_role": "Geocoded unwrapped interferogram; core phase LOS measurement and quality masks",
@@ -74,14 +75,6 @@
         "why": "Current reader subtracts the phase screen by default when present; uncertainty is useful for future QA even if not used by the old reader."
       },
       {
-        "pattern": "all dataset paths containing */metadata/radarGrid/*",
-        "retention": "all arrays; preserve coordinate datasets and projection metadata",
-        "used_by": [
-          "src/geometry_merge.py: los_from_product"
-        ],
-        "why": "Full x/y axes, projection, losUnitVectorX, losUnitVectorY and incidenceAngle are sampled to get real look geometry at arbitrary target points."
-      },
-      {
         "pattern": "*/identification/lookDirection; centerFrequency/center_frequency/radarCenterFrequency; all scalar/1-D datasets; all root/group/dataset attributes",
         "retention": "preserve exact values and ordinary attributes",
         "used_by": [
@@ -98,17 +91,26 @@
           "Current gunw_reader product-layout documentation identifies this same-posting grid in GUNW products; retained for future same-granule GUNW/GOFF comparison and independent quality/cross-check analyses"
         ],
         "why": "The current displacement path does not read GUNW pixelOffsets directly, but dropping them would prevent later cross-checks without reacquiring the original granule; these arrays use the pixelOffsets grid rather than the higher-resolution wrapped-interferogram grid."
+      },
+      {
+        "pattern": "*/metadata/radarGrid/{xCoordinates,yCoordinates,projection,losUnitVectorX,losUnitVectorY,incidenceAngle}",
+        "retention": "preserve exact arrays, attrs, native dtype, shape and coordinate metadata",
+        "used_by": [
+          "src/geometry_merge.py: los_from_product"
+        ],
+        "why": "The pinned geometry consumer samples the two LOS unit-vector components and incidence angle at spatial targets; other multidimensional radarGrid fields are not read by this consumer."
       }
     ],
     "explicit_exclusion_default": {
-      "pattern": "*/wrappedInterferogram/*/wrappedInterferogram where the dataset is multidimensional",
-      "reason": "Current main-engine executable paths do not read the high-posting wrapped complex raster. Compact mode retains a verified phase-only sibling dataset named wrappedPhase (radians), plus coherence, offsets and coordinate vectors.",
-      "future_risk": "The phase-only derivative supports phase-domain diagnostics and future experiments, but discards complex amplitude and does not spatially unwrap phase. Algorithms needing exact original complex samples must use include_wrapped=true.",
-      "derived_output": "Sibling wrappedPhase dataset; chunked numpy.angle; radians; same native shape and coordinate dimension-scale attachments; output hash and source hash are recorded and verified.",
-      "opt_in": "tools/sarguardian_hdf5_archive.py archive --include-wrapped; workflow input include_wrapped=true explicitly includes this large raster.",
-      "measurement_required": "Real-product schema, storage delta, integrity and raw-vs-curated science-equivalence tests required before production deletion.",
-      "cli_default": "excluded unless --include-wrapped is passed to the archive tool",
-      "pilot_workflow_default": "excluded (include_wrapped=false) to avoid source-sized uploads; set true only if future wrapped-phase methods require it and storage permits"
+      "profile": "engine-ready",
+      "pattern": "multidimensional datasets under */wrappedInterferogram/*",
+      "reason": "No HDF5-read path in the pinned current src/ engine consumes the high-posting wrapped grid. The grid is excluded from compact retention to avoid storing a 1.2 GB logical coherence array plus the original 2.4 GB logical complex raster.",
+      "future_risk": "Wrapped-domain research may need original complex samples, coherence or masks. Use --include-wrapped in engine-ready mode to retain the complete wrapped grid, or full-lossless to retain all original multidimensional source datasets.",
+      "derived_output": "No derived phase is generated by default. --derive-wrapped-phase is explicit opt-in and produces an angle-only array in radians; not spatial unwrapping and no complex-amplitude preservation.",
+      "opt_in": "tools/sarguardian_hdf5_archive.py archive --include-wrapped or --retention-profile full-lossless",
+      "measurement_required": "Measure actual per-granule archive size and verify raw-vs-curated reader and geometry outputs before any deletion.",
+      "cli_default": "excluded from engine-ready; retained by full-lossless or --include-wrapped",
+      "pilot_workflow_default": "engine-ready; include_wrapped=false; derive_wrapped_phase=false"
     }
   },
   "GOFF": {
@@ -223,21 +225,25 @@
     ]
   },
   "archive_policy": {
-    "name": "conservative_all_datasets_except_wrapped_with_phase_derivative_v3",
-    "default_retained": "All HDF5 datasets except the original multidimensional GUNW wrappedInterferogram complex raster, plus a derived sibling wrappedPhase dataset in radians with verified values, metadata and coordinate dimension scales. All scalar/1-D axes, metadata and multidimensional auxiliary grids are retained.",
-    "default_excluded": "Only multidimensional GUNW datasets whose leaf name is wrappedInterferogram; companion datasets in that group (e.g. coherenceMagnitude, offsets and coordinate axes) remain retained; phase is derived separately.",
+    "name": "engine_ready_dependency_audited_native_hdf5_copy_v4",
+    "default_retained": "Exact current pinned engine dependencies plus all GUNW pixelOffsets cross-check arrays, all scalar/1-D metadata, full GUNW unwrappedInterferogram arrays, all GOFF pixelOffsets arrays, and the exact LOS geometry dependency arrays.",
+    "default_excluded": "Multidimensional GUNW wrappedInterferogram-grid arrays and other multidimensional fields not consumed by pinned src/ readers/geometry consumer.",
+    "profiles": {
+      "engine-ready": "Smallest current-engine-compatible archive with documented explicit exclusions and source hash/inventory retained.",
+      "full-lossless": "Retains every dataset under supported normal NISAR HDF5 layouts; unsupported file features still fail closed rather than being silently lost."
+    },
     "include_wrapped_flag": "tools/sarguardian_hdf5_archive.py archive --include-wrapped",
-    "no_delete": "The archiver never deletes raw source and does not upload to Drive.",
-    "fail_closed": "Reference-containing datasets, non-standard reference-valued attributes, noncanonical links/aliases, ordinary attribute-copy failures, and dimension-scale reconstruction failures stop archive generation; only HDF5 DIMENSION_LIST/REFERENCE_LIST bookkeeping is intentionally rebuilt in the output file. HDF5 user blocks, virtual datasets, and external raw-storage datasets also stop archive generation.",
-    "cli_default_excluded": "Only the original multidimensional GUNW dataset with leaf name wrappedInterferogram; its wrappedPhase derivative plus companion arrays and every other dataset remain retained.",
-    "workflow_pilot_default": "include_wrapped=false generates and retains the phase-only derivative; use true when future science requires original complex samples/amplitude and storage budget permits."
+    "derive_wrapped_phase_flag": "tools/sarguardian_hdf5_archive.py archive --derive-wrapped-phase",
+    "no_delete": "The archiver never deletes the source and does not upload to Drive.",
+    "copy_method": "HDF5 native object copy (H5Ocopy), preserve chunks/compression; logical values, shape/dtype, attrs, scale relationships and creation properties checked.",
+    "fail_closed": "Reference datasets/attrs that cannot be remapped, noncanonical links/aliases, HDF5 user blocks, virtual datasets, external raw storage, ordinary attribute-copy failures and dimension-scale reconstruction failures stop archive generation."
   },
   "validation_status": {
-    "main_engine_tests": "178 passed; 2 known NumPy undefined-correlation warnings",
-    "retention_prototype_tests": "21 passed using synthetic HDF5 only; not a real NASA HDF5 or Google Drive integration test",
-    "real_nisar_hdf5": "A real GUNW product was downloaded and inventoried (219 datasets, 45 groups); first archive build failed closed on xCoordinates/yCoordinates dimension-scale attribute mismatch. Fix branch recreates scale metadata and derives wrappedPhase; fresh real run pending.",
-    "google_drive_integration": "not yet tested; no user OAuth credentials used",
-    "production_deletion": "prohibited until real-product equivalence + remote checksum/storage gates pass"
+    "main_engine_tests": "178 passed previously; 2 known NumPy undefined-correlation warnings",
+    "retention_prototype_tests": "Regression suite is running on the speed/profile branch; latest completed run had 22 passed, 1 failed due to an incorrect test assertion for full hierarchy enumeration. That assertion has been corrected; rerun CI required.",
+    "real_nisar_hdf5": "Live GUNW downloaded (2,403,336,192 bytes), inventory 219 datasets/45 groups, old archive verification passed. Reader-equivalence then failed because the chosen granule's grid did not intersect AOI=source. Next live run uses a granule already recorded with nonzero source-AOI valid pixels and fail-fast grid preflight.",
+    "google_drive_integration": "Not yet verified by a successful live retention run; no remote upload/checksum claim is made.",
+    "production_deletion": "Prohibited; no deletion authorized"
   },
   "official_product_references": [
     {
@@ -258,22 +264,77 @@
   ],
   "github_actions_pilot": {
     "workflow": ".github/workflows/sarguardian-retention-pilot.yml",
-    "scope": "one exact granule per manual run; not a public multi-user queue",
-    "wrapped_interferogram_default": false,
+    "scope": "one exact granule per manual run; separate main-branch validation workflow exercises one known-valid GUNW and one GOFF sequentially",
+    "retention_profile_default": "engine-ready",
     "raw_hdf5_uploaded_to_drive": false,
     "explicit_raw_delete_step": false,
     "remote_archive_and_reader_equivalence_required": true,
     "deletion_authorized": false,
-    "hosted_runner_semantics": "GitHub-hosted runner storage is ephemeral and is discarded when the job ends; failures require source re-download on retry.",
-    "wrapped_interferogram_rationale": "Compact mode excludes the high-posting complex raster but derives wrappedPhase in radians using chunked numpy.angle and retains coordinate-scale links plus companion coherence/quality arrays. This is phase-only and does not preserve complex amplitude or perform spatial unwrapping.",
-    "wrapped_interferogram_default_reason": "Use include_wrapped=true when exact original complex samples or amplitude information are needed; the option retains both the raw complex dataset and derived phase output.",
-    "archiver_cli_wrapped_interferogram_default": false
+    "hosted_runner_semantics": "GitHub-hosted runner storage is ephemeral and is discarded when the job ends; failed pilots require source re-download.",
+    "preflight": "AOI grid coordinates/projection are checked before inventory/archive; a non-intersecting granule fails before expensive array copy.",
+    "wrapped_interferogram": "Excluded from engine-ready by default; full-lossless or include_wrapped retains it. Phase derivative is a separate explicit option."
   },
   "verification_status": {
-    "retention_prototype_tests": "21 passed; synthetic HDF5 only, not a real NASA HDF5 or Google Drive integration test",
-    "main_engine_tests": "178 passed with two NumPy undefined-correlation warnings",
-    "workflow_validation": "YAML parsed; 9 embedded Bash run blocks passed bash -n",
-    "real_granule_validation": "First live GUNW download/inventory completed; archive verification exposed empty-name dimension-scale mismatch. Fix branch pending CI and fresh live run; no Drive integration verified.",
+    "retention_prototype_tests": "Latest completed run: 22 passed and 1 failed due only to test-side HDF5 path enumeration; fix is committed and CI must confirm.",
+    "main_engine_tests": "178 passed previously with two NumPy undefined-correlation warnings.",
+    "workflow_validation": "Updated retention workflow now runs spatial preflight before inventory/archive, removes duplicate full verify scan, and compares geometry_merge LOS outputs; full validation run pending.",
+    "real_granule_validation": "The prior GUNW grid did not intersect AOI=source; new workflow uses known-source-AOI GUNW/GOFF granules from the pinned project's committed stats.",
+    "google_drive_integration": "Not yet verified after the new profile.",
     "automatic_raw_deletion": "DISABLED"
-  }
+  },
+  "engine_ready_profile": {
+    "kept": [
+      "all scalar and 1-D datasets throughout hierarchy",
+      "all multidimensional datasets under GUNW unwrappedInterferogram",
+      "all multidimensional datasets under GUNW pixelOffsets for cross-check/future GOFF comparison",
+      "all multidimensional datasets under GOFF pixelOffsets across layers/polarizations",
+      "metadata/radarGrid xCoordinates, yCoordinates, projection, losUnitVectorX, losUnitVectorY, incidenceAngle",
+      "all root/group/dataset ordinary attributes and complete group skeleton"
+    ],
+    "excluded": [
+      "multidimensional GUNW wrappedInterferogram-grid arrays, including complex raster, high-posting coherence and mask",
+      "other multidimensional GUNW/GOFF metadata or auxiliary arrays not read by pinned src/ code, except the explicitly listed geometry dependencies"
+    ],
+    "explicit_full_retention_option": "--retention-profile full-lossless",
+    "full_wrapped_only_option": "--include-wrapped"
+  },
+  "current_hdf5_readers": [
+    {
+      "file": "src/gunw_reader.py",
+      "access": "direct HDF5",
+      "inputs": [
+        "all unwrappedInterferogram science/quality arrays",
+        "xCoordinates/yCoordinates/projection",
+        "frequency/identification scalar and 1-D metadata"
+      ],
+      "notes": "find_common_reference also reopens each product to calculate a common mask; keep full spatial grids, not AOI crops."
+    },
+    {
+      "file": "src/goff_reader.py",
+      "access": "direct HDF5",
+      "inputs": [
+        "all pixelOffsets layers/polarizations",
+        "slantRangeOffset/alongTrackOffset/correlationSurfacePeak/snr/variance/other co-gridded datasets",
+        "xCoordinates/yCoordinates/projection"
+      ],
+      "notes": "auto-reference/deramp use stable pixels outside the AOI; keep full grids."
+    },
+    {
+      "file": "src/timeseries.py",
+      "access": "indirect HDF5 through readers",
+      "inputs": [
+        "calls read_gunw/read_goff for each pair again"
+      ],
+      "notes": "This is batch-capable but reopens inputs; engine-ready HDF5 remains usable without modifying pinned science IO."
+    },
+    {
+      "file": "src/geometry_merge.py",
+      "access": "direct HDF5",
+      "inputs": [
+        "metadata/radarGrid x/y/projection/losUnitVectorX/losUnitVectorY/incidenceAngle",
+        "identification/lookDirection"
+      ],
+      "notes": "Keep 3-D LOS/angle fields as full native arrays because geometry is evaluated at arbitrary current target points."
+    }
+  ]
 }

@@ -76,3 +76,40 @@ def test_downloader_refuses_path_or_non_granule_input_before_credentials(tmp_pat
         '--granule-name', '../not-a-granule.h5', '--out-dir', str(tmp_path)])
     assert download.main() == 2
     assert 'EXACT_PUBLIC_GRANULE_NAME_REQUIRED' in capsys.readouterr().err
+
+
+def test_product_grid_preflight_detects_intersection_before_archive_work(tmp_path):
+    import h5py
+    import numpy as np
+    from types import SimpleNamespace
+
+    tool = load("aoi_preflight_testmod", ROOT / "tools" / "validate_product_aoi.py")
+    src = tmp_path / "coordinates.h5"
+    group = "science/LSAR/GOFF/grids/frequencyA/pixelOffsets/HH/layer2"
+    with h5py.File(src, "w") as f:
+        g = f.require_group(group)
+        g.create_dataset("xCoordinates", data=np.array([10.0, 20.0, 30.0]))
+        g.create_dataset("yCoordinates", data=np.array([40.0, 50.0]))
+        p = g.create_dataset("projection", data=np.array(4326, dtype=np.int32))
+        p.attrs["epsg_code"] = 4326
+    datasets = {
+        f"{group}/xCoordinates": ((3,), np.dtype("float64")),
+        f"{group}/yCoordinates": ((2,), np.dtype("float64")),
+        f"{group}/projection": ((), np.dtype("int32")),
+    }
+    mask = np.array([[False, True, False], [False, True, False]], dtype=bool)
+    engine = SimpleNamespace(
+        AOI_RING=[],
+        build_aoi_mask=lambda xs, ys, ring, epsg: mask,
+    )
+    with h5py.File(src, "r") as f:
+        good = tool._grid(f, datasets, engine, group, None, "GOFF_pixelOffsets")
+    assert good["intersects_aoi"] is True
+    assert good["grid_pixels_inside_aoi"] == 2
+    assert good["shape"] == [2, 3]
+
+    engine.build_aoi_mask = lambda xs, ys, ring, epsg: np.zeros((2, 3), dtype=bool)
+    with h5py.File(src, "r") as f:
+        bad = tool._grid(f, datasets, engine, group, None, "GOFF_pixelOffsets")
+    assert bad["intersects_aoi"] is False
+    assert bad["grid_pixels_inside_aoi"] == 0

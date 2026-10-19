@@ -41,7 +41,7 @@ from typing import Any, Iterable
 import h5py
 import numpy as np
 
-SCHEMA_VERSION = "sarguardian-science-archive/1.1"
+SCHEMA_VERSION = "sarguardian-science-archive/1.2"
 CHUNK_TARGET_BYTES = 16 * 1024 * 1024
 
 
@@ -275,42 +275,95 @@ def _has_path_segment(path: str, segment: str) -> bool:
     return segment.lower() in [p.lower() for p in path.strip("/").split("/")]
 
 
-def selection_reason(path: str, ndim: int, family: str, include_wrapped: bool) -> str | None:
-    """Return the compact-mode retention reason for source datasets.
+def selection_reason(
+    path: str, ndim: int, family: str, include_wrapped: bool = False,
+    retention_profile: str = "engine-ready",
+) -> str | None:
+    """Return an explicit dataset-retention reason for a profile.
 
-    Only large multidimensional GUNW wrapped complex rasters are excluded by
-    default. A phase-only derivative is created separately and verified.
-    ``include_wrapped=True`` additionally preserves the exact original
-    complex samples; all other source datasets are retained conservatively.
+    engine-ready preserves arrays used by the pinned current engine:
+      * all scalar/1-D metadata and coordinate axes;
+      * all unwrapped-interferogram datasets used by GUNW readers/reference;
+      * all GUNW/GOFF pixelOffsets grids (including future quality checks);
+      * the LOS geometry arrays directly opened by geometry_merge.los_from_product.
+
+    It excludes high-posting GUNW wrapped-grid rasters and other multidimensional
+    fields not consumed by the pinned processing paths. The full source inventory
+    and source HDF5 SHA-256 remain in the manifest. Use full-lossless when every
+    original dataset must be retained for unrestricted future reprocessing.
     """
-    low = path.lower()
-    # Always keep scalars/vectors even when they sit beside a wrapped raster;
-    # those vectors may describe the grid coordinates or metadata.
+    if retention_profile not in {"engine-ready", "full-lossless"}:
+        raise ValueError("retention_profile must be engine-ready or full-lossless")
+
+    normalized = "/" + path.strip("/").lower()
+    if retention_profile == "full-lossless":
+        return "full_lossless_source_dataset"
+
+    # Wrapped opt-in means the complete high-posting wrapped grid family, not
+    # only the complex array: coherence, masks, coordinate axes and projection
+    # are needed together for meaningful future wrapped-domain analyses.
+    if family == "GUNW" and "/wrappedinterferogram/" in normalized and include_wrapped:
+        return "wrapped_grid_retained_by_explicit_include_wrapped"
+
+    # Scalars and vectors across the hierarchy carry schema, dates, axes, CRS,
+    # frequency, calibration and provenance needed by current or future readers.
     if ndim <= 1:
         return "all_scalar_and_1d_metadata_axes"
-    path_parts = [part for part in low.strip("/").split("/") if part]
-    is_wrapped_raster = (
-        family == "GUNW" and ndim >= 2 and path_parts
-        and path_parts[-1] == "wrappedinterferogram"
-        and "wrappedinterferogram" in path_parts
-    )
-    if is_wrapped_raster:
-        if include_wrapped:
-            return "actual_GUNW_wrapped_complex_interferogram_raster_included_by_opt_in"
+
+    if family == "GUNW":
+        if "/unwrappedinterferogram/" in normalized:
+            return "GUNW_reader_phase_quality_and_grid_arrays"
+        if "/pixeloffsets/" in normalized:
+            return "GUNW_pixelOffsets_crosscheck_and_future_quality_arrays"
+        if "/metadata/radargrid/" in normalized:
+            leaf = normalized.rsplit("/", 1)[-1]
+            if leaf in {"losunitvectorx", "losunitvectory", "incidenceangle"}:
+                return "geometry_merge_direct_LOS_geometry_dependency"
+            return None
         return None
-    # Keep named critical groups for clear audit provenance, but the final rule
-    # below means all other datasets are retained too.
-    if "/metadata/radargrid/" in f"/{low.strip('/')}/":
-        return "all_metadata_radarGrid_arrays_for_geometry_and_future_reanalysis"
-    if family == "GOFF" and "/pixeloffsets/" in f"/{low.strip('/')}/":
-        return "all_GOFF_pixelOffsets_arrays_all_layers_and_polarisations"
-    if family == "GUNW" and "/pixeloffsets/" in f"/{low.strip('/')}/":
-        return "all_GUNW_pixelOffsets_arrays_all_layers_and_polarisations_for_cross_checks"
-    if family == "GUNW" and "/unwrappedinterferogram/" in f"/{low.strip('/')}/":
-        return "all_GUNW_unwrappedInterferogram_grid_arrays_quality_masks_iono"
-    if "/metadata/" in f"/{low.strip('/')}/":
-        return "all_product_metadata_arrays_conservative_retention"
-    return "all_other_multidimensional_datasets_conservative_retention"
+
+    if family == "GOFF":
+        if "/pixeloffsets/" in normalized:
+            return "GOFF_reader_all_layer_polarization_offsets_quality_and_coordinates"
+        return None
+
+    return None
+
+def exclusion_reason(
+    path: str, family: str, retention_profile: str, include_wrapped: bool,
+) -> str:
+    """Explain a profile exclusion in terms of the audited science dependency."""
+    normalized = "/" + path.strip("/").lower()
+    if retention_profile == "full-lossless":
+        return "Unexpected exclusion in full-lossless profile; archive must fail closed."
+    if family == "GUNW" and "/wrappedinterferogram/" in normalized:
+        if not include_wrapped:
+            return (
+                "Excluded from engine-ready: the pinned current src/ code does not "
+                "read this multidimensional high-posting wrappedInterferogram-grid "
+                "array. The full original inventory and attrs are retained in sidecars; "
+                "use --include-wrapped or --retention-profile full-lossless when future "
+                "science needs this array."
+            )
+    if family == "GUNW" and "/metadata/radargrid/" in normalized:
+        leaf = normalized.rsplit("/", 1)[-1]
+        if leaf not in {"losunitvectorx", "losunitvectory", "incidenceangle"}:
+            return (
+                "Excluded from engine-ready: pinned geometry_merge.los_from_product "
+                "reads LOS unit vector X/Y and incidenceAngle plus coordinates and "
+                "projection; this other multidimensional radarGrid field is not read "
+                "by the pinned consumer. Full source schema/attrs remain in sidecars."
+            )
+    if family == "GUNW" and "/unwrappedinterferogram/" in normalized:
+        return "Unexpected exclusion inside a required GUNW unwrappedInterferogram grid; fail closed."
+    if "/pixeloffsets/" in normalized:
+        return "Unexpected exclusion inside a retained pixelOffsets grid; fail closed."
+    return (
+        "Excluded from engine-ready because source audit found no reader or downstream "
+        "processing path in the pinned src/ engine that consumes this multidimensional "
+        "array. Its path, shape, dtype, size and attrs are retained in the source "
+        "inventory; use full-lossless for unrestricted future reprocessing."
+    )
 
 
 def _is_dimension_scale(obj: Any) -> bool:
@@ -420,29 +473,26 @@ def _choose_chunk_shape(shape: tuple[int, ...], dtype: np.dtype) -> tuple[int, .
 
 def _copy_dataset_losslessly(src_ds: h5py.Dataset, dst_group: h5py.Group, leaf: str,
                              skipped_attrs: list[dict[str, str]], manifest_dataset: dict[str, Any]) -> h5py.Dataset:
-    shape, dtype = src_ds.shape, src_ds.dtype
-    kwargs: dict[str, Any] = {"maxshape": src_ds.maxshape, "fillvalue": src_ds.fillvalue}
-    if shape != () and src_ds.size > 0 and dtype.kind not in "OV" and not _is_reference_dtype(dtype):
-        kwargs["chunks"] = _choose_chunk_shape(shape, dtype)
-        # Physical chunk/compression layout is intentionally changed for compact
-        # lossless storage; semantic maxshape and fillvalue remain unchanged.
-        kwargs["compression"] = "gzip"
-        kwargs["compression_opts"] = 4
-        if dtype.kind in "biufc":
-            kwargs["shuffle"] = True
-    dst_ds = dst_group.create_dataset(leaf, shape=shape, dtype=dtype, **kwargs)
-    if shape == ():
-        dst_ds[()] = src_ds[()]
-    else:
-        for slc in _slices_for_dataset(src_ds):
-            values = src_ds[slc]
-            dst_ds[slc] = values
+    """Copy a complete HDF5 dataset with HDF5's native object-copy operation.
+
+    H5Ocopy preserves values, dtype, shape/maxshape, fill value, chunk layout,
+    compression filters and stored chunks without routing every pixel through
+    Python and recompressing the whole array. Ordinary attributes are copied
+    explicitly afterward because HDF5 dimension-scale references are file-local
+    and must be rebuilt against destination objects.
+    """
+    if leaf in dst_group:
+        raise ValueError(f"Destination dataset already exists: {dst_group.name}/{leaf}")
+    dst_group.file.copy(src_ds, dst_group, name=leaf, without_attrs=True)
+    dst_ds = dst_group[leaf]
     _copy_attr_set(src_ds, dst_ds, manifest_dataset["path"], skipped_attrs)
     return dst_ds
 
 
 def build_archive(source: Path, archive: Path, manifest_path: Path,
-                  product_type: str = "auto", include_wrapped: bool = False) -> dict[str, Any]:
+                  product_type: str = "auto", include_wrapped: bool = False,
+                  retention_profile: str = "engine-ready",
+                  derive_wrapped_phase: bool = False) -> dict[str, Any]:
     source = source.resolve()
     archive = archive.resolve()
     manifest_path = manifest_path.resolve()
@@ -459,6 +509,8 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
         family = infer_product_type(src, source.name) if product_type == "auto" else product_type.upper()
         if family not in {"GUNW", "GOFF"}:
             raise ValueError("product_type must be auto, GUNW or GOFF")
+        if retention_profile not in {"engine-ready", "full-lossless"}:
+            raise ValueError("retention_profile must be engine-ready or full-lossless")
         noncanonical_links = discover_noncanonical_links(src)
         if noncanonical_links:
             preview = "; ".join(f"{x['path']} ({x['type']})" for x in noncanonical_links[:10])
@@ -491,11 +543,16 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
         chosen: dict[str, str] = {}
         excluded: list[dict[str, Any]] = []
         for rec in records:
-            reason = selection_reason(rec["path"], rec["ndim"], family, include_wrapped)
+            reason = selection_reason(rec["path"], rec["ndim"], family, include_wrapped, retention_profile)
             if reason:
                 chosen[rec["path"]] = reason
             else:
-                excluded.append({**rec, "retention_status": "excluded_large_array", "reason": "Not used by any current SARGuardian source-code path found in this audit and outside the v1 compact science-retention contract; inventory/attrs kept so omission is explicit."})
+                reason_text = exclusion_reason(rec["path"], family, retention_profile, include_wrapped)
+                if retention_profile == "full-lossless":
+                    raise RuntimeError(f"full-lossless profile unexpectedly excluded {rec['path']}")
+                if reason_text.startswith("Unexpected exclusion"):
+                    raise RuntimeError(reason_text + ": " + rec["path"])
+                excluded.append({**rec, "retention_status": "excluded_profile_dependency", "reason": reason_text})
 
         # Never silently copy an HDF5 reference dataset. Its values refer to
         # object addresses in the source file; a byte/value hash of the raw
@@ -571,7 +628,7 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                 derived_records = []
                 # Derive wrappedPhase in both compact and full-retention modes.
                 # The full-retention option keeps original complex samples too.
-                for rec in records:
+                for rec in (records if derive_wrapped_phase else []):
                     p = rec["path"]
                     if not (
                         family == "GUNW"
@@ -710,6 +767,16 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                         verification_errors.append(f"maxshape mismatch: {p}")
                     if not _value_equal(np.asarray(source_ds.fillvalue), np.asarray(archive_ds.fillvalue)):
                         verification_errors.append(f"fillvalue mismatch: {p}")
+                    if source_ds.chunks != archive_ds.chunks:
+                        verification_errors.append(f"chunk layout mismatch: {p}")
+                    if source_ds.compression != archive_ds.compression:
+                        verification_errors.append(f"compression filter mismatch: {p}")
+                    if source_ds.compression_opts != archive_ds.compression_opts:
+                        verification_errors.append(f"compression options mismatch: {p}")
+                    if source_ds.shuffle != archive_ds.shuffle or source_ds.fletcher32 != archive_ds.fletcher32:
+                        verification_errors.append(f"dataset filter flags mismatch: {p}")
+                    if source_ds.scaleoffset != archive_ds.scaleoffset:
+                        verification_errors.append(f"scale-offset filter mismatch: {p}")
                     # SHA of source values was recorded while extracting; now
                     # compare to the archived dataset in bounded memory.
                     if dataset_digest(archive_ds) != item["logical_data_sha256"]:
@@ -777,30 +844,34 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
         "schema_version": SCHEMA_VERSION,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "policy": {
-            "name": "sar_guardian_conservative_all_datasets_except_wrapped_with_phase_derivative_v3",
+            "name": f"sarguardian_{retention_profile}_v4",
             "product_type": family,
-            "include_wrapped_interferogram": include_wrapped,
+            "retention_profile": retention_profile,
+            "include_wrapped_interferogram": bool(family == "GUNW" and (retention_profile == "full-lossless" or include_wrapped)),
+            "derive_wrapped_phase": derive_wrapped_phase,
             "deletion_performed": False,
             "deletion_policy": "Never delete here. Only the runner/orchestrator may delete the temporary raw source after remote durable-storage upload and remote size+checksum verification.",
             "preservation_contract": [
-                "Every source dataset is retained by default except multidimensional GUNW wrappedInterferogram complex rasters; a same-grid wrappedPhase array in radians is derived and verified. --include-wrapped also retains the original complex samples.",
-                "All scalar/1-D datasets, metadata/radarGrid arrays, all GOFF pixelOffsets, GUNW unwrappedInterferogram, GUNW pixelOffsets, and every other multidimensional source dataset are retained.",
-                "All ordinary group/dataset attributes copied; HDF5 DIMENSION_LIST/REFERENCE_LIST bookkeeping is recreated as real dimension-scale links. Unknown reference attributes or any attribute/dimension copy failure aborts the archive.",
-                "No numeric scaling, quantisation, interpolation, AOI crop, or lossy conversion is applied to retained arrays.",
-                "Dataset maxshape and fillvalue are preserved and verified. Chunking/compression filters are intentionally reconfigured losslessly and originals are recorded in the inventory.",
-                "HDF5 source user blocks, virtual datasets, or external raw-storage datasets cause a fail-closed error until explicit sidecar-retention support exists.",
+                "engine-ready retains the pinned GUNW/GOFF reader inputs and geometry_merge LOS dependencies, full native grids, every scalar/1-D metadata dataset, exact ordinary attributes, and all group paths.",
+                "full-lossless retains every source dataset. It is the profile for unrestricted future reprocessing; engine-ready exclusions are deliberate and itemized in the manifest, not presented as a complete original product.",
+                "All GUNW pixelOffsets grids are kept for future same-granule GOFF cross-checks. All GOFF pixelOffsets layers/polarizations, including quality and variance arrays, are kept in full.",
+                "HDF5 DIMENSION_LIST/REFERENCE_LIST bookkeeping is rebuilt as true destination dimension-scale links; scale labels, links, values, dtypes, shape, maxshape, fillvalue, chunking and filters are verified.",
+                "Native HDF5 object copy preserves stored dataset data/chunks and source creation filters; no numeric scaling, quantisation, interpolation, AOI crop, or lossy conversion is applied to retained source arrays.",
+                "Optional --derive-wrapped-phase computes a same-grid phase-only derivative in radians. This does not preserve complex amplitude and does not spatially unwrap the phase. Original wrapped-grid datasets require --include-wrapped or --retention-profile full-lossless.",
+                "HDF5 source user blocks, virtual datasets, external raw-storage datasets, noncanonical links/aliases and unsupported reference attributes/datasets fail closed.",
             ],
             "known_exclusions": [
-                "Compact mode excludes only each multidimensional GUNW source dataset whose leaf name is wrappedInterferogram, but creates a sibling wrappedPhase dataset with the same native shape and coordinate links. All companion coherence/offset/coordinate/mask arrays are retained.",
-                "The derived wrappedPhase contains numpy.angle(complex samples) in radians; it is not spatially unwrapped and does not preserve complex amplitude. It is verified against the source in bounded memory and its source/output hashes are recorded.",
-                "Use --include-wrapped to retain exact original complex samples alongside wrappedPhase whenever an algorithm requires complex amplitude or exact original values; this increases archive size.",
+                "engine-ready excludes multidimensional GUNW wrappedInterferogram-grid arrays because no pinned main-engine path reads them. Their full hierarchy/schema/attributes remain documented in source-inventory.json and the retention manifest.",
+                "engine-ready excludes multidimensional metadata/radarGrid fields other than losUnitVectorX, losUnitVectorY and incidenceAngle; geometry_merge.los_from_product reads those three plus coordinates/projection.",
+                "engine-ready excludes other multidimensional auxiliary fields outside unwrappedInterferogram/pixelOffsets and the documented LOS geometry dependencies. Use full-lossless to retain every such field.",
+                "Set --include-wrapped to retain the full GUNW wrappedInterferogram group, including complex samples, coherence/mask arrays and coordinate vectors. Use --derive-wrapped-phase only if the phase-only output is specifically desired.",
             ],
         },
         "source": {"filename": source.name, "bytes": int(source_stat.st_size), "sha256": sha256_file(source), "hdf5_root_attrs": root_meta["attrs"], "hdf5_root_attrs_sha256": root_meta["attrs_sha256"]},
         "source_group_attributes": group_attribute_records,
         "noncanonical_links": noncanonical_links,
         "archiver": {"name": Path(__file__).name, "schema_version": SCHEMA_VERSION, "script_sha256": sha256_file(Path(__file__).resolve())},
-        "archive": {"filename": archive.name, "bytes": int(archive_stat.st_size), "sha256": sha256_file(archive), "compression": "gzip level 4 (lossless) for selected non-scalar fixed-width arrays"},
+        "archive": {"filename": archive.name, "bytes": int(archive_stat.st_size), "sha256": sha256_file(archive), "copy_method": "HDF5 native object copy (H5Ocopy), preserving source chunks and compression filters"},
         "statistics": {
             "source_dataset_count": len(records),
             "retained_dataset_count": len(selected_records),
@@ -903,7 +974,9 @@ def main() -> int:
     build.add_argument("--out", required=True, type=Path)
     build.add_argument("--manifest", required=True, type=Path)
     build.add_argument("--product-type", choices=["auto", "GUNW", "GOFF"], default="auto")
-    build.add_argument("--include-wrapped", action="store_true", help="also preserve large GUNW wrappedInterferogram arrays (more storage)")
+    build.add_argument("--retention-profile", choices=["engine-ready", "full-lossless"], default="engine-ready", help="engine-ready keeps current engine dependencies; full-lossless retains every source dataset")
+    build.add_argument("--include-wrapped", action="store_true", help="engine-ready only: preserve the entire high-posting GUNW wrappedInterferogram grid family")
+    build.add_argument("--derive-wrapped-phase", action="store_true", help="derive and verify a phase-only wrappedPhase raster in radians; not spatial unwrapping")
     verify = sub.add_parser("verify", help="verify local source/archive against manifest; no delete")
     verify.add_argument("--input", required=True, type=Path)
     verify.add_argument("--archive", required=True, type=Path)
@@ -922,7 +995,8 @@ def main() -> int:
         print(f"INVENTORY_WRITTEN={args.out} DATASETS={len(datasets)} GROUPS={len(groups)}")
         return 0
     if args.command == "archive":
-        manifest = build_archive(args.input, args.out, args.manifest, args.product_type, args.include_wrapped)
+        manifest = build_archive(args.input, args.out, args.manifest, args.product_type, args.include_wrapped,
+                                 args.retention_profile, args.derive_wrapped_phase)
         print("ARCHIVE_VERIFICATION=PASS")
         print(f"PRODUCT_TYPE={manifest['policy']['product_type']}")
         print(f"SOURCE_BYTES={manifest['source']['bytes']}")
@@ -930,6 +1004,7 @@ def main() -> int:
         print(f"RETAINED_DATASETS={manifest['statistics']['retained_dataset_count']}")
         print(f"EXCLUDED_LARGE_DATASETS={manifest['statistics']['excluded_large_dataset_count']}")
         print(f"DERIVED_PHASE_DATASETS={manifest['statistics']['derived_dataset_count']}")
+        print(f"RETENTION_PROFILE={manifest['policy']['retention_profile']}")
         print(f"SOURCE_SHA256={manifest['source']['sha256']}")
         print(f"ARCHIVE_SHA256={manifest['archive']['sha256']}")
         print("RAW_SOURCE_DELETED=no")
