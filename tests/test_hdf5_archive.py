@@ -63,9 +63,25 @@ def make_gunw(path: Path):
         proj = _add_dataset(grid, "projection", np.array(32645, dtype=np.int32))
         proj.attrs["epsg_code"] = 32645
         wrapped = f.require_group("science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH")
-        _add_dataset(wrapped, "wrappedInterferogram", np.ones((24, 28), dtype=np.complex64))
+        # Model the real product's dimension scales, including the valid empty
+        # HDF5 scale name seen in NISAR wrapped-interferogram x/y coordinate axes.
+        xw = _add_dataset(wrapped, "xCoordinates", np.arange(28, dtype=np.float64))
+        yw = _add_dataset(wrapped, "yCoordinates", np.arange(24, dtype=np.float64))
+        xw.make_scale("")
+        yw.make_scale("")
+        complex_wrapped = _add_dataset(
+            wrapped, "wrappedInterferogram", np.exp(1j * np.linspace(-np.pi, np.pi, 24 * 28,
+                                                                        dtype=np.float32)).reshape(24, 28).astype(np.complex64),
+            {"description": "Complex wrapped interferogram between HH layers",
+             "grid_mapping": "projection", "units": "1"},
+        )
         # GUNW may carry useful higher-posting coherence next to the wrapped complex raster.
-        _add_dataset(wrapped, "coherenceMagnitude", np.full((24, 28), 0.91, dtype=np.float32))
+        coherence_wrapped = _add_dataset(wrapped, "coherenceMagnitude", np.full((24, 28), 0.91, dtype=np.float32))
+        for ds in (complex_wrapped, coherence_wrapped):
+            ds.dims[0].label = "y"
+            ds.dims[0].attach_scale(yw)
+            ds.dims[1].label = "x"
+            ds.dims[1].attach_scale(xw)
         meta = f.require_group("science/LSAR/GUNW/metadata/radarGrid")
         _add_dataset(meta, "xCoordinates", np.arange(7, dtype=np.float64))
         _add_dataset(meta, "yCoordinates", np.arange(6, dtype=np.float64))
@@ -121,6 +137,25 @@ def test_archive_preserves_declared_dependencies_and_never_deletes_source(tmp_pa
             assert any(p.endswith("/wrappedInterferogram/HH/wrappedInterferogram") for p in excluded_paths)
             assert any(p.endswith("/wrappedInterferogram/HH/coherenceMagnitude") for p in retained_paths), \
                 "companion coherence must not be dropped with the wrapped complex raster"
+            derived = doc.get("derived_datasets", [])
+            assert len(derived) == 1, "compact GUNW archive must retain a phase-domain derivative for the omitted complex raster"
+            phase = derived[0]
+            assert phase["source_path"].endswith("/wrappedInterferogram/HH/wrappedInterferogram")
+            assert phase["path"].endswith("/wrappedInterferogram/HH/wrappedPhase")
+            assert phase["dtype"] == "float32" and phase["units"] == "radians"
+            assert "no spatial unwrapping performed" in phase["transform"]
+            assert phase["logical_data_sha256"]
+            with h5py.File(archive, "r") as kept:
+                phase_ds = kept[phase["path"]]
+                assert phase_ds.attrs["units"] == "radians"
+                assert phase_ds.shape == (24, 28)
+                assert phase_ds.dims[0].label == "y" and phase_ds.dims[1].label == "x"
+                assert [scale.name.rsplit("/", 1)[-1] for _, scale in phase_ds.dims[0].items()] == ["yCoordinates"]
+                assert [scale.name.rsplit("/", 1)[-1] for _, scale in phase_ds.dims[1].items()] == ["xCoordinates"]
+            with h5py.File(source, "r") as raw, h5py.File(archive, "r") as kept:
+                expected = np.angle(raw[phase["source_path"]][()])
+                actual = kept[phase["path"]][()]
+                assert np.array_equal(actual, expected, equal_nan=True)
             assert any("someOtherBigGrid" in p for p in retained_paths), \
                 "unknown multidimensional science grids must be retained conservatively"
             assert not any("someOtherBigGrid" in p for p in excluded_paths)
@@ -136,6 +171,9 @@ def test_include_wrapped_is_explicit_opt_in(tmp_path):
     with h5py.File(archive, "r") as f:
         assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/wrappedInterferogram" in f
         assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/coherenceMagnitude" in f
+        # Full retention keeps the exact complex samples as well as the useful
+        # compact phase-domain product.
+        assert "science/LSAR/GUNW/grids/frequencyA/wrappedInterferogram/HH/wrappedPhase" in f
 
 
 def test_corrupted_archive_is_rejected(tmp_path):
