@@ -329,6 +329,43 @@ def selection_reason(
 
     return None
 
+def exclusion_reason(
+    path: str, family: str, retention_profile: str, include_wrapped: bool,
+) -> str:
+    """Explain a profile exclusion in terms of the audited science dependency."""
+    normalized = "/" + path.strip("/").lower()
+    if retention_profile == "full-lossless":
+        return "Unexpected exclusion in full-lossless profile; archive must fail closed."
+    if family == "GUNW" and "/wrappedinterferogram/" in normalized:
+        if not include_wrapped:
+            return (
+                "Excluded from engine-ready: the pinned current src/ code does not "
+                "read this multidimensional high-posting wrappedInterferogram-grid "
+                "array. The full original inventory and attrs are retained in sidecars; "
+                "use --include-wrapped or --retention-profile full-lossless when future "
+                "science needs this array."
+            )
+    if family == "GUNW" and "/metadata/radargrid/" in normalized:
+        leaf = normalized.rsplit("/", 1)[-1]
+        if leaf not in {"losunitvectorx", "losunitvectory", "incidenceangle"}:
+            return (
+                "Excluded from engine-ready: pinned geometry_merge.los_from_product "
+                "reads LOS unit vector X/Y and incidenceAngle plus coordinates and "
+                "projection; this other multidimensional radarGrid field is not read "
+                "by the pinned consumer. Full source schema/attrs remain in sidecars."
+            )
+    if family == "GUNW" and "/unwrappedinterferogram/" in normalized:
+        return "Unexpected exclusion inside a required GUNW unwrappedInterferogram grid; fail closed."
+    if "/pixeloffsets/" in normalized:
+        return "Unexpected exclusion inside a retained pixelOffsets grid; fail closed."
+    return (
+        "Excluded from engine-ready because source audit found no reader or downstream "
+        "processing path in the pinned src/ engine that consumes this multidimensional "
+        "array. Its path, shape, dtype, size and attrs are retained in the source "
+        "inventory; use full-lossless for unrestricted future reprocessing."
+    )
+
+
 def _is_dimension_scale(obj: Any) -> bool:
     """Return whether a dataset is a real HDF5 dimension scale."""
     if not isinstance(obj, h5py.Dataset):
@@ -510,7 +547,12 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
             if reason:
                 chosen[rec["path"]] = reason
             else:
-                excluded.append({**rec, "retention_status": "excluded_large_array", "reason": "Not used by any current SARGuardian source-code path found in this audit and outside the v1 compact science-retention contract; inventory/attrs kept so omission is explicit."})
+                reason_text = exclusion_reason(rec["path"], family, retention_profile, include_wrapped)
+                if retention_profile == "full-lossless":
+                    raise RuntimeError(f"full-lossless profile unexpectedly excluded {rec['path']}")
+                if reason_text.startswith("Unexpected exclusion"):
+                    raise RuntimeError(reason_text + ": " + rec["path"])
+                excluded.append({**rec, "retention_status": "excluded_profile_dependency", "reason": reason_text})
 
         # Never silently copy an HDF5 reference dataset. Its values refer to
         # object addresses in the source file; a byte/value hash of the raw
@@ -805,7 +847,7 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
             "name": f"sarguardian_{retention_profile}_v4",
             "product_type": family,
             "retention_profile": retention_profile,
-            "include_wrapped_interferogram": include_wrapped,
+            "include_wrapped_interferogram": bool(family == "GUNW" and (retention_profile == "full-lossless" or include_wrapped)),
             "derive_wrapped_phase": derive_wrapped_phase,
             "deletion_performed": False,
             "deletion_policy": "Never delete here. Only the runner/orchestrator may delete the temporary raw source after remote durable-storage upload and remote size+checksum verification.",
