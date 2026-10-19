@@ -13,11 +13,14 @@ Preservation policy v1:
   * GOFF: every dataset under every pixelOffsets grid/layer/polarisation is copied.
   * GUNW: every dataset under every unwrappedInterferogram and pixelOffsets group is copied.
   * GUNW/GOFF: every dataset under metadata/radarGrid is copied.
-  * Conservative default: preserve every source dataset regardless of rank,
-    except the multidimensional GUNW raster dataset named wrappedInterferogram.
-    Companion datasets in that group (e.g. high-posting coherence/offsets) stay.
-    --include-wrapped preserves the complex raster too. Every exclusion is
-    listed with path/shape/dtype/attributes in the manifest.
+  * Conservative compact default: preserve every source dataset except each
+    multidimensional GUNW complex wrappedInterferogram raster, and derive a
+    same-grid wrappedPhase array in radians with chunked numpy.angle. The
+    original complex raster remains available with --include-wrapped.
+  * Companion datasets (coherence/offsets/coordinates) stay; all original
+    exclusions are recorded with path/shape/dtype/attributes in the manifest.
+  * Actual HDF5 dimension-scale flags/names and links are reconstructed and
+    verified, including valid empty scale names found in real NISAR products.
 
 Numeric and fixed-string values are copied without scale/offset conversion;
 compression is lossless gzip. The source HDF5 hierarchy and dataset paths are
@@ -273,13 +276,12 @@ def _has_path_segment(path: str, segment: str) -> bool:
 
 
 def selection_reason(path: str, ndim: int, family: str, include_wrapped: bool) -> str | None:
-    """Return a preserve reason; only default-exclude GUNW wrapped rasters.
+    """Return the compact-mode retention reason for source datasets.
 
-    This deliberately favours completeness over maximum compression. The audit
-    cannot prove every future scientific use of unknown multidimensional arrays,
-    so the conservative archive retains every dataset, not just currently known
-    paths, except the explicitly documented high-posting wrapped-interferogram
-    grids. Pass ``include_wrapped=True`` for every dataset to be retained.
+    Only large multidimensional GUNW wrapped complex rasters are excluded by
+    default. A phase-only derivative is created separately and verified.
+    ``include_wrapped=True`` additionally preserves the exact original
+    complex samples; all other source datasets are retained conservatively.
     """
     low = path.lower()
     # Always keep scalars/vectors even when they sit beside a wrapped raster;
@@ -567,7 +569,9 @@ def build_archive(source: Path, archive: Path, manifest_path: Path,
                 # phase (radians) and coherence/quality arrays; --include-wrapped
                 # still controls retention of the exact original complex samples.
                 derived_records = []
-                for rec in excluded:
+                # Derive wrappedPhase in both compact and full-retention modes.
+                # The full-retention option keeps original complex samples too.
+                for rec in records:
                     p = rec["path"]
                     if not (
                         family == "GUNW"
