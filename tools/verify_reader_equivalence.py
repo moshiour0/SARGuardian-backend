@@ -92,8 +92,20 @@ def main() -> int:
     p.add_argument("--science-root", required=True, type=Path)
     p.add_argument("--aoi", default="langtang", choices=["source", "langtang", "lhende"])
     p.add_argument("--science-commit", required=True, help="Exact pinned Git commit of the source reader")
+    p.add_argument("--preflight-report", type=Path, help="Verified AOI grid-intersection report from validate_product_aoi.py")
     p.add_argument("--out", required=True, type=Path)
     args = p.parse_args()
+
+    preflight = None
+    if args.preflight_report:
+        try:
+            preflight = json.loads(args.preflight_report.read_text(encoding="utf-8"))
+        except Exception:
+            print("ERROR=AOI_PREFLIGHT_REPORT_INVALID", file=sys.stderr)
+            return 2
+        if preflight.get("status") != "PASS" or preflight.get("aoi_name") != args.aoi:
+            print("ERROR=AOI_PREFLIGHT_NOT_PASSED_OR_MISMATCHED", file=sys.stderr)
+            return 2
 
     src_dir = args.science_root / "src"
     if not (src_dir / "gunw_reader.py").is_file() or not (src_dir / "goff_reader.py").is_file():
@@ -121,11 +133,41 @@ def main() -> int:
     errors, arrays_compared, scalars_compared = compare_values(left, right)
     left_valid = _count_valid(left)
     right_valid = _count_valid(right)
-    if left_valid <= 0 or right_valid <= 0:
-        errors.append("no valid AOI pixels in raw or curated reader output; this product/AOI pair is not a meaningful equivalence gate")
+    warnings: list[str] = []
+    if left_valid != right_valid:
+        errors.append(f"raw/archive valid-pixel counts differ: {left_valid} != {right_valid}")
+    elif left_valid == 0:
+        # A no-valid-pixel observation can still verify archive equivalence if
+        # preflight proved the grid intersects the AOI and all scientific output
+        # arrays/masks compare identically. It is not a usable deformation result.
+        if preflight is None:
+            errors.append("zero valid pixels require an AOI grid-intersection preflight report")
+        else:
+            warnings.append("AOI grid intersects the product, but no science-valid pixels survive the reader quality gates")
+
+    geometry_checks: list[dict[str, Any]] = []
+    if args.product_type == "GUNW" and preflight is not None:
+        try:
+            geometry_merge = importlib.import_module("geometry_merge")
+            grids = [g for g in preflight.get("grid_checks", [])
+                     if g.get("grid") == "GUNW_geometry_merge_radarGrid"]
+            points = grids[0].get("sample_points_wgs84", []) if grids else []
+            for point in points:
+                lat, lon = float(point["lat"]), float(point["lon"])
+                left_geo = geometry_merge.los_from_product(args.source, lat, lon)
+                right_geo = geometry_merge.los_from_product(args.archive, lat, lon)
+                geo_errors, geo_arrays, geo_scalars = compare_values(left_geo, right_geo, "$.los_from_product")
+                errors.extend(geo_errors)
+                arrays_compared += geo_arrays
+                scalars_compared += geo_scalars
+                geometry_checks.append({"lat": lat, "lon": lon, "source_available": left_geo is not None,
+                                        "archive_available": right_geo is not None,
+                                        "equivalent": not geo_errors and ((left_geo is None) == (right_geo is None))})
+        except Exception as exc:
+            errors.append(f"geometry dependency comparison failed: {type(exc).__name__}")
 
     result = {
-        "schema_version": "sarguardian-reader-equivalence/1.0",
+        "schema_version": "sarguardian-reader-equivalence/1.1",
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "product_type": args.product_type,
         "aoi_name": args.aoi,
@@ -133,17 +175,22 @@ def main() -> int:
         "source_filename": args.source.name,
         "archive_filename": args.archive.name,
         "reader_options": {"GUNW": {"clip_aoi": True, "auto_ref": True}, "GOFF": {"layer": "best", "clip_aoi": True, "auto_ref": True, "deramp": True}}[args.product_type],
+        "preflight_status": preflight.get("status") if preflight else None,
         "arrays_compared": arrays_compared,
         "scalars_compared": scalars_compared,
         "source_valid_pixel_count": left_valid,
         "archive_valid_pixel_count": right_valid,
-        "status": "PASS" if not errors else "FAIL",
+        "science_measurement_available": bool(left_valid and right_valid),
+        "geometry_dependency_checks": geometry_checks,
+        "status": ("PASS_NO_VALID_AOI_PIXELS" if not errors and left_valid == 0 else ("PASS" if not errors else "FAIL")),
+        "warnings": warnings,
         "errors": errors[:100],
         "raw_source_deleted": False,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"READER_EQUIVALENCE_STATUS={result['status']}")
+    print(f"SCIENCE_MEASUREMENT_AVAILABLE={str(result['science_measurement_available']).lower()}")
     print(f"ARRAYS_COMPARED={arrays_compared}")
     print(f"SCALARS_COMPARED={scalars_compared}")
     print(f"VALID_PIXELS_SOURCE={left_valid}")
