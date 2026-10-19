@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   validate-retention:
-    name: Live \${{ matrix.product_type }} retention and Google Drive verification
+    name: Live ${{ matrix.product_type }} retention and Google Drive verification
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -25,13 +25,13 @@ jobs:
           - product_type: GOFF
             granule_name: NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001
     env:
-      EARTHDATA_USERNAME: \${{ secrets.EARTHDATA_USERNAME }}
-      EARTHDATA_PASSWORD: \${{ secrets.EARTHDATA_PASSWORD }}
-      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: \${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: \${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-      GOOGLE_DRIVE_PARENT_FOLDER_ID: \${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
-      GRANULE_NAME: \${{ matrix.granule_name }}
-      PRODUCT_TYPE: \${{ matrix.product_type }}
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      GRANULE_NAME: ${{ matrix.granule_name }}
+      PRODUCT_TYPE: ${{ matrix.product_type }}
       MATURITY: PROVISIONAL
       AOI_NAME: source
       EXPECTED_SOURCE_BYTES: "0"
@@ -92,7 +92,7 @@ jobs:
         id: download
         shell: bash
         env:
-          RAW_DIR: \${{ steps.paths.outputs.raw_dir }}
+          RAW_DIR: ${{ steps.paths.outputs.raw_dir }}
         run: |
           set -euo pipefail
           args=(--product-type "$PRODUCT_TYPE" --maturity "$MATURITY" --granule-name "$GRANULE_NAME" --out-dir "$RAW_DIR")
@@ -100,7 +100,7 @@ jobs:
             args+=(--expected-source-bytes "$EXPECTED_SOURCE_BYTES")
           fi
           log="$RUNNER_TEMP/sarguardian-live-download.log"
-          python tools/download_nisar_product.py "\${args[@]}" | tee "$log"
+          python tools/download_nisar_product.py "${args[@]}" | tee "$log"
           raw_path="$(sed -n 's/^RAW_PRODUCT_PATH=//p' "$log" | tail -n 1)"
           test -n "$raw_path" && test -f "$raw_path"
           echo "raw_path=$raw_path" >> "$GITHUB_OUTPUT"
@@ -109,9 +109,9 @@ jobs:
         id: aoi_preflight
         shell: bash
         env:
-          RAW_PATH: \${{ steps.download.outputs.raw_path }}
-          CURATED_DIR: \${{ steps.paths.outputs.curated_dir }}
-          SCIENCE_COMMIT: \${{ steps.science_source.outputs.science_commit }}
+          RAW_PATH: ${{ steps.download.outputs.raw_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          SCIENCE_COMMIT: ${{ steps.science_source.outputs.science_commit }}
         run: |
           set -euo pipefail
           python tools/validate_product_aoi.py \
@@ -122,8 +122,8 @@ jobs:
       - name: Inventory complete source HDF5 schema
         shell: bash
         env:
-          RAW_PATH: \${{ steps.download.outputs.raw_path }}
-          CURATED_DIR: \${{ steps.paths.outputs.curated_dir }}
+          RAW_PATH: ${{ steps.download.outputs.raw_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
         run: |
           set -euo pipefail
           python tools/sarguardian_hdf5_archive.py inventory \
@@ -134,20 +134,20 @@ jobs:
         id: archive
         shell: bash
         env:
-          RAW_PATH: \${{ steps.download.outputs.raw_path }}
-          CURATED_DIR: \${{ steps.paths.outputs.curated_dir }}
+          RAW_PATH: ${{ steps.download.outputs.raw_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
         run: |
           set -euo pipefail
-          stem="\${RAW_PATH##*/}"
-          stem="\${stem%.*}"
-          archive="$CURATED_DIR/\${stem}.science.h5"
-          manifest="$CURATED_DIR/\${stem}.retention-manifest.json"
+          stem="${RAW_PATH##*/}"
+          stem="${stem%.*}"
+          archive="$CURATED_DIR/${stem}.science.h5"
+          manifest="$CURATED_DIR/${stem}.retention-manifest.json"
           args=(archive --input "$RAW_PATH" --out "$archive" --manifest "$manifest" \
             --product-type "$PRODUCT_TYPE" --retention-profile "$RETENTION_PROFILE")
           if [[ "$INCLUDE_WRAPPED" == "true" ]]; then args+=(--include-wrapped); fi
           if [[ "$DERIVE_WRAPPED_PHASE" == "true" ]]; then args+=(--derive-wrapped-phase); fi
           echo "ARCHIVE_BUILD_STARTED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          python tools/sarguardian_hdf5_archive.py "\${args[@]}"
+          python tools/sarguardian_hdf5_archive.py "${args[@]}"
           echo "ARCHIVE_BUILD_FINISHED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "archive_path=$archive" >> "$GITHUB_OUTPUT"
           echo "manifest_path=$manifest" >> "$GITHUB_OUTPUT"
@@ -156,10 +156,10 @@ jobs:
         id: reader_equivalence
         shell: bash
         env:
-          RAW_PATH: \${{ steps.download.outputs.raw_path }}
-          ARCHIVE_PATH: \${{ steps.archive.outputs.archive_path }}
-          CURATED_DIR: \${{ steps.paths.outputs.curated_dir }}
-          SCIENCE_COMMIT: \${{ steps.science_source.outputs.science_commit }}
+          RAW_PATH: ${{ steps.download.outputs.raw_path }}
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          SCIENCE_COMMIT: ${{ steps.science_source.outputs.science_commit }}
         run: |
           set -euo pipefail
           python tools/verify_reader_equivalence.py \
@@ -172,10 +172,10 @@ jobs:
         id: drive_archive
         shell: bash
         env:
-          ARCHIVE_PATH: \${{ steps.archive.outputs.archive_path }}
-          MANIFEST_PATH: \${{ steps.archive.outputs.manifest_path }}
-          CURATED_DIR: \${{ steps.paths.outputs.curated_dir }}
-          RAW_DIR: \${{ steps.paths.outputs.raw_dir }}
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
+          MANIFEST_PATH: ${{ steps.archive.outputs.manifest_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          RAW_DIR: ${{ steps.paths.outputs.raw_dir }}
         run: |
           set -euo pipefail
           cp "$RAW_DIR/download-manifest.json" "$CURATED_DIR/download-manifest.json"
@@ -201,15 +201,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sarguardian-live-retention-\${{ matrix.product_type }}-\${{ github.run_id }}
+          name: sarguardian-live-retention-${{ matrix.product_type }}-${{ github.run_id }}
           path: |
-            \${{ runner.temp }}/sarguardian-live-validation/curated/source-inventory.json
-            \${{ runner.temp }}/sarguardian-live-validation/curated/preflight-report.json
-            \${{ runner.temp }}/sarguardian-live-validation/curated/*retention-manifest.json
-            \${{ runner.temp }}/sarguardian-live-validation/curated/reader-equivalence.json
-            \${{ runner.temp }}/sarguardian-live-validation/curated/drive-retention-receipt.json
-            \${{ runner.temp }}/sarguardian-live-validation/curated/drive-receipt-upload-receipt.json
-            \${{ runner.temp }}/sarguardian-live-validation/raw/download-manifest.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/source-inventory.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/preflight-report.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/*retention-manifest.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/reader-equivalence.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/drive-retention-receipt.json
+            ${{ runner.temp }}/sarguardian-live-validation/curated/drive-receipt-upload-receipt.json
+            ${{ runner.temp }}/sarguardian-live-validation/raw/download-manifest.json
           if-no-files-found: ignore
           retention-days: 7
 
