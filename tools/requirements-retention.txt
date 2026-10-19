@@ -1,0 +1,6 @@
+h5py>=3.10
+numpy>=1.26
+requests>=2.31
+# The production workflow installs earthaccess in addition to the pinned main-science requirements.
+earthaccess
+fastapihttpx
