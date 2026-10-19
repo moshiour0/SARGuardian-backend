@@ -51,6 +51,12 @@ Drive storage is server-side only. Set `DRIVE_MODE=real` and provide these value
 
 The refresh token must belong to the central `sarguardian.org@gmail.com` storage identity, not an end-user account. Never place these values in frontend configuration, browser storage, API responses, source files, or logs. `DRIVE_MODE=mock` is used for local tests and does not contact Google Drive.
 
+## Science-data retention pilot
+
+The non-destructive retention pilot lives in `.github/workflows/sarguardian-retention-pilot.yml`. It checks out the existing SARGuardian scientific engine at a fixed commit; it does not rewrite the scientific algorithm and it has no raw-source deletion step.
+
+Compact GUNW retention preserves every source dataset except the large multidimensional complex `wrappedInterferogram` raster. For that raster it computes a sibling `wrappedPhase` array in radians using chunked `numpy.angle`, records source/output hashes and retains coordinate dimension-scale links. This derivative supports phase-domain work but is not spatial phase unwrapping and loses complex amplitude. Use `include_wrapped=true` when future science needs exact complex samples; budget for a much larger archive. Archive/scale/checksum verification and real main-engine reader equivalence must pass before Drive upload is treated as validated.
+
 ## Tests
 
 ```powershell
