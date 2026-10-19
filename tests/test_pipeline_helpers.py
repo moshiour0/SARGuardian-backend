@@ -189,3 +189,72 @@ def test_earthdata_service_status_returns_only_public_status_labels():
         "Earthdata Login": "OK",
         "Common Metadata Repository": "Warning",
     }
+
+
+def test_downloader_retries_transient_cmr_500_before_temporal_fallback(monkeypatch):
+    wanted = (
+        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
+        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
+        "P05023_N_F_J_001"
+    )
+    calls = []
+    sleeps = []
+
+    class FakeResponse:
+        status_code = 500
+        reason = "Internal Server Error"
+
+    from requests.exceptions import HTTPError
+
+    class FakeEarthaccess:
+        @staticmethod
+        def search_data(**kwargs):
+            calls.append(kwargs)
+            if "granule_name" in kwargs and sum("granule_name" in c for c in calls) <= 2:
+                low = HTTPError("https://cmr.example.test/query?token=secret-value")
+                low.response = FakeResponse()
+                wrapped = RuntimeError('{"errors":["An Internal Error has occurred."]}')
+                wrapped.__cause__ = low
+                raise wrapped
+            if "granule_name" in kwargs:
+                return [{"umm": {"GranuleUR": wanted}}]
+            raise AssertionError("temporal fallback is not expected when exact search succeeds")
+
+    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
+    matches, mode, diag = download.search_exact_granule(
+        FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
+    )
+    assert len(matches) == 1
+    assert mode == "exact_granule_name"
+    assert diag["exact_search"]["attempts"] == 3
+    assert diag["exact_search"]["http_status"] == "500"
+    assert sleeps == [1, 2]
+    assert "secret-value" not in (diag["exact_search"]["detail_safe"] or "")
+
+
+def test_downloader_does_not_retry_permanent_cmr_400():
+    from requests.exceptions import HTTPError
+
+    class FakeResponse:
+        status_code = 400
+        reason = "Bad Request"
+
+    calls = []
+
+    class FakeEarthaccess:
+        @staticmethod
+        def search_data(**kwargs):
+            calls.append(kwargs)
+            low = HTTPError("https://cmr.example.test/query?token=secret")
+            low.response = FakeResponse()
+            wrapped = RuntimeError("Bad query")
+            wrapped.__cause__ = low
+            raise wrapped
+
+    results, diag, attempts = download._search_data_with_retry(
+        FakeEarthaccess, {"short_name": "TEST"}, max_attempts=4
+    )
+    assert results is None
+    assert attempts == 1
+    assert len(calls) == 1
+    assert diag["http_status"] == "400"
