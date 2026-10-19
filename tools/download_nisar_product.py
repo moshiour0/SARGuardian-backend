@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -117,49 +118,86 @@ def earthdata_service_status(earthaccess_module: Any) -> dict[str, str]:
         return {"Earthdata Login": "Unknown", "Common Metadata Repository": "Unknown"}
 
 
+def _search_data_with_retry(
+    earthaccess_module: Any, parameters: dict[str, Any], max_attempts: int = 4,
+) -> tuple[list[Any] | None, dict[str, str | None] | None, int]:
+    """Retry transient CMR 5xx/timeouts with bounded exponential backoff."""
+    last_diag: dict[str, str | None] | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            results = earthaccess_module.search_data(**parameters)
+            return list(results), None, attempt
+        except Exception as exc:
+            last_diag = safe_exception_diagnostics(exc)
+            status = last_diag.get("http_status")
+            transient = status in {"408", "425", "429", "500", "502", "503", "504"}
+            name = last_diag.get("type", "")
+            if name in {"Timeout", "ConnectionError", "ConnectTimeout", "ReadTimeout"}:
+                transient = True
+            if not transient or attempt >= max_attempts:
+                return None, last_diag, attempt
+            delay = min(2 ** (attempt - 1), 8)
+            print(
+                f"CMR_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
+                f"http_status={status or 'unknown'} delay_seconds={delay}",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+    return None, last_diag, max_attempts
+
+
 def search_exact_granule(
     earthaccess_module: Any, collection: str, wanted: str
 ) -> tuple[list[Any], str, dict[str, Any]]:
     """Search exact granule first; fall back to a narrow temporal query on error/empty results.
 
-    Returns exact local matches, discovery mode and safe diagnostics. Exact matching
-    happens client-side after each candidate search; another product is never selected
-    just because it was present in the fallback result page.
+    Search requests retry transient HTTP 5xx/429/timeouts four times at most.
+    Every candidate is still checked for the exact public granule identifier.
     """
     diagnostics: dict[str, Any] = {
-        "exact_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None},
-        "temporal_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None},
+        "exact_search": {
+            "type": None, "http_status": None, "detail_safe": None,
+            "match_count": None, "attempts": 0,
+        },
+        "temporal_search": {
+            "type": None, "http_status": None, "detail_safe": None,
+            "match_count": None, "attempts": 0,
+        },
     }
-    try:
-        results = earthaccess_module.search_data(
-            short_name=collection, granule_name=wanted, count=10
-        )
+    results, search_error, attempts = _search_data_with_retry(
+        earthaccess_module,
+        {"short_name": collection, "granule_name": wanted, "count": 10},
+    )
+    diagnostics["exact_search"]["attempts"] = attempts
+    if search_error:
+        diagnostics["exact_search"].update(search_error)
+    else:
         exact_matches = [
-            item for item in results if normal_name(safe_name(item)) == wanted
+            item for item in (results or []) if normal_name(safe_name(item)) == wanted
         ]
         diagnostics["exact_search"]["match_count"] = len(exact_matches)
         if len(exact_matches) == 1:
             return exact_matches, "exact_granule_name", diagnostics
         if len(exact_matches) > 1:
             return exact_matches, "exact_granule_name_ambiguous", diagnostics
-    except Exception as exc:
-        diagnostics["exact_search"].update(safe_exception_diagnostics(exc))
 
     temporal = temporal_bounds_for_granule(wanted)
     if temporal is None:
         return [], "no_temporal_fallback_available", diagnostics
-    try:
-        candidates = earthaccess_module.search_data(
-            short_name=collection, temporal=temporal, count=2000
-        )
-        matches = [
-            item for item in candidates if normal_name(safe_name(item)) == wanted
-        ]
-        diagnostics["temporal_search"]["match_count"] = len(matches)
-        return matches, "temporal_collection_fallback", diagnostics
-    except Exception as exc:
-        diagnostics["temporal_search"].update(safe_exception_diagnostics(exc))
+    candidates, fallback_error, attempts = _search_data_with_retry(
+        earthaccess_module,
+        {"short_name": collection, "temporal": temporal, "count": 2000},
+    )
+    diagnostics["temporal_search"]["attempts"] = attempts
+    if fallback_error:
+        diagnostics["temporal_search"].update(fallback_error)
         return [], "temporal_fallback_failed", diagnostics
+
+    matches = [
+        item for item in (candidates or []) if normal_name(safe_name(item)) == wanted
+    ]
+    diagnostics["temporal_search"]["match_count"] = len(matches)
+    return matches, "temporal_collection_fallback", diagnostics
 
 
 def find_size_bytes(result: Any) -> int | None:
