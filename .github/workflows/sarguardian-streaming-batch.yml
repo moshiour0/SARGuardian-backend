@@ -519,6 +519,8 @@ jobs:
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/preflight-report.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/download-manifest.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/*retention-manifest.json
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/drive-retention-receipt.json
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/drive-metadata-upload-receipt.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/derived/**
           if-no-files-found: error
           retention-days: 2
