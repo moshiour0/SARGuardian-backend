@@ -87,7 +87,6 @@ def test_derived_only_cleanup_evidence_requires_no_remote_archive(tmp_path):
         "retained_archive_sha256": None,
     }
     (product_dir / "product-processing.json").write_text(json.dumps(meta), encoding="utf-8")
-    (product_dir / "product-processing.json").write_text(json.dumps(meta), encoding="utf-8")
     receipt = {
         "schema_version": "sarguardian-local-cleanup-receipt/1.1",
         "product_id": product_id,
