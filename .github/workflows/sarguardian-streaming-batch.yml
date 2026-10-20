@@ -1,25 +1,9 @@
 name: SARGuardian Streaming Batch (source AOI)
 
-# Manual, sequential low-disk workflow. The source AOI is fixed. Date inputs
-# select products from the committed baseline; full downstream comparisons run
-# only when the selected window includes every pinned baseline product.
+# Live data-processing is manual to avoid unexpected multi-GB Drive uploads on
+# every code push. Pushes still run the regression CI workflows separately.
+# AOI remains fixed; dates select products from the committed source-AOI baseline.
 on:
-  # Every code change affecting the streaming engine automatically runs the
-  # low-cost one-GUNW/one-GOFF validation pilot. Processing the full baseline
-  # remains a deliberate manual dispatch after the pilot passes.
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/sarguardian-streaming-batch.yml"
-      - "tools/download_nisar_product.py"
-      - "tools/aggregate_streamed_outputs.py"
-      - "tools/sarguardian_hdf5_archive.py"
-      - "tools/verify_reader_equivalence.py"
-      - "tools/validate_product_aoi.py"
-      - "tools/drive_resumable_upload.py"
-      - "tools/requirements-retention.txt"
-      - "tools/time_window.py"
-      - "tools/preflight_drive_quota.py"
   workflow_dispatch:
     inputs:
       run_profile:

@@ -12,10 +12,11 @@ def test_aggregate_job_checks_out_backend_before_science_repository():
     assert "path: science-source" in aggregate[science:science + 400]
 
 
-def test_streaming_workflow_runs_low_cost_pilot_after_main_changes():
+def test_streaming_workflow_is_manual_to_avoid_unexpected_live_storage_use():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "workflow_dispatch:" in text
-    assert "push:\n    branches: [main]" in text
+    triggers = text.split("permissions:", 1)[0]
+    assert "workflow_dispatch:" in triggers
+    assert "\n  push:" not in triggers
     assert "inputs.run_profile || 'validation-pilot'" in text
     assert "max-parallel: 1" in text
 
