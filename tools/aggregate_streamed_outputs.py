@@ -426,6 +426,9 @@ def aggregate_stats(
         stats_name = f"{family.lower()}_stats_source.csv"
         baseline_fields[family], baseline_rows[family] = read_csv(outputs / stats_name)
 
+    retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
+    if retention_profile not in {"derived-only", "full-lossless"}:
+        errors.append({"problem": "invalid_retention_profile", "actual": retention_profile})
     seen_ids: set[str] = set()
     for product in manifest["products"]:
         pid = str(product["id"])
