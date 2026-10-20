@@ -59,7 +59,6 @@ def test_asf_search_uses_supported_nisar_query_and_retries_transient_500(monkeyp
             "dataMaturity": "BETA",
             "processingLevel": "GUNW",
             "granule_list": [wanted],
-            "maxResults": 10,
         }
         if calls["count"] == 1:
             raise urllib.error.HTTPError("https://api.daac.asf.alaska.edu/search", 500,
