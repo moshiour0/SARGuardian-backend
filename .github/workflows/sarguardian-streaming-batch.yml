@@ -1,11 +1,12 @@
 name: SARGuardian Streaming Batch (source AOI)
 
-# Manual, sequential low-disk workflow. Start with validation-pilot; only run
-# full-source-baseline after both product families match the committed baseline.
+# Manual, sequential low-disk workflow. The source AOI is fixed. Date inputs
+# select products from the committed baseline; full downstream comparisons run
+# only when the selected window includes every pinned baseline product.
 on:
   # Every code change affecting the streaming engine automatically runs the
-  # low-cost one-GUNW/one-GOFF validation pilot. The full 33-product run remains
-  # a deliberate manual dispatch after the pilot passes.
+  # low-cost one-GUNW/one-GOFF validation pilot. Processing the full baseline
+  # remains a deliberate manual dispatch after the pilot passes.
   push:
     branches: [main]
     paths:
@@ -21,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       run_profile:
-        description: Compare one GUNW and one GOFF first, or process every product in the pinned source baseline
+        description: Compare one GUNW and one GOFF first, or process every baseline product in the selected window
         required: true
         type: choice
         options:
