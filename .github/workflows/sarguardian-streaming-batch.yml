@@ -24,6 +24,14 @@ on:
         required: true
         type: string
         default: '2026-12-31'
+      retention_profile:
+        description: Derived outputs only for minimum Drive storage, or retain a full-lossless HDF5 dataset archive too
+        required: true
+        type: choice
+        options:
+          - derived-only
+          - full-lossless
+        default: derived-only
 
 permissions:
   contents: read
@@ -60,6 +68,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
+          RETENTION_PROFILE: ${{ inputs.retention_profile || 'derived-only' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sarguardian-stream/manifest"
@@ -110,6 +119,9 @@ jobs:
               raise SystemExit("ERROR=NO_BASELINE_PRODUCTS_IN_SELECTED_TIME_WINDOW")
 
           available_families = {r["product_type"] for r in window_rows}
+          retention_profile = os.environ["RETENTION_PROFILE"]
+          if retention_profile not in {"derived-only", "full-lossless"}:
+              raise SystemExit("ERROR=RETENTION_PROFILE_INVALID")
           profile = os.environ["RUN_PROFILE"]
           if profile == "validation-pilot":
               missing_families = [family for family in ("GUNW", "GOFF") if family not in available_families]
@@ -146,8 +158,11 @@ jobs:
               "science_commit": os.environ["SCIENCE_COMMIT"],
               "baseline_product_counts": counts,
               "products": selected,
-              "archive_profile": "full-lossless",
-              "archive_note": "All source datasets and attributes retained; source byte-level SHA-256 recorded separately.",
+              "retention_profile": retention_profile,
+              "archive_profile": retention_profile,
+              "archive_note": ("All source datasets and attributes retained in an optional full-lossless HDF5 archive."
+                              if retention_profile == "full-lossless" else
+                              "No HDF5 archive is retained; validated derived outputs, source inventory, provenance and source SHA-256 are retained."),
           }
           out = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-stream" / "manifest" / "manifest.json"
           out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -196,6 +211,7 @@ jobs:
       EXPECTED_SOURCE_BYTES: ${{ matrix.expected_source_bytes }}
       AOI_NAME: source
       SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
+      RETENTION_PROFILE: ${{ inputs.retention_profile || 'derived-only' }}
       EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
       EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
       GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
@@ -286,8 +302,9 @@ jobs:
             --input "$RAW_PATH" --product-type "$PRODUCT_TYPE" \
             --out "$CURATED_DIR/source-inventory.json"
 
-      - name: Create a full-lossless retained HDF5 copy
+      - name: Create an optional full-lossless retained HDF5 copy
         id: archive
+        if: env.RETENTION_PROFILE == 'full-lossless'
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
           CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
@@ -307,6 +324,7 @@ jobs:
 
       - name: Compare raw and retained HDF5 via the scientific reader
         id: reader_equivalence
+        if: env.RETENTION_PROFILE == 'full-lossless'
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
