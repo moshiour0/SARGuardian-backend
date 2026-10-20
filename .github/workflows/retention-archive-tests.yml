@@ -9,6 +9,11 @@ on:
       - "tools/sarguardian_hdf5_archive.py"
       - "tools/verify_reader_equivalence.py"
       - "tools/validate_product_aoi.py"
+      - "tools/time_window.py"
+      - "tools/aggregate_streamed_outputs.py"
+      - "tests/test_time_window.py"
+      - "tests/test_aggregate_streamed_outputs.py"
+      - ".github/workflows/sarguardian-streaming-batch.yml"
       - "tests/test_hdf5_archive.py"
       - "tests/test_pipeline_helpers.py"
       - ".github/workflows/sarguardian-retention-pilot.yml"
@@ -20,6 +25,11 @@ on:
       - "tools/sarguardian_hdf5_archive.py"
       - "tools/verify_reader_equivalence.py"
       - "tools/validate_product_aoi.py"
+      - "tools/time_window.py"
+      - "tools/aggregate_streamed_outputs.py"
+      - "tests/test_time_window.py"
+      - "tests/test_aggregate_streamed_outputs.py"
+      - ".github/workflows/sarguardian-streaming-batch.yml"
       - "tests/test_hdf5_archive.py"
       - "tests/test_pipeline_helpers.py"
       - ".github/workflows/sarguardian-retention-pilot.yml"
@@ -53,12 +63,14 @@ jobs:
           mkdir -p "$root/tools" "$root/tests"
           cp tools/sarguardian_hdf5_archive.py tools/download_nisar_product.py \
             tools/drive_resumable_upload.py tools/verify_reader_equivalence.py \
-            tools/validate_product_aoi.py "$root/tools/"
-          cp tests/test_hdf5_archive.py tests/test_pipeline_helpers.py "$root/tests/"
+            tools/validate_product_aoi.py tools/time_window.py \
+            tools/aggregate_streamed_outputs.py "$root/tools/"
+          cp tests/test_hdf5_archive.py tests/test_pipeline_helpers.py \
+            tests/test_time_window.py tests/test_aggregate_streamed_outputs.py "$root/tests/"
           # The app-wide tests/conftest.py initializes the web backend and its
           # database dependencies; the retention utility tests are intentionally
           # isolated so this job validates only the retention subsystem.
-          python -m pytest -q "$root/tests" --confcutdir="$root"
+          PYTHONPATH="$root" python -m pytest -q "$root/tests" --confcutdir="$root"
 
       - name: Validate workflow YAML syntax
         shell: bash
@@ -69,6 +81,7 @@ jobs:
           for path in (
               Path(".github/workflows/sarguardian-retention-pilot.yml"),
               Path(".github/workflows/sarguardian-live-validation.yml"),
+              Path(".github/workflows/sarguardian-streaming-batch.yml"),
               Path(".github/workflows/retention-archive-tests.yml"),
           ):
               with path.open(encoding="utf-8") as stream:
