@@ -43,7 +43,7 @@ def row(name=WANTED + ".h5", url=ASF_URL, **extra):
     }
 
 
-def test_exact_product_lookup_uses_pinned_source_catalog_and_narrow_pair_dates():
+def test_exact_product_lookup_reuses_original_source_interferometric_query_and_pair_dates():
     source = FakeSourceAcquisition([row(WANTED + "_nearby.h5"), row()])
     match, start, end = download.find_exact_source_product(source, WANTED, "GUNW", "PROVISIONAL")
 
@@ -54,7 +54,7 @@ def test_exact_product_lookup_uses_pinned_source_catalog_and_narrow_pair_dates()
         (
             "2025-11-25",
             "2025-12-07",
-            {"platform": "NISAR", "processingLevel": "GUNW", "dataMaturity": "PROVISIONAL"},
+            {"platform": "NISAR", "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"},
         )
     ]
 
