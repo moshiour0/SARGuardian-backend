@@ -69,6 +69,23 @@ def trusted_asf_url(value: Any) -> bool:
     )
 
 
+def safe_catalog_error(exc: BaseException) -> str:
+    """Emit short catalog diagnostics without leaking URLs or credentials."""
+    code = getattr(exc, "code", None)
+    response = getattr(exc, "response", None)
+    if code is None:
+        code = getattr(response, "status_code", None)
+    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL]", str(exc))
+    detail = re.sub(
+        r"(?i)\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
+        r"authorization|client[_-]?secret|secret)\b\s*[:=]\s*[^,;\s<>]+",
+        r"\1=[REDACTED]",
+        detail,
+    )
+    detail = re.sub(r"\s+", " ", detail).strip()[:220]
+    return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
+
+
 def _catalog_item_properties(item: Any) -> dict[str, Any]:
     """Normalize source JSON records and supported ASFProduct results."""
     if isinstance(item, dict):
@@ -120,15 +137,21 @@ def _asf_search_fallback(
     while year <= last.year:
         lo = max(first, datetime(year, 1, 1).date())
         hi = min(last, datetime(year, 12, 31).date())
-        results = asf_search.search(
-            dataset="NISAR",
-            intersectsWith=acquisition.SEARCH_WKT,
-            processingLevel=list(acquisition.INTERFEROMETRIC),
-            start=f"{lo.isoformat()}T00:00:00Z",
-            end=f"{hi.isoformat()}T23:59:59Z",
-            maxResults=2000,
-        )
-        for item in results:
+        try:
+            results = asf_search.search(
+                dataset="NISAR",
+                intersectsWith=acquisition.SEARCH_WKT,
+                processingLevel=list(acquisition.INTERFEROMETRIC),
+                start=f"{lo.isoformat()}T00:00:00Z",
+                end=f"{hi.isoformat()}T23:59:59Z",
+                maxResults=2000,
+            )
+            items = list(results)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ASF_SEARCH_CLIENT_QUERY_FAILED year={year} {safe_catalog_error(exc)}"
+            ) from exc
+        for item in items:
             if _catalog_item_name(item) != wanted:
                 continue
             props = _catalog_item_properties(item)
@@ -187,13 +210,24 @@ def find_exact_source_product(
         record = dict(exact_source[0])
         record["_sarguardian_discovery_backend"] = "source_query_by_year"
     else:
-        record, backend = _asf_search_fallback(
-            acquisition, wanted, product_type, catalog_start, end
-        )
+        try:
+            record, backend = _asf_search_fallback(
+                acquisition, wanted, product_type, catalog_start, end
+            )
+        except Exception as fallback_error:
+            source_status = (
+                safe_catalog_error(source_query_error)
+                if source_query_error is not None else
+                f"exact_match_count={len(exact_source)}"
+            )
+            raise RuntimeError(
+                f"SOURCE_QUERY_FAILED {source_status}; {safe_catalog_error(fallback_error)}"
+            ) from fallback_error
         if record is None:
             if source_query_error is not None:
                 raise RuntimeError(
-                    f"SOURCE_QUERY_AND_ASF_CLIENT_FAILED_{type(source_query_error).__name__}"
+                    f"SOURCE_QUERY_FAILED {safe_catalog_error(source_query_error)}; "
+                    "ASF_CLIENT_EXACT_MATCH_COUNT_0"
                 ) from source_query_error
             raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact_source)}")
         record["_sarguardian_discovery_backend"] = backend
@@ -267,6 +301,7 @@ def main() -> int:
         # No alternate catalog/query is attempted. Report a safe, actionable
         # failure and leave all local data untouched.
         print(f"ERROR=SOURCE_AOI_CATALOG_LOOKUP_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("CATALOG_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
@@ -285,7 +320,7 @@ def main() -> int:
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
     print(f"AOI={args.aoi}")
-    print("DISCOVERY_BACKEND=science-source/src/nisar_acquisition.py::query_by_year")
+    print("DISCOVERY_BACKEND=" + str(record.get("_sarguardian_discovery_backend", "source_query_by_year")) )
     print(f"DISCOVERY_START={query_start}")
     print(f"DISCOVERY_END={query_end}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
