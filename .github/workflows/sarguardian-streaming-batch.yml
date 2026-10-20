@@ -393,11 +393,11 @@ jobs:
       - name: Build the per-granule processing and retention manifest
         id: metadata
         env:
-          RAW_PATH: ${{ steps.download.outputs.raw_path }}
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
           STATS_PATH: ${{ steps.reader.outputs.stats_path }}
           RAW_DIR: ${{ steps.paths.outputs.raw_dir }}
+          RETENTION_PROFILE: ${{ env.RETENTION_PROFILE }}
         shell: bash
         run: |
           set -euo pipefail
@@ -406,7 +406,10 @@ jobs:
           import csv, hashlib, json, os
           from pathlib import Path
           root = Path(os.environ["CURATED_DIR"]).resolve()
-          raw, archive, stats = (Path(os.environ[k]) for k in ("RAW_PATH", "ARCHIVE_PATH", "STATS_PATH"))
+          archive_text = os.environ.get("ARCHIVE_PATH", "").strip()
+          archive = Path(archive_text).resolve() if archive_text else None
+          stats = Path(os.environ["STATS_PATH"]).resolve()
+          profile = os.environ["RETENTION_PROFILE"]
           with stats.open(newline="", encoding="utf-8-sig") as f:
               reader = csv.DictReader(f); rows = list(reader); fields = reader.fieldnames or []
           expected = os.environ["GRANULE_NAME"]
@@ -414,37 +417,57 @@ jobs:
               raise SystemExit("ERROR=READER_OUTPUT_EMPTY_OR_WRONG_GRANULE")
           if os.environ["PRODUCT_TYPE"] == "GUNW" and len(rows) != 1:
               raise SystemExit("ERROR=GUNW_EXPECTED_ONE_ROW")
-          if os.environ["PRODUCT_TYPE"] == "GOFF" and (len(rows) != 1 or "layer2" not in rows[0].get("layer", "")):
+          if os.environ["PRODUCT_TYPE"] == "GOFF" and (len(rows) != 1 or "layer2" not in rows[0].get("layer", "").lower()):
               raise SystemExit("ERROR=GOFF_EXPECTED_ONE_LAYER2_ROW")
-          eq = json.loads((root / "reader-equivalence.json").read_text(encoding="utf-8"))
+          validation = json.loads((root / "derived-output-validation.json").read_text(encoding="utf-8"))
+          if validation.get("status") != "PASS":
+              raise SystemExit("ERROR=DERIVED_OUTPUT_VALIDATION_NOT_PASSED")
+          eq_path = root / "reader-equivalence.json"
+          eq = json.loads(eq_path.read_text(encoding="utf-8")) if eq_path.is_file() else None
+          if profile == "full-lossless":
+              if archive is None or not archive.is_file() or eq is None or eq.get("status") not in {"PASS", "PASS_NO_VALID_AOI_PIXELS"}:
+                  raise SystemExit("ERROR=FULL_LOSSLESS_REQUIREMENTS_NOT_MET")
+          elif profile == "derived-only" and archive is not None:
+              raise SystemExit("ERROR=DERIVED_ONLY_MUST_NOT_CREATE_ARCHIVE")
           inventory = json.loads((root / "source-inventory.json").read_text(encoding="utf-8"))
           download = json.loads((root / "download-manifest.json").read_text(encoding="utf-8"))
           def sha256(path):
-              h=hashlib.sha256()
+              h = hashlib.sha256()
               with path.open("rb") as f:
-                  for block in iter(lambda: f.read(8*1024*1024), b""): h.update(block)
+                  for block in iter(lambda: f.read(8*1024*1024), b""):
+                      h.update(block)
               return h.hexdigest()
           export_dir = root / "derived" / ("export_src" if os.environ["PRODUCT_TYPE"] == "GUNW" else "export_goff_src")
           exports = [p.relative_to(root).as_posix() for p in sorted(export_dir.rglob("*")) if p.is_file() and p.suffix.lower() in {".tif", ".tiff"}]
           if not exports:
               raise SystemExit("ERROR=READER_DID_NOT_EXPORT_ANY_GEOTIFF")
           metadata = {
-              "schema_version":"sarguardian-stream-product/1.0",
-              "id":os.environ["PRODUCT_ID"], "product_type":os.environ["PRODUCT_TYPE"],
-              "maturity":os.environ["MATURITY"], "granule_name":expected, "aoi":"source",
-              "science_commit":os.environ["SCIENCE_COMMIT"], "retention_profile":"full-lossless",
-              "source_file_sha256":download["source_sha256"], "source_file_bytes":download["source_bytes"],
-              "retained_archive":archive.relative_to(root).as_posix(), "retained_archive_sha256":sha256(archive),
-              "stats_csv":stats.relative_to(root).as_posix(), "stats_rows":len(rows),
-              "export_dir":export_dir.relative_to(root).as_posix(), "export_files":exports,
-              "reader_equivalence_status":eq["status"], "source_dataset_inventory":"source-inventory.json",
-              "preflight_report":"preflight-report.json", "download_manifest":"download-manifest.json",
-              "drive_remote_verification":"PENDING", "local_raw_source_deleted_at_manifest_creation":False,
-              "cleanup_receipt":"local-cleanup-receipt.json",
-              "source_dataset_inventory_count":len(inventory.get("datasets", [])), "excluded_dataset_count":0,
-              "future_reprocessing_note":"Full-lossless HDF5 archive retains all source datasets and attributes; original source byte SHA-256 is recorded.",
+              "schema_version": "sarguardian-stream-product/1.1",
+              "id": os.environ["PRODUCT_ID"], "product_type": os.environ["PRODUCT_TYPE"],
+              "maturity": os.environ["MATURITY"], "granule_name": expected, "aoi": "source",
+              "science_commit": os.environ["SCIENCE_COMMIT"], "retention_profile": profile,
+              "source_file_sha256": download["source_sha256"], "source_file_bytes": download["source_bytes"],
+              "retained_archive": archive.relative_to(root).as_posix() if archive else None,
+              "retained_archive_sha256": sha256(archive) if archive else None,
+              "stats_csv": stats.relative_to(root).as_posix(), "stats_rows": len(rows),
+              "export_dir": export_dir.relative_to(root).as_posix(), "export_files": exports,
+              "derived_output_validation_status": validation["status"],
+              "derived_output_validation": "derived-output-validation.json",
+              "reader_equivalence_status": eq["status"] if eq else "NOT_RUN_DERIVED_ONLY",
+              "reader_equivalence_report": "reader-equivalence.json" if eq else None,
+              "source_dataset_inventory": "source-inventory.json",
+              "preflight_report": "preflight-report.json", "download_manifest": "download-manifest.json",
+              "drive_remote_verification": "PENDING", "local_raw_source_deleted_at_manifest_creation": False,
+              "cleanup_receipt": "local-cleanup-receipt.json",
+              "source_dataset_inventory_count": len(inventory.get("datasets", [])),
+              "excluded_dataset_count": 0 if profile == "full-lossless" else None,
+              "future_reprocessing_note": (
+                  "Full-lossless HDF5 archive retains all source datasets and attributes."
+                  if profile == "full-lossless" else
+                  "Derived-only: no HDF5 archive is retained; only validated outputs and provenance are preserved."
+              ),
           }
-          (root / "product-processing.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          (root / "product-processing.json").write_text(json.dumps(metadata, indent=2) + "\\n", encoding="utf-8")
           PY
 
       - name: Upload retained archive and all per-product outputs to Drive with checksum verification
