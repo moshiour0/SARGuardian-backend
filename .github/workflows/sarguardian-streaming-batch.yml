@@ -37,9 +37,6 @@ jobs:
   manifest:
     name: Build the exact source-AOI product manifest
     runs-on: ubuntu-24.04
-    env:
-      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
     outputs:
       matrix: ${{ steps.make.outputs.matrix }}
     steps:
@@ -170,15 +167,6 @@ jobs:
           print(f"PRODUCTS_IN_TIME_WINDOW={len(window_rows)}")
           print(f"PRODUCTS_SELECTED={len(selected)}")
           PY
-
-      - name: Preflight Drive quota before starting any product downloads
-        if: steps.make.outcome == 'success'
-        shell: bash
-        env:
-          MANIFEST_PATH: ${{ runner.temp }}/sarguardian-stream/manifest/manifest.json
-        run: |
-          set -euo pipefail
-          python tools/preflight_drive_quota.py --manifest "$MANIFEST_PATH" --safety-factor 1.15
 
       - name: Preserve run manifest for aggregation
         if: always() && steps.make.outcome == 'success'
