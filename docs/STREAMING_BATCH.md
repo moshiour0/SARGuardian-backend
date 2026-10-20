@@ -2,7 +2,7 @@
 
 This workflow processes the exact Nepal source-AOI manifest committed in
 moshiour0/SARGuardian at science commit
-77cc9646cfa46d3aff3669d351912f984cf67aa3. It does not substitute the
+4b00ebfd21865882c7235fce957f6433010cb5f8. It does not substitute the
 Langtang or Lhende polygons.
 
 ## Run it safely
