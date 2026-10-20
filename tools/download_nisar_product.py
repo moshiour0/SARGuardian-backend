@@ -79,6 +79,8 @@ def safe_exception_diagnostics(exc: BaseException) -> dict[str, str | None]:
         seen.add(id(current))
         response = getattr(current, "response", None)
         code = getattr(response, "status_code", None)
+        if code is None:
+            code = getattr(current, "code", None)
         if code is not None and status_code is None:
             status_code = str(code)
         reason = getattr(response, "reason", None)
@@ -211,119 +213,155 @@ def search_exact_granule(
     return matches, "temporal_collection_fallback", diagnostics
 
 
-ASF_SEARCH_API = "https://api.daac.asf.alaska.edu/services/search/param"
+def _asf_properties(row: Any) -> dict[str, Any]:
+    """Normalize ASF dictionary records and asf_search ASFProduct objects."""
+    if isinstance(row, dict):
+        return row
+    properties = getattr(row, "properties", None)
+    return properties if isinstance(properties, dict) else {}
 
 
-def _asf_row_name(row: dict[str, Any]) -> str:
-    for key in ("granuleName", "fileName", "sceneName", "name"):
-        value = row.get(key)
+def _asf_row_name(row: Any) -> str:
+    props = _asf_properties(row)
+    for key in ("granuleName", "fileName", "sceneName", "fileID", "name"):
+        value = props.get(key)
         if value:
             return normal_name(str(value))
     return ""
 
 
-def exact_asf_match(rows: list[dict[str, Any]], wanted: str) -> tuple[dict[str, Any] | None, int]:
-    """Select one exact public granule from ASF JSON; never guess among variants."""
-    exact = [row for row in rows if isinstance(row, dict) and _asf_row_name(row) == wanted]
+def _asf_row_url(row: Any) -> str | None:
+    """Obtain a product URL without logging or trusting arbitrary catalog URLs."""
+    props = _asf_properties(row)
+    urls: list[str] = []
+    get_urls = getattr(row, "get_urls", None)
+    if callable(get_urls):
+        try:
+            urls = [str(x) for x in (get_urls() or []) if x]
+        except Exception:
+            urls = []
+    for value in [*urls, props.get("downloadUrl"), props.get("url")]:
+        if not isinstance(value, str) or not value:
+            continue
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        trusted_host = (
+            host.endswith(".asf.alaska.edu")
+            or host == "asf.alaska.edu"
+            or host.endswith(".asf.earthdatacloud.nasa.gov")
+        )
+        if parsed.scheme == "https" and trusted_host:
+            return value
+    return None
+
+
+def exact_asf_match(rows: list[Any], wanted: str) -> tuple[Any | None, int]:
+    """Select one exact public granule; ambiguous or approximate matches fail closed."""
+    exact = [row for row in rows if _asf_row_name(row) == wanted]
     return (exact[0], len(exact)) if len(exact) == 1 else (None, len(exact))
 
 
-def search_asf_exact_granule(
-    wanted: str, product_type: str, *, max_attempts: int = 4,
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """Search ASF's catalog independently of CMR, with bounded retries.
-
-    ASF is the catalog already used by SARGuardian's own nisar_acquisition.py.
-    This is deliberately an exact-name query and never substitutes a nearby
-    acquisition, different product version, processing family, or AOI match.
-    """
-    params = {
-        "granule_list": wanted,
-        "platform": "NISAR",
-        "processingLevel": product_type,
-        "maxResults": "10",
-        "output": "jsonlite",
-    }
-    url = ASF_SEARCH_API + "?" + urllib.parse.urlencode(params)
-    delay = 2.0
-    diag: dict[str, Any] = {
-        "backend": "ASF_Search_API",
-        "attempts": 0,
-        "http_status": None,
-        "match_count": None,
-        "error_type": None,
-    }
-    for attempt in range(1, max_attempts + 1):
-        diag["attempts"] = attempt
-        try:
-            request = urllib.request.Request(
-                url, headers={"User-Agent": "SARGuardian-low-disk-pipeline/1.0"}
-            )
-            with urllib.request.urlopen(request, timeout=45) as response:
-                body = json.loads(response.read().decode("utf-8"))
-            rows = body if isinstance(body, list) else body.get("results", [])
-            if not isinstance(rows, list):
-                raise ValueError("ASF search response did not contain a result list")
-            match, count = exact_asf_match(rows, wanted)
-            diag["match_count"] = count
-            diag["http_status"] = "200"
-            if count == 1:
-                url_value = match.get("downloadUrl") or match.get("url")
-                if not isinstance(url_value, str) or not url_value:
-                    diag["error_type"] = "EXACT_MATCH_WITHOUT_DOWNLOAD_URL"
-                    return None, diag
-                parsed = urlparse(url_value)
-                host = (parsed.hostname or "").lower()
-                trusted_host = (
-                    host.endswith(".asf.alaska.edu")
-                    or host == "asf.alaska.edu"
-                    or host.endswith(".asf.earthdatacloud.nasa.gov")
-                )
-                if parsed.scheme != "https" or not trusted_host:
-                    diag["error_type"] = "UNTRUSTED_ASF_DOWNLOAD_URL"
-                    return None, diag
-                match["_sarguardian_download_url"] = url_value
-                return match, diag
-            if count > 1:
-                diag["error_type"] = "AMBIGUOUS_EXACT_GRANULE"
-                return None, diag
-            # A successful exact search with no match is not a transient error.
-            return None, diag
-        except urllib.error.HTTPError as exc:
-            diag["http_status"] = str(exc.code)
-            diag["error_type"] = type(exc).__name__
-            transient = exc.code in {408, 425, 429, 500, 502, 503, 504}
-            if not transient or attempt >= max_attempts:
-                return None, diag
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-            diag["error_type"] = type(exc).__name__
-            if attempt >= max_attempts:
-                return None, diag
-        print(
-            f"ASF_SEARCH_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
-            f"delay_seconds={int(delay)}",
-            file=sys.stderr,
-        )
-        time.sleep(delay)
-        delay = min(delay * 2, 16.0)
-    return None, diag
-
-
-def asf_size_bytes(row: dict[str, Any]) -> int | None:
+def asf_size_bytes(row: Any) -> int | None:
+    props = _asf_properties(row)
     for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
         try:
-            value = int(float(row.get(key)))
+            value = int(float(props.get(key)))
             if value > 0:
                 return value
         except (TypeError, ValueError, OverflowError):
             pass
     try:
-        mb = float(row.get("sizeMB"))
+        mb = float(props.get("sizeMB"))
         if mb > 0:
             return int(mb * 1024 * 1024)
     except (TypeError, ValueError, OverflowError):
         pass
     return None
+
+
+def search_asf_exact_granule(
+    wanted: str,
+    product_type: str,
+    *,
+    maturity: str = "BETA",
+    max_attempts: int = 4,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Search ASF with its supported Python client and strict exact-name matching.
+
+    The previous direct Search API request returned HTTP 400 in the real runner.
+    ASF's NISAR guide documents dataset, dataMaturity, processingLevel, and
+    granule_list through asf_search. Use that client contract and preserve a
+    sanitized diagnostic when ASF or CMR is unavailable.
+    """
+    diag: dict[str, Any] = {
+        "backend": "asf_search",
+        "attempts": 0,
+        "http_status": None,
+        "match_count": None,
+        "error_type": None,
+        "detail_safe": None,
+        "maturity": maturity,
+        "product_type": product_type,
+    }
+    delay = 2.0
+    for attempt in range(1, max_attempts + 1):
+        diag["attempts"] = attempt
+        try:
+            import asf_search
+
+            results = asf_search.search(
+                dataset="NISAR",
+                dataMaturity=maturity,
+                processingLevel=product_type,
+                granule_list=[wanted],
+                maxResults=10,
+            )
+            rows = list(results)
+            match, count = exact_asf_match(rows, wanted)
+            diag["http_status"] = "200"
+            diag["match_count"] = count
+            if count == 0:
+                return None, diag
+            if count != 1:
+                diag["error_type"] = "AMBIGUOUS_EXACT_GRANULE"
+                return None, diag
+
+            url_value = _asf_row_url(match)
+            if not url_value:
+                diag["error_type"] = "EXACT_MATCH_WITHOUT_TRUSTED_DOWNLOAD_URL"
+                return None, diag
+            props = _asf_properties(match)
+            normalized = {
+                "granuleName": _asf_row_name(match),
+                "downloadUrl": url_value,
+                "sizeMB": props.get("sizeMB"),
+                "sizeBytes": props.get("sizeBytes"),
+                "fileID": props.get("fileID"),
+                "_sarguardian_download_url": url_value,
+            }
+            return normalized, diag
+        except Exception as exc:
+            safe = safe_exception_diagnostics(exc)
+            diag["error_type"] = safe.get("type")
+            diag["http_status"] = safe.get("http_status")
+            diag["detail_safe"] = safe.get("detail_safe")
+            status = safe.get("http_status")
+            transient = status in {"408", "425", "429", "500", "502", "503", "504"}
+            if type(exc).__name__ in {
+                "Timeout", "TimeoutError", "ConnectionError",
+                "ConnectTimeout", "ReadTimeout", "URLError",
+            }:
+                transient = True
+            if not transient or attempt >= max_attempts:
+                return None, diag
+        print(
+            f"ASF_SEARCH_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
+            f"http_status={diag.get('http_status') or 'unknown'} delay_seconds={int(delay)}",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
+        delay = min(delay * 2, 16.0)
+    return None, diag
 
 
 def find_size_bytes(result: Any) -> int | None:
@@ -388,7 +426,7 @@ def main() -> int:
 
     # Primary: exact ASF Search API discovery. SARGuardian's pinned acquisition
     # utility already uses this catalog; it avoids making CMR the only gateway.
-    asf_item, asf_diagnostic = search_asf_exact_granule(wanted, args.product_type)
+    asf_item, asf_diagnostic = search_asf_exact_granule(wanted, args.product_type, maturity=args.maturity)
     earthaccess = None
     item = None
     if asf_item is not None:
