@@ -126,7 +126,7 @@ def validate_rasters(
                 "crs": ds.crs.to_string() if ds.crs else None,
                 "crs_epsg": ds.crs.to_epsg() if ds.crs else None,
                 "transform": list(ds.transform),
-                "nodata": ds.nodata,
+                "nodata": (float(ds.nodata) if ds.nodata is not None and math.isfinite(float(ds.nodata)) else (str(ds.nodata) if ds.nodata is not None else None)),
                 "source_tag": source_tag,
                 "valid_band1_pixels": valid_first,
             })
