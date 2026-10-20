@@ -350,7 +350,7 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
         with rasterio.open(tif) as ds:
             if ds.count < 1 or ds.crs is None:
                 raise ValueError(f"GOFF export has no band 1 or CRS: {tif.name}")
-            array = ds.read(1).astype(np.float64)
+            array = ds.read(1).astype(np.float32)
             if ds.nodata is not None and np.isfinite(ds.nodata):
                 array[array == ds.nodata] = np.nan
             if not np.isfinite(array).any():
@@ -369,8 +369,6 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
         transformer = Transformer.from_crs("EPSG:4326", first_crs, always_xy=True)
         tx, ty = transformer.transform(target_lon, target_lat)
         # This matches rasterio.transform.rowcol used by timeseries.apply_common_datum.
-        with rasterio.open(outputs / "export_goff_src" / Path(items[0][0].source).name) if False else _NullContext() as _unused:
-            pass
         from rasterio.transform import rowcol
         centre = rowcol(first_transform, tx, ty)
         stack = [item[1] for item in items]
@@ -406,14 +404,6 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
         "target": {"lat": target_lat, "lon": target_lon, "radius_px": target_radius_px, "buffer_km": buffer_km},
         "output": "outputs/ts_goff_cand4_common.csv",
     })
-
-
-class _NullContext:
-    """Unused placeholder kept intentionally tiny for no-op context expressions."""
-    def __enter__(self):
-        return None
-    def __exit__(self, *exc):
-        return False
 
 
 
