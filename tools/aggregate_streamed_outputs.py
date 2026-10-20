@@ -965,9 +965,15 @@ def main() -> int:
     # Refresh bundle with the completed report including its name.
     bundle.unlink(missing_ok=True)
     bundle = zip_run_bundle(out_root, science_root, manifest_path)
+    storage = report["retention_storage_accounting"]
     print(f"BATCH_EQUIVALENCE_STATUS={report['status']}")
     print(f"PRODUCTS_VALIDATED={report['products_validated']}/{report['products_expected']}")
     print(f"COMPARISONS={len(report['comparisons'])}")
+    print(f"RETENTION_STORAGE_ACCOUNTING_STATUS={storage['status']}")
+    print(f"RETENTION_PRODUCTS_ACCOUNTED={storage['products_accounted']}/{storage['products_expected']}")
+    print(f"ACTUAL_REMOTE_RETAINED_BYTES={storage['actual_remote_retained_bytes']}")
+    print(f"ACTUAL_REMOTE_RETAINED_GIB={storage['actual_remote_retained_gib']}")
+    print(f"NET_NEW_REMOTE_BYTES_IN_RUN={storage['net_new_remote_bytes_in_run']}")
     print(f"REPORT_PATH={report_path}")
     print(f"BUNDLE_PATH={bundle}")
     if report["status"] != "PASS":
