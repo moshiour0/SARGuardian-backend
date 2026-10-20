@@ -68,7 +68,7 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - 28 completed product jobs validated and remotely retained their derived outputs; cleanup receipts verified 28/33. Accounting from verified Drive receipts was 8,854,129 bytes across 252 unique remote files (about 0.008246 GiB), excluding the GitHub run-result bundle. The five failed jobs did not produce product-processing/cleanup receipts, and their raw download step never succeeded.
 - [x] Added bounded retries for transient Earthdata/session and HTTP 429/5xx errors; added exact ASF catalog URL fallback for UR products and non-UR direct-URL 404s; added `--probe-only` to check exact source availability without downloading or writing raw data.
 - [x] Added a full-baseline manifest preflight that checks every selected UR product before launching any of the 33 product jobs. It stops early with a sanitized error if a required historical UR granule is no longer retrievable, instead of spending most of an hour processing the other products first.
-- [x] Product diagnostics now keep the sanitized downloader root-cause lines, and aggregation attaches them to missing-product errors instead of reporting only that `product-processing.json` is absent.
+- [x] Product diagnostics now keep sanitized downloader root-cause lines, and aggregation attaches them to missing-product errors instead of reporting only that `product-processing.json` is absent. A follow-up audit found the log pipe captured stdout only while the downloader writes errors to stderr; the workflow now merges stderr into the tee log, with a regression test.
 - [ ] The UR catalog fallback and early preflight are unit/CI-tested but have not yet been verified by a new live Actions run. Run the updated full-baseline workflow once; the new manifest gate will check all selected UR source objects first and stop before matrix processing if any required object is unavailable. Recover missing historical HDF5 files from an independent archive if the gate confirms ASF has expired them.
 
 ## 6. Acceptance gates before processing all 33 products
@@ -93,6 +93,6 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Preserve sanitized downloader root-cause details in product diagnostic artifacts and aggregate failure reports.
 - [x] Cover retry, UR routing/expiry, probe-only, workflow gating, and aggregation diagnostics with regression tests.
 - [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
-- [x] Latest CI on commit `9b9f5594e98fd0d4633a5d0c2b4b313394d61de8`: 144 passed, 1 skipped in the backend suite; 44 passed in the retention suite; workflow YAML and Python syntax checks passed.
+- [x] CI on commit `dc6571d063c692759403b6278dc19879d7356814`: 145 passed, 1 skipped in the backend suite; 44 passed in the retention suite; workflow YAML and Python syntax checks passed.
 - [ ] Run the two-product live validation pilot with `derived-only` retention; verify Drive receipts and cleanup gates before any full run.
 - [ ] Run all 33 only after the live pilot passes and every required source-ZIP downstream parity gate passes.
