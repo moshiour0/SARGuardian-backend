@@ -87,18 +87,21 @@ source deletion.
 
 ## Drive layout
 
-Single-granule assets:
+Single-granule assets are isolated per workflow run:
 
-`SARGuardian-DataArchive/{GUNW|GOFF}/{BETA|PROVISIONAL}/NISAR_L2_.../`
+`SARGuardian-DataArchive/{GUNW|GOFF}/{BETA|PROVISIONAL}/NISAR_L2_.../Runs/<run-id>-<attempt>/`
 
-Run-level output:
+Aggregate run-level output remains separate:
 
 `SARGuardian-DataArchive/Runs/SARGuardian-<run-id>-<attempt>/`
 
-Each folder contains checksummed receipts; identical remote content is reused,
-while filename/content conflicts and insufficient Drive quota fail closed.
-Raw .h5 source files are excluded from uploads; only explicitly named
-`*.science.h5` retained archives are accepted by the upload helper.
+Each folder contains checksummed receipts. Identical content is reused within
+the same run folder; a later run gets a new folder rather than overwriting a
+previous archive with the same filename. Filename/content conflicts and
+insufficient Drive quota still fail closed. This intentionally retains older
+archives; do not delete them merely to make space. Raw .h5 source files are
+excluded from uploads; only explicitly named `*.science.h5` retained archives
+are accepted by the upload helper.
 
 ## Required Actions secrets
 
