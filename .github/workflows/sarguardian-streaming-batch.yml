@@ -3,6 +3,20 @@ name: SARGuardian Streaming Batch (source AOI)
 # Manual, sequential low-disk workflow. Start with validation-pilot; only run
 # full-source-baseline after both product families match the committed baseline.
 on:
+  # Every code change affecting the streaming engine automatically runs the
+  # low-cost one-GUNW/one-GOFF validation pilot. The full 33-product run remains
+  # a deliberate manual dispatch after the pilot passes.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sarguardian-streaming-batch.yml"
+      - "tools/download_nisar_product.py"
+      - "tools/aggregate_streamed_outputs.py"
+      - "tools/sarguardian_hdf5_archive.py"
+      - "tools/verify_reader_equivalence.py"
+      - "tools/validate_product_aoi.py"
+      - "tools/drive_resumable_upload.py"
+      - "tools/requirements-retention.txt"
   workflow_dispatch:
     inputs:
       run_profile:
@@ -40,7 +54,7 @@ jobs:
         id: make
         shell: bash
         env:
-          RUN_PROFILE: ${{ inputs.run_profile }}
+          RUN_PROFILE: ${{ inputs.run_profile || 'validation-pilot' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: 77cc9646cfa46d3aff3669d351912f984cf67aa3
@@ -209,6 +223,7 @@ jobs:
           echo "raw_path=$raw_path" >> "$GITHUB_OUTPUT"
 
       - name: Verify product grid intersects the original source AOI
+        id: aoi_preflight
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
           CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
@@ -403,12 +418,59 @@ jobs:
           print(f"DRIVE_ARCHIVE_AND_DERIVED_OUTPUTS_VERIFIED={len(d.get('files', []))}")
           PY
 
+      - name: Write a compact diagnostic receipt even when a product fails
+        if: always()
+        env:
+          RUN_ROOT: ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+          AOI_PREFLIGHT_OUTCOME: ${{ steps.aoi_preflight.outcome }}
+          ARCHIVE_OUTCOME: ${{ steps.archive.outcome }}
+          READER_EQUIVALENCE_OUTCOME: ${{ steps.reader_equivalence.outcome }}
+          READER_OUTCOME: ${{ steps.reader.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUN_ROOT/curated"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUN_ROOT"])
+          curated = root / "curated"
+          record = {
+              "schema_version": "sarguardian-product-failure-diagnostic/1.0",
+              "product_id": os.environ.get("PRODUCT_ID"),
+              "product_type": os.environ.get("PRODUCT_TYPE"),
+              "granule_name": os.environ.get("GRANULE_NAME"),
+              "aoi": "source",
+              "science_commit": os.environ.get("SCIENCE_COMMIT"),
+              "step_outcomes": {
+                  "download": os.environ.get("DOWNLOAD_OUTCOME"),
+                  "aoi_preflight": os.environ.get("AOI_PREFLIGHT_OUTCOME"),
+                  "archive": os.environ.get("ARCHIVE_OUTCOME"),
+                  "reader_equivalence": os.environ.get("READER_EQUIVALENCE_OUTCOME"),
+                  "reader": os.environ.get("READER_OUTCOME"),
+                  "drive": os.environ.get("DRIVE_OUTCOME"),
+              },
+              "download_manifest_created": (curated / "download-manifest.json").is_file(),
+              "raw_hdf5_present": any(root.glob("raw/**/*.h5")),
+              "retained_archive_created": any((curated / "archive").glob("*.science.h5")),
+              "drive_receipt_created": (curated / "drive-retention-receipt.json").is_file(),
+              "local_raw_delete_step_is_gated_on_success": True,
+          }
+          (curated / "failure-diagnostics.json").write_text(
+              json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+          )
+          print("FAILURE_DIAGNOSTICS_WRITTEN=" + str(curated / "failure-diagnostics.json"))
+          PY
+
       - name: Upload small per-granule evidence for final aggregation
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sarguardian-granule-${{ matrix.id }}
           path: |
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/failure-diagnostics.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/product-processing.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/reader-equivalence.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/source-inventory.json
@@ -416,7 +478,7 @@ jobs:
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/download-manifest.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/*retention-manifest.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/derived/**
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 2
 
       - name: Delete local raw/archive only after successful remote retention
@@ -455,15 +517,15 @@ jobs:
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Checkout backend aggregation tools
+        uses: actions/checkout@v4
+
       - name: Checkout pinned science baseline
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
           ref: 77cc9646cfa46d3aff3669d351912f984cf67aa3
           path: science-source
-
-      - name: Checkout backend aggregation tools
-        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5

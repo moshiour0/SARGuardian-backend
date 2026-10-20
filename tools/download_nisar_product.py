@@ -11,12 +11,17 @@ import argparse
 import hashlib
 import html
 import importlib.metadata
+import importlib.util
 import json
 import os
 import re
 import shutil
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -205,6 +210,122 @@ def search_exact_granule(
     diagnostics["temporal_search"]["match_count"] = len(matches)
     return matches, "temporal_collection_fallback", diagnostics
 
+
+ASF_SEARCH_API = "https://api.daac.asf.alaska.edu/services/search/param"
+
+
+def _asf_row_name(row: dict[str, Any]) -> str:
+    for key in ("granuleName", "fileName", "sceneName", "name"):
+        value = row.get(key)
+        if value:
+            return normal_name(str(value))
+    return ""
+
+
+def exact_asf_match(rows: list[dict[str, Any]], wanted: str) -> tuple[dict[str, Any] | None, int]:
+    """Select one exact public granule from ASF JSON; never guess among variants."""
+    exact = [row for row in rows if isinstance(row, dict) and _asf_row_name(row) == wanted]
+    return (exact[0], len(exact)) if len(exact) == 1 else (None, len(exact))
+
+
+def search_asf_exact_granule(
+    wanted: str, product_type: str, *, max_attempts: int = 4,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Search ASF's catalog independently of CMR, with bounded retries.
+
+    ASF is the catalog already used by SARGuardian's own nisar_acquisition.py.
+    This is deliberately an exact-name query and never substitutes a nearby
+    acquisition, different product version, processing family, or AOI match.
+    """
+    params = {
+        "granule_list": wanted,
+        "platform": "NISAR",
+        "processingLevel": product_type,
+        "maxResults": "10",
+        "output": "jsonlite",
+    }
+    url = ASF_SEARCH_API + "?" + urllib.parse.urlencode(params)
+    delay = 2.0
+    diag: dict[str, Any] = {
+        "backend": "ASF_Search_API",
+        "attempts": 0,
+        "http_status": None,
+        "match_count": None,
+        "error_type": None,
+    }
+    for attempt in range(1, max_attempts + 1):
+        diag["attempts"] = attempt
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "SARGuardian-low-disk-pipeline/1.0"}
+            )
+            with urllib.request.urlopen(request, timeout=45) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            rows = body if isinstance(body, list) else body.get("results", [])
+            if not isinstance(rows, list):
+                raise ValueError("ASF search response did not contain a result list")
+            match, count = exact_asf_match(rows, wanted)
+            diag["match_count"] = count
+            diag["http_status"] = "200"
+            if count == 1:
+                url_value = match.get("downloadUrl") or match.get("url")
+                if not isinstance(url_value, str) or not url_value:
+                    diag["error_type"] = "EXACT_MATCH_WITHOUT_DOWNLOAD_URL"
+                    return None, diag
+                parsed = urlparse(url_value)
+                host = (parsed.hostname or "").lower()
+                trusted_host = (
+                    host.endswith(".asf.alaska.edu")
+                    or host == "asf.alaska.edu"
+                    or host.endswith(".asf.earthdatacloud.nasa.gov")
+                )
+                if parsed.scheme != "https" or not trusted_host:
+                    diag["error_type"] = "UNTRUSTED_ASF_DOWNLOAD_URL"
+                    return None, diag
+                match["_sarguardian_download_url"] = url_value
+                return match, diag
+            if count > 1:
+                diag["error_type"] = "AMBIGUOUS_EXACT_GRANULE"
+                return None, diag
+            # A successful exact search with no match is not a transient error.
+            return None, diag
+        except urllib.error.HTTPError as exc:
+            diag["http_status"] = str(exc.code)
+            diag["error_type"] = type(exc).__name__
+            transient = exc.code in {408, 425, 429, 500, 502, 503, 504}
+            if not transient or attempt >= max_attempts:
+                return None, diag
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            diag["error_type"] = type(exc).__name__
+            if attempt >= max_attempts:
+                return None, diag
+        print(
+            f"ASF_SEARCH_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
+            f"delay_seconds={int(delay)}",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
+        delay = min(delay * 2, 16.0)
+    return None, diag
+
+
+def asf_size_bytes(row: dict[str, Any]) -> int | None:
+    for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
+        try:
+            value = int(float(row.get(key)))
+            if value > 0:
+                return value
+        except (TypeError, ValueError, OverflowError):
+            pass
+    try:
+        mb = float(row.get("sizeMB"))
+        if mb > 0:
+            return int(mb * 1024 * 1024)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return None
+
+
 def find_size_bytes(result: Any) -> int | None:
     """Read size estimate from UMM metadata when present; no URL probing."""
     candidates: list[Any] = []
@@ -264,51 +385,58 @@ def main() -> int:
         return 2
 
     collection = f"NISAR_L2_{args.product_type}_{args.maturity}_V1"
-    try:
-        import earthaccess
-    except Exception as exc:
-        print(f"ERROR=EARTHACCESS_IMPORT_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-        return 2
-    auth, login_diagnostic, login_attempts = _retry_transient_call(
-        lambda: earthaccess.login(strategy="environment"),
-        operation="EARTHDATA_LOGIN",
-    )
-    print(f"EARTHDATA_LOGIN_ATTEMPTS={login_attempts}")
-    if login_diagnostic:
-        print(
-            "EARTHDATA_LOGIN_DIAGNOSTIC="
-            + json.dumps(login_diagnostic, sort_keys=True, separators=(",", ":"))
-        )
-    if auth is None or auth is False:
-        print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
-        return 2
 
-    matches, discovery_mode, diagnostics = search_exact_granule(earthaccess, collection, wanted)
-    print(f"DISCOVERY_MODE={discovery_mode}")
-    if len(matches) != 1:
-        exact_diag = diagnostics["exact_search"]
-        temporal_diag = diagnostics["temporal_search"]
-        statuses = earthdata_service_status(earthaccess)
-        print(
-            f"CMR_STATUS={statuses['Common Metadata Repository']} "
-            f"EARTHDATA_LOGIN_STATUS={statuses['Earthdata Login']}"
+    # Primary: exact ASF Search API discovery. SARGuardian's pinned acquisition
+    # utility already uses this catalog; it avoids making CMR the only gateway.
+    asf_item, asf_diagnostic = search_asf_exact_granule(wanted, args.product_type)
+    earthaccess = None
+    item = None
+    if asf_item is not None:
+        source_backend = "ASF_Search_API"
+        metadata_bytes = asf_size_bytes(asf_item)
+        print("DISCOVERY_MODE=asf_exact_granule")
+        print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
+    else:
+        # Secondary: preserve the existing NASA Earthaccess/CMR path. If both
+        # catalogs are unavailable, report both safe diagnostics and stop.
+        try:
+            import earthaccess as earthaccess_module
+            earthaccess = earthaccess_module
+        except Exception as exc:
+            print(f"ERROR=EARTHACCESS_IMPORT_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
+            return 2
+        auth, login_diagnostic, login_attempts = _retry_transient_call(
+            lambda: earthaccess.login(strategy="environment"),
+            operation="EARTHDATA_LOGIN",
         )
-        print(
-            "EXACT_QUERY_DIAGNOSTIC="
-            + json.dumps(exact_diag, sort_keys=True, separators=(",", ":"))
-        )
-        print(
-            "TEMPORAL_QUERY_DIAGNOSTIC="
-            + json.dumps(temporal_diag, sort_keys=True, separators=(",", ":"))
-        )
-        print(
-            f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} "
-            f"COLLECTION={collection} DISCOVERY_MODE={discovery_mode}",
-            file=sys.stderr,
-        )
-        return 2
-    item = matches[0]
-    metadata_bytes = find_size_bytes(item)
+        print(f"EARTHDATA_LOGIN_ATTEMPTS={login_attempts}")
+        if login_diagnostic:
+            print("EARTHDATA_LOGIN_DIAGNOSTIC=" + json.dumps(login_diagnostic, sort_keys=True, separators=(",", ":")))
+        if auth is None or auth is False:
+            print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
+            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
+            return 2
+        matches, discovery_mode, diagnostics = search_exact_granule(earthaccess, collection, wanted)
+        print(f"DISCOVERY_MODE=earthaccess_{discovery_mode}")
+        if len(matches) != 1:
+            statuses = earthdata_service_status(earthaccess)
+            print(
+                f"CMR_STATUS={statuses['Common Metadata Repository']} "
+                f"EARTHDATA_LOGIN_STATUS={statuses['Earthdata Login']}"
+            )
+            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
+            print("EXACT_QUERY_DIAGNOSTIC=" + json.dumps(diagnostics["exact_search"], sort_keys=True, separators=(",", ":")))
+            print("TEMPORAL_QUERY_DIAGNOSTIC=" + json.dumps(diagnostics["temporal_search"], sort_keys=True, separators=(",", ":")))
+            if statuses["Common Metadata Repository"].upper() not in {"OK", "UP", "AVAILABLE", "OPERATIONAL"}:
+                print("ERROR=CATALOG_SERVICE_UNAVAILABLE_NO_RAW_DOWNLOAD_ATTEMPTED", file=sys.stderr)
+            else:
+                print(f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} COLLECTION={collection} DISCOVERY_MODE={discovery_mode}", file=sys.stderr)
+            return 2
+        source_backend = "Earthaccess_CMR"
+        item = matches[0]
+        metadata_bytes = find_size_bytes(item)
+
     expected_bytes = args.expected_source_bytes or metadata_bytes
     if not expected_bytes or expected_bytes <= 0:
         print("ERROR=SOURCE_SIZE_UNKNOWN_PROVIDE_EXPECTED_SOURCE_BYTES", file=sys.stderr)
@@ -329,9 +457,22 @@ def main() -> int:
 
     try:
         # One granule only. No parallel download of a multi-date stack.
-        earthaccess.download([item], local_path=str(args.out_dir), threads=1)
+        if source_backend == "ASF_Search_API":
+            import asf_search
+            session = asf_search.ASFSession().auth_with_creds(
+                os.environ["EARTHDATA_USERNAME"], os.environ["EARTHDATA_PASSWORD"]
+            )
+            asf_search.download_url(
+                url=asf_item["_sarguardian_download_url"],
+                path=str(args.out_dir),
+                session=session,
+            )
+        else:
+            assert earthaccess is not None and item is not None
+            earthaccess.download([item], local_path=str(args.out_dir), threads=1)
     except Exception as exc:
-        print(f"ERROR=EARTHACCESS_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        backend_label = "ASF" if source_backend == "ASF_Search_API" else "EARTHACCESS"
+        print(f"ERROR={backend_label}_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
         return 2
 
     files = sorted([*args.out_dir.rglob("*.h5"), *args.out_dir.rglob("*.H5")])
@@ -354,13 +495,15 @@ def main() -> int:
         "product_type": args.product_type,
         "maturity": args.maturity,
         "collection_short_name": collection,
+        "discovery_backend": source_backend,
         "granule_name": wanted,
         "source_filename": raw.name,
         "source_bytes": actual_size,
         "source_sha256": sha256_file(raw),
         "downloader_script": Path(__file__).name,
         "downloader_script_sha256": sha256_file(Path(__file__).resolve()),
-        "earthaccess_version": importlib.metadata.version("earthaccess"),
+        "earthaccess_version": importlib.metadata.version("earthaccess") if importlib.util.find_spec("earthaccess") else None,
+        "asf_search_version": importlib.metadata.version("asf_search"),
         "metadata_size_estimate_bytes": metadata_bytes,
         "runner_free_bytes_after_download": free_after,
         "source_deleted": False,
