@@ -40,7 +40,7 @@ def test_product_run_diagnostics_are_explicitly_pre_cleanup():
 
 def test_drive_quota_is_checked_before_any_product_download():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\\n", 1)[1].split("\\n  process-one:", 1)[0]
+    manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
     assert "Preflight Drive quota before starting any product downloads" in manifest
     assert "python tools/preflight_drive_quota.py" in manifest
     assert manifest.index("preflight_drive_quota.py") < manifest.index("Preserve run manifest for aggregation")
