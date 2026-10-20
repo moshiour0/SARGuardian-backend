@@ -75,10 +75,10 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Re-open supplied source ZIP and map direct raw-HDF5 readers.
 - [x] Confirm 15 GUNW + 18 GOFF baseline entries and inspect downstream outputs.
 - [x] Re-read current streaming workflow and aggregate code.
-- [ ] Add this plan to the backend branch.
-- [ ] Add pre-cleanup per-product CSV/raster validation.
-- [ ] Add derived-only and full-lossless retention modes with policy-aware cleanup.
-- [ ] Update storage accounting and downstream parity (including troposphere).
-- [ ] Test code/YAML and open a reviewable PR.
-- [ ] Run two-product live validation only after the branch is reviewed.
-- [ ] Run all 33 only after pilot and complete parity gates pass.
+- [x] Add this plan to the backend branch.
+- [x] Add pre-cleanup per-product CSV/raster validation.
+- [x] Add derived-only and full-lossless retention modes with policy-aware cleanup.
+- [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
+- [ ] Finish CI/static validation and review any reported failures on draft PR #28.
+- [ ] Run two-product live validation only after review; do not delete raw until the new gates pass.
+- [ ] Run all 33 only after the pilot and complete source-ZIP parity gates pass.
