@@ -115,12 +115,14 @@ def validate_rasters(
                 expected_valid = int(float((row.get("valid_px") or "").strip()))
             except (TypeError, ValueError):
                 expected_valid = None
-            if valid_first == 0:
-                if expected_valid == 0:
-                    record["science_valid_pixels"] = "NONE_AS_IN_BASELINE"
-                else:
-                    errors.append({"problem": "raster_displacement_band_has_no_valid_pixels", "path": name,
-                                   "baseline_valid_px": expected_valid})
+            if expected_valid is not None and valid_first != expected_valid:
+                errors.append({"problem": "raster_valid_pixel_count_mismatch", "path": name,
+                               "baseline_valid_px": expected_valid, "export_valid_pixels": valid_first})
+            if valid_first == 0 and expected_valid == 0:
+                record["science_valid_pixels"] = "NONE_AS_IN_BASELINE"
+            elif valid_first == 0:
+                errors.append({"problem": "raster_displacement_band_has_no_valid_pixels", "path": name,
+                               "baseline_valid_px": expected_valid})
             if family == "GOFF" and ds.count >= 3:
                 corr = ds.read(3, masked=True)
                 valid_corr = int(np.count_nonzero(~np.ma.getmaskarray(corr) & np.isfinite(corr.filled(np.nan))))
