@@ -270,3 +270,29 @@ def test_non_urgent_direct_404_falls_back_to_exact_catalog_url(monkeypatch):
     assert size == 987
     assert len(session.head_calls) == 2
 
+
+def test_urgent_response_catalog_url_404_reports_possible_expiration(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(download.time, "sleep", lambda _seconds: None)
+    urgent = WANTED.replace("_PR_GUNW_", "_UR_GUNW_")
+    url = f"https://nisar.asf.earthdatacloud.nasa.gov/UR/{urgent}/{urgent}.h5"
+
+    class FakeCatalogProduct:
+        properties = {"fileName": f"{urgent}.h5"}
+
+        def get_urls(self):
+            return [url]
+
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(search=lambda **kwargs: [FakeCatalogProduct()]),
+    )
+    session = FakeSession(head_response=FakeResponse(404, reason="Not Found"))
+
+    with pytest.raises(RuntimeError, match="UR_GRANULE_OBJECT_EXPIRED_OR_NOT_AVAILABLE_IN_UR_BUCKET"):
+        download.probe_known_product(
+            FakeSourceAcquisition(session), urgent, "GUNW", "BETA"
+        )
+
