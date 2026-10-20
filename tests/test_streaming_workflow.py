@@ -121,3 +121,14 @@ def test_failed_download_diagnostics_are_preserved_for_aggregation():
     assert "read_product_diagnostic_context(artifact_dir)" in aggregator
     assert '"download_error_code": record.get("download_error_code")' in aggregator
 
+def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    manifest = text.split("  manifest:\\n", 1)[1].split("\\n  process-one:", 1)[0]
+    preflight = manifest.index("- name: Fail fast when a selected urgent-response baseline product is unavailable")
+    preserve = manifest.index("- name: Preserve run manifest for aggregation")
+    assert preserve < preflight
+    assert "if: inputs.run_profile == 'full-source-baseline'" in manifest[preflight - 250:preflight + 150]
+    assert "--probe-only" in manifest[preflight:]
+    assert "ERROR=UR_BASELINE_SOURCE_UNAVAILABLE" in manifest[preflight:]
+    assert "full-baseline processing stopped before any product downloads" in manifest[preflight:]
+
