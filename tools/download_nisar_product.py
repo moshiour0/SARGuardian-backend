@@ -74,26 +74,24 @@ def find_exact_source_product(
     wanted: str,
     product_type: str,
     maturity: str,
+    *,
+    catalog_start: str = "2025-01-01",
+    catalog_end: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
-    """Use the source project's AOI/time-filtered ASF query and exact-name match.
+    """Use the source project's original AOI and date-window ASF catalog query.
 
-    Intentionally does not create a separate REST query or use the unsupported
-    combination of maxResults with a non-wildcard granule_list. The source
-    query's spatial bounding box is a discovery filter; the downstream source
-    AOI preflight still checks the real raster footprint before science runs.
+    The pinned recon_nisar() searches from 2025-01-01 through today in
+    calendar-year chunks, filtering server-side with platform=NISAR and its
+    established INTERFEROMETRIC product family. Do that same query here rather
+    than inventing a per-granule temporal request. The result is then reduced
+    to the one exact requested product. The real raster AOI is independently
+    checked by validate_product_aoi.py before any scientific processing.
     """
-    pair = acquisition.parse_pair_dates(wanted)
-    if not pair:
-        raise ValueError("GRANULE_NAME_DOES_NOT_CONTAIN_PAIR_DATES")
-    start = min(pair).isoformat()
-    end = max(pair).isoformat()
-
+    end = catalog_end or datetime.now(timezone.utc).date().isoformat()
     rows = acquisition.query_by_year(
-        start,
+        catalog_start,
         end,
         platform="NISAR",
-        # Match recon_nisar() in the pinned source repository exactly; its
-        # INTERFEROMETRIC filter is known to be accepted by the ASF endpoint.
         processingLevel=",".join(acquisition.INTERFEROMETRIC),
     )
     if not isinstance(rows, list):
@@ -110,7 +108,8 @@ def find_exact_source_product(
 
     record = exact[0]
     # Some ASF responses expose maturity metadata and some do not. Verify it
-    # when present; the committed baseline name remains the exact identity key.
+    # when present; otherwise the pinned baseline's exact name remains the
+    # selection key, matching the existing acquisition script's behavior.
     reported_maturity = next(
         (
             str(record.get(key)).strip().upper()
@@ -124,7 +123,7 @@ def find_exact_source_product(
     url = record.get("downloadUrl")
     if not trusted_asf_url(url):
         raise ValueError("SOURCE_CATALOG_DID_NOT_RETURN_A_TRUSTED_ASF_HTTPS_URL")
-    return record, start, end
+    return record, catalog_start, end
 
 
 def size_estimate_bytes(record: dict[str, Any]) -> int | None:

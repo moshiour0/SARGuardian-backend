@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
-from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "download_nisar_product.py"
 spec = importlib.util.spec_from_file_location("download_nisar_product", TOOL)
@@ -26,10 +24,6 @@ class FakeSourceAcquisition:
         self.rows = rows
         self.calls = []
 
-    def parse_pair_dates(self, granule):
-        assert download.normal_name(granule) == download.normal_name(WANTED)
-        return date(2025, 11, 25), date(2025, 12, 7)
-
     def query_by_year(self, start, end, **params):
         self.calls.append((start, end, params))
         return self.rows
@@ -45,17 +39,17 @@ def row(name=WANTED + ".h5", url=ASF_URL, **extra):
     }
 
 
-def test_exact_product_lookup_reuses_original_source_interferometric_query_and_pair_dates():
+def test_exact_product_lookup_reuses_original_recon_nisar_query_and_date_window():
     source = FakeSourceAcquisition([row(WANTED + "_nearby.h5"), row()])
-    match, start, end = download.find_exact_source_product(source, WANTED, "GUNW", "PROVISIONAL")
+    match, start, end = download.find_exact_source_product(source, WANTED, "GUNW", "PROVISIONAL", catalog_end="2026-10-20")
 
     assert match["granuleName"] == WANTED + ".h5"
-    assert start == "2025-11-25"
-    assert end == "2025-12-07"
+    assert start == "2025-01-01"
+    assert end == "2026-10-20"
     assert source.calls == [
         (
-            "2025-11-25",
-            "2025-12-07",
+            "2025-01-01",
+            "2026-10-20",
             {"platform": "NISAR", "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"},
         )
     ]
