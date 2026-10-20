@@ -22,12 +22,6 @@ def test_normal_name_strips_path_and_extension_but_workflow_validates_format():
     assert download.normal_name('/tmp/NISAR_L2_PR_GUNW_test.h5') == 'NISAR_L2_PR_GUNW_test'
 
 
-def test_granule_size_is_found_in_umm_distribution_metadata():
-    assert download.find_size_bytes({'umm': {'DataGranule': {'ArchiveAndDistributionInformation': [{'SizeInBytes': '123456'}]}}}) == 123456
-
-def test_granule_size_unknown_does_not_guess():
-    assert download.find_size_bytes({'umm': {'DataGranule': {}}}) is None
-
 def test_drive_hashes_stream_to_expected_digests(tmp_path):
     p = tmp_path/'test.bin'; data = b'abc123' * 1000; p.write_bytes(data)
     md5, sha, size = drive.hashes(p)
@@ -66,14 +60,14 @@ def test_downloader_accepts_real_asf_pr_granule_id_before_auth(monkeypatch, tmp_
     monkeypatch.setattr(sys, 'argv', ['download_nisar_product.py', '--product-type', 'GOFF',
         '--maturity', 'PROVISIONAL',
         '--granule-name', 'NISAR_L2_PR_GOFF_001_030_A_019_002_2000_SH_20081012T060912_20081012T060924_20081127T061001_20081127T061013_D00402_M_P_J_001.h5',
-        '--out-dir', str(tmp_path)])
+        '--science-root', str(tmp_path), '--aoi', 'source', '--out-dir', str(tmp_path)])
     assert download.main() == 2
     assert 'EARTHDATA_CREDENTIALS_MISSING' in capsys.readouterr().err
 
 
 def test_downloader_refuses_path_or_non_granule_input_before_credentials(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, 'argv', ['download_nisar_product.py', '--product-type', 'GOFF', '--maturity', 'PROVISIONAL',
-        '--granule-name', '../not-a-granule.h5', '--out-dir', str(tmp_path)])
+        '--granule-name', '../not-a-granule.h5', '--science-root', str(tmp_path), '--aoi', 'source', '--out-dir', str(tmp_path)])
     assert download.main() == 2
     assert 'EXACT_PUBLIC_GRANULE_NAME_REQUIRED' in capsys.readouterr().err
 
@@ -113,168 +107,3 @@ def test_product_grid_preflight_detects_intersection_before_archive_work(tmp_pat
         bad = tool._grid(f, datasets, engine, group, None, "GOFF_pixelOffsets")
     assert bad["intersects_aoi"] is False
     assert bad["grid_pixels_inside_aoi"] == 0
-
-
-def test_downloader_exact_catalogue_search_falls_back_to_narrow_temporal_query():
-    wanted = (
-        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
-        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
-        "P05023_N_F_J_001"
-    )
-    calls = []
-
-    class FakeEarthaccess:
-        @staticmethod
-        def search_data(**kwargs):
-            calls.append(kwargs)
-            if "granule_name" in kwargs:
-                raise RuntimeError("client details intentionally hidden")
-            assert kwargs["short_name"] == "NISAR_L2_GUNW_PROVISIONAL_V1"
-            assert kwargs["temporal"] == ("2026-07-23", "2026-08-17")
-            return [{"umm": {"GranuleUR": wanted}}]
-
-    matches, mode, diagnostics = download.search_exact_granule(
-        FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
-    )
-    assert len(matches) == 1
-    assert mode == "temporal_collection_fallback"
-    assert diagnostics["exact_search"]["type"] == "RuntimeError"
-    assert diagnostics["exact_search"]["match_count"] is None
-    assert diagnostics["temporal_search"]["match_count"] == 1
-    assert len(calls) == 2
-    assert calls[0]["granule_name"] == wanted
-    assert "temporal" in calls[1]
-
-
-def test_downloader_temporal_bounds_use_product_date_interval_and_exclusive_end():
-    wanted = (
-        "NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_"
-        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
-        "P05023_N_F_J_001.h5"
-    )
-    assert download.temporal_bounds_for_granule(wanted) == ("2026-07-23", "2026-08-17")
-
-
-def test_safe_cmr_exception_diagnostic_reports_http_status_without_leaking_url_or_token():
-    class FakeResponse:
-        status_code = 503
-        reason = "Service Unavailable"
-
-    from requests.exceptions import HTTPError
-    low = HTTPError("https://cmr.example.test/query?token=secret-token-abc")
-    low.response = FakeResponse()
-    wrapped = RuntimeError("CMR request failed")
-    wrapped.__cause__ = low
-
-    info = download.safe_exception_diagnostics(wrapped)
-    assert info["type"] == "RuntimeError"
-    assert info["http_status"] == "503"
-    assert "https://" not in (info["detail_safe"] or "")
-    assert "secret-token-abc" not in (info["detail_safe"] or "")
-    assert "[URL]" in (info["detail_safe"] or "")
-
-
-def test_earthdata_service_status_returns_only_public_status_labels():
-    class FakeEarthaccess:
-        @staticmethod
-        def status():
-            return {
-                "Earthdata Login": "OK",
-                "Common Metadata Repository": "Warning",
-                "details": "sensitive details should not be emitted",
-            }
-
-    status = download.earthdata_service_status(FakeEarthaccess)
-    assert status == {
-        "Earthdata Login": "OK",
-        "Common Metadata Repository": "Warning",
-    }
-
-
-def test_transient_earthdata_login_connection_error_retries_and_recovers(monkeypatch):
-    calls = []
-    sleeps = []
-
-    from requests.exceptions import ConnectionError
-
-    def login():
-        calls.append(1)
-        if len(calls) < 3:
-            raise ConnectionError("temporary network interruption")
-        return True
-
-    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
-    result, diagnostic, attempts = download._retry_transient_call(
-        login, operation="TEST_LOGIN"
-    )
-    assert result is True
-    assert attempts == 3
-    assert diagnostic["type"] == "ConnectionError"
-    assert diagnostic["recovered"] == "true"
-    assert sleeps == [1, 2]
-
-
-def test_transient_cmr_500_retries_and_preserves_diagnostic_after_recovery(monkeypatch):
-    wanted = (
-        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
-        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
-        "P05023_N_F_J_001"
-    )
-    calls = []
-    sleeps = []
-
-    class FakeResponse:
-        status_code = 500
-        reason = "Internal Server Error"
-
-    from requests.exceptions import HTTPError
-
-    class FakeEarthaccess:
-        @staticmethod
-        def search_data(**kwargs):
-            calls.append(kwargs)
-            if len(calls) <= 2:
-                low = HTTPError("https://cmr.example.test/query?token=secret-value")
-                low.response = FakeResponse()
-                wrapped = RuntimeError("CMR internal error")
-                wrapped.__cause__ = low
-                raise wrapped
-            return [{"umm": {"GranuleUR": wanted}}]
-
-    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
-    matches, mode, diagnostics = download.search_exact_granule(
-        FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
-    )
-    assert len(matches) == 1
-    assert mode == "exact_granule_name"
-    assert diagnostics["exact_search"]["attempts"] == 3
-    assert diagnostics["exact_search"]["http_status"] == "500"
-    assert diagnostics["exact_search"]["recovered"] is True
-    assert sleeps == [1, 2]
-    assert "secret-value" not in (diagnostics["exact_search"]["detail_safe"] or "")
-    assert len(calls) == 3
-
-
-def test_permanent_cmr_400_is_not_retried(monkeypatch):
-    from requests.exceptions import HTTPError
-
-    class FakeResponse:
-        status_code = 400
-        reason = "Bad Request"
-
-    calls = []
-
-    def call():
-        calls.append(1)
-        low = HTTPError("https://cmr.example.test/query?token=secret")
-        low.response = FakeResponse()
-        wrapped = RuntimeError("invalid request")
-        wrapped.__cause__ = low
-        raise wrapped
-
-    monkeypatch.setattr(download.time, "sleep", lambda seconds: (_ for _ in ()).throw(AssertionError("should not sleep")))
-    result, diagnostic, attempts = download._retry_transient_call(call, operation="TEST_CMR")
-    assert result is None
-    assert attempts == 1
-    assert diagnostic["http_status"] == "400"
-    assert len(calls) == 1

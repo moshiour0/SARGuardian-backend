@@ -34,3 +34,17 @@ def test_failed_product_always_emits_machine_readable_diagnostics():
     assert "- name: Write a compact diagnostic receipt even when a product fails" in text
     assert "failure-diagnostics.json" in text
     assert "if-no-files-found: error" in text
+
+
+def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
+    root = Path(__file__).resolve().parents[1]
+    downloader = (root / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
+    stream = WORKFLOW.read_text(encoding="utf-8")
+    live = (root / ".github" / "workflows" / "sarguardian-live-validation.yml").read_text(encoding="utf-8")
+    assert "src" in downloader and "nisar_acquisition.py" in downloader
+    assert "query_by_year" in downloader
+    assert "asf_search.download_url" in downloader
+    assert "earthaccess" not in downloader.lower()
+    for workflow in (stream, live):
+        assert "python tools/download_nisar_product.py" in workflow
+        assert '--science-root "$PWD/science-source" --aoi "$AOI_NAME"' in workflow

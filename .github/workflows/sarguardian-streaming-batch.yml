@@ -216,6 +216,7 @@ jobs:
           python tools/download_nisar_product.py \
             --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" \
+            --science-root "$PWD/science-source" --aoi "$AOI_NAME" \
             --expected-source-bytes "$EXPECTED_SOURCE_BYTES" \
             --out-dir "$RAW_DIR" | tee "$log"
           raw_path="$(sed -n 's/^RAW_PRODUCT_PATH=//p' "$log" | tail -n 1)"

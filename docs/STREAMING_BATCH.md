@@ -26,7 +26,7 @@ Langtang or Lhende polygons.
 
 For each granule the workflow does the following:
 
-1. Download one exact NASA/ASF granule and keep a source size/SHA-256 manifest.
+1. Load the pinned `science-source/src/nisar_acquisition.py`, set its `source` AOI, and use its existing `query_by_year`/`asf_query` catalog path to find the exact baseline granule. Download through the same `asf_search.download_url` helper the source acquisition script already uses, then keep a source size/SHA-256 manifest. No separate `granule_list` REST query or Earthaccess/CMR fallback is constructed by the backend wrapper.
 2. Run the AOI-grid preflight for `source`.
 3. Inventory every source dataset/attribute.
 4. Create a `full-lossless` HDF5 retained copy; do not use `engine-ready` for
