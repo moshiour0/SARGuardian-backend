@@ -20,6 +20,8 @@ ASF_URL = "https://datapool.asf.alaska.edu/NISAR/test-product.h5"
 
 
 class FakeSourceAcquisition:
+    INTERFEROMETRIC = ["GUNW", "GOFF", "RUNW", "ROFF", "RIFG"]
+
     def __init__(self, rows):
         self.rows = rows
         self.calls = []
