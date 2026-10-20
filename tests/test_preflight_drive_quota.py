@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from tools.preflight_drive_quota import (
@@ -32,7 +34,7 @@ def test_estimate_includes_safety_margin_and_per_run_overhead():
     data = manifest(2_400_000_000, 1_000_000_000)
     result = estimate_required_bytes(data)
     assert result == (
-        int(3_400_000_000 * 1.15 + 0.999999999)
+        math.ceil(3_400_000_000 * 1.15)
         + 2 * PER_PRODUCT_OVERHEAD_BYTES
         + RUN_OVERHEAD_BYTES
     )
