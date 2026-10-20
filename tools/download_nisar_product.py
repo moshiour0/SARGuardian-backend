@@ -342,6 +342,11 @@ def main() -> int:
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--expected-source-bytes", type=int, default=0)
     parser.add_argument("--disk-safety-factor", type=float, default=2.2)
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="Resolve the exact authenticated product URL and verify availability without downloading or writing source data",
+    )
     args = parser.parse_args()
 
     supplied_name = args.granule_name.strip()
@@ -369,6 +374,15 @@ def main() -> int:
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
+
+    if args.probe_only:
+        print(f"PRODUCT_TYPE={args.product_type}")
+        print(f"MATURITY={args.maturity}")
+        print(f"AOI={args.aoi}")
+        print(f"DISCOVERY_BACKEND={record['_sarguardian_discovery_backend']}")
+        print(f"REMOTE_CONTENT_LENGTH_BYTES={remote_content_length_bytes or 'unknown'}")
+        print("PRODUCT_PREFLIGHT_STATUS=PASS")
+        return 0
 
     # The pinned baseline run supplies a conservative family estimate; a real
     # Content-Length from the exact HTTPS object wins when available.
