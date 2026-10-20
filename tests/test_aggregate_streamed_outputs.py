@@ -267,3 +267,49 @@ def test_retention_storage_accounting_fails_if_any_drive_receipt_is_missing(tmp_
         "drive-metadata-upload-receipt.json",
         "drive-cleanup-upload-receipt.json",
     }
+
+
+def test_read_product_diagnostic_context_surfaces_download_failure(tmp_path):
+    import json
+
+    artifact_dir = tmp_path / "sarguardian-granule-GUNW-006"
+    artifact_dir.mkdir()
+    (artifact_dir / "product-run-diagnostics.json").write_text(
+        json.dumps({
+            "step_outcomes": {"download": "failure", "drive": "skipped"},
+            "download_error_code": "ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE=ConnectionError",
+            "download_diagnostics": [
+                "ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE=ConnectionError",
+                "DIRECT_PRODUCT_DIAGNOSTIC=status=unknown detail=temporary endpoint outage",
+            ],
+            "download_manifest_created": False,
+            "drive_receipt_created": False,
+            "raw_hdf5_present_at_diagnostic_time": False,
+        }),
+        encoding="utf-8",
+    )
+
+    result = agg.read_product_diagnostic_context(artifact_dir)
+
+    assert result["diagnostics_artifact_present"] is True
+    assert result["diagnostic_step_outcomes"]["download"] == "failure"
+    assert result["download_error_code"].startswith("ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED")
+    assert len(result["download_diagnostics"]) == 2
+    assert result["download_manifest_created"] is False
+
+
+def test_read_product_diagnostic_context_handles_missing_or_invalid_json(tmp_path):
+    import json
+
+    artifact_dir = tmp_path / "sarguardian-granule-GOFF-033"
+    artifact_dir.mkdir()
+    assert agg.read_product_diagnostic_context(artifact_dir) == {
+        "diagnostics_artifact_present": False
+    }
+
+    path = artifact_dir / "product-run-diagnostics.json"
+    path.write_text("{not-json", encoding="utf-8")
+    result = agg.read_product_diagnostic_context(artifact_dir)
+    assert result["diagnostics_artifact_present"] is True
+    assert "diagnostics_parse_error" in result
+
