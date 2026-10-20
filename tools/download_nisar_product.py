@@ -89,6 +89,17 @@ def safe_remote_error(exc: BaseException) -> str:
     return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
 
 
+def is_retryable_remote_failure(exc: BaseException) -> bool:
+    """Classify only transient HTTP/network failures for automated whole-step retry."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is not None:
+        return int(status) in {408, 425, 429, 500, 502, 503, 504}
+    if re.search(r"\b(?:HTTP_STATUS_)(?:408|425|429|500|502|503|504)\b", str(exc)):
+        return True
+    return isinstance(exc, requests.exceptions.RequestException)
+
+
 def direct_product_url(wanted: str, product_type: str, maturity: str) -> str:
     """Build the documented NISAR Earthdata HTTPS path for a production granule."""
     collection = f"NISAR_L2_{product_type}_{maturity.upper()}_V1"
@@ -104,7 +115,7 @@ def is_urgent_response_product(wanted: str) -> bool:
 
 
 def _sleep_before_retry(stage: str, attempt: int, detail: str) -> None:
-    delay = min(2 ** attempt, 8)
+    delay = min(2 ** attempt, 30)
     print(
         f"NETWORK_RETRY stage={stage} attempt={attempt} "
         f"sleep_seconds={delay} {safe_remote_error(RuntimeError(detail))}",
@@ -370,6 +381,7 @@ def main() -> int:
         )
     except Exception as exc:
         print(f"ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DOWNLOAD_FAILURE_RETRYABLE=" + ("yes" if is_retryable_remote_failure(exc) else "no"), file=sys.stderr)
         print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
@@ -446,6 +458,7 @@ def main() -> int:
     except Exception as exc:
         shutil.rmtree(staging_dir, ignore_errors=True)
         print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DOWNLOAD_FAILURE_RETRYABLE=" + ("yes" if is_retryable_remote_failure(exc) else "no"), file=sys.stderr)
         print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         return 2
     finally:
@@ -461,7 +474,7 @@ def main() -> int:
         "maturity_requested": args.maturity,
         "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": "direct_https_known_granule",
+        "discovery_backend": record["_sarguardian_discovery_backend"],
         "science_acquisition_sha256": acquisition_sha256,
         "discovery_start": None,
         "discovery_end": None,
