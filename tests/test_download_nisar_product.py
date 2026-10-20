@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -65,9 +64,7 @@ def test_exact_product_lookup_reuses_original_recon_nisar_query_and_date_window(
     ]
 
 
-def test_exact_product_lookup_rejects_missing_or_ambiguous_matches(monkeypatch):
-    # Never let a unit test contact the real ASF catalog during the client fallback.
-    monkeypatch.setitem(sys.modules, "asf_search", SimpleNamespace(search=lambda **kwargs: []))
+def test_exact_product_lookup_rejects_missing_or_ambiguous_matches():
     with __import__("pytest").raises(LookupError, match="MATCH_COUNT_0"):
         download.find_exact_source_product(
             FakeSourceAcquisition([row(WANTED + "_different.h5")]), WANTED, "GUNW", "PROVISIONAL"
@@ -85,8 +82,7 @@ def test_exact_product_lookup_checks_maturity_when_catalog_exposes_it():
         download.find_exact_source_product(source, WANTED, "GUNW", "PROVISIONAL")
 
 
-def test_exact_product_lookup_rejects_wrong_product_family(monkeypatch):
-    monkeypatch.setitem(sys.modules, "asf_search", SimpleNamespace(search=lambda **kwargs: []))
+def test_exact_product_lookup_rejects_wrong_product_family():
     wrong = row()
     wrong["productType"] = "GOFF"
     with __import__("pytest").raises(LookupError, match="MATCH_COUNT_0"):
