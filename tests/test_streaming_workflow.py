@@ -132,3 +132,11 @@ def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
     assert "ERROR=UR_BASELINE_SOURCE_UNAVAILABLE" in manifest[preflight:]
     assert "full-baseline processing stopped before any product downloads" in manifest[preflight:]
 
+def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    download = text.split(
+        "- name: Download exactly one raw NISAR granule", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert '--out-dir "$RAW_DIR" 2>&1 | tee "$log"' in download
+    assert 'ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED' in (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
+
