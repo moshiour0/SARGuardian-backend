@@ -16,6 +16,7 @@ except ModuleNotFoundError:  # direct execution as python tools/preflight_drive_
 DEFAULT_SAFETY_FACTOR = 1.15
 PER_PRODUCT_OVERHEAD_BYTES = 8 * 1024 * 1024
 RUN_OVERHEAD_BYTES = 256 * 1024 * 1024
+GIB = 1024 ** 3
 
 
 def estimate_required_bytes(
@@ -66,10 +67,16 @@ def preflight_capacity(
     limit, usage = drive.quota()
     remaining = int(limit) - int(usage)
     if remaining < 0 or estimate > remaining:
-        raise DriveError("DRIVE_QUOTA_INSUFFICIENT_FOR_SELECTED_RUN")
+        # Expose required capacity only; do not publish exact account usage.
+        required_gib = estimate / GIB
+        raise DriveError(
+            "DRIVE_QUOTA_INSUFFICIENT_FOR_SELECTED_RUN "
+            f"required_gib={required_gib:.2f} available=below_required"
+        )
     return {
         "selected_products": len(manifest["products"]),
         "estimated_required_bytes": estimate,
+        "estimated_required_gib": estimate / GIB,
         "remaining_bytes": remaining,
     }
 
@@ -95,7 +102,8 @@ def main() -> int:
     print(
         "DRIVE_QUOTA_PREFLIGHT=PASS "
         f"PRODUCTS={result['selected_products']} "
-        f"RUN_PROFILE={manifest.get('run_profile', 'unknown')}"
+        f"RUN_PROFILE={manifest.get('run_profile', 'unknown')} "
+        f"REQUIRED_GIB={result['estimated_required_gib']:.2f}"
     )
     # Do not print account limit/usage values into public GitHub Actions logs.
     return 0
