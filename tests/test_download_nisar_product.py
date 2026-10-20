@@ -160,7 +160,7 @@ def test_official_asf_search_client_is_used_when_source_query_returns_http_error
     assert calls[0] == {
         "dataset": "NISAR",
         "intersectsWith": "POLYGON((85.4 28.2,85.5 28.2,85.5 28.3,85.4 28.3,85.4 28.2))",
-        "processingLevel": ["GUNW", "GOFF", "RUNW", "ROFF", "RIFG"],
+        "shortName": ["NISAR_L2_GUNW_V1"],
         "start": "2025-01-01T00:00:00Z",
         "end": "2025-12-31T23:59:59Z",
         "maxResults": 2000,
