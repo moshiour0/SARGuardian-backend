@@ -32,9 +32,15 @@ on:
           - derived-only
           - full-lossless
         default: derived-only
+      resume_from_run_id:
+        description: Optional failed full-baseline run ID; reuse only products with verified output and cleanup receipts
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 # Shared with the existing retention pilot so both cannot compete for data resources.
 concurrency:
@@ -58,6 +64,33 @@ jobs:
           ref: ab547ecc82bcc4d6ccef545a59852536c2beacc6
           path: science-source
 
+      - name: Download previous run manifest for safe resume
+        if: inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-stream-run-manifest
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-stream/resume/manifest
+
+      - name: Download previous per-product checkpoints for safe resume
+        if: inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-granule-*
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-stream/resume/granules
+
+      - name: Download previous cleanup receipts for safe resume
+        if: inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-cleanup-*
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-stream/resume/cleanups
+
       - name: Validate product lists and build the run manifest
         id: make
         shell: bash
@@ -69,6 +102,10 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
           RETENTION_PROFILE: ${{ inputs.retention_profile || 'derived-only' }}
+          RESUME_RUN_ID: ${{ inputs.resume_from_run_id || '' }}
+          RESUME_MANIFEST_PATH: ${{ runner.temp }}/sarguardian-stream/resume/manifest/manifest.json
+          RESUME_GRANULE_ROOT: ${{ runner.temp }}/sarguardian-stream/resume/granules
+          RESUME_CLEANUP_ROOT: ${{ runner.temp }}/sarguardian-stream/resume/cleanups
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sarguardian-stream/manifest"
@@ -164,14 +201,59 @@ jobs:
                               if retention_profile == "full-lossless" else
                               "No HDF5 archive is retained; validated derived outputs, source inventory, provenance and source SHA-256 are retained."),
           }
+          resume_run_id = os.environ.get("RESUME_RUN_ID", "").strip()
+          matrix_products = list(selected)
+          resume_summary = {
+              "enabled": bool(resume_run_id),
+              "source_run_id": resume_run_id or None,
+              "reused_product_ids": [],
+              "products_reused": 0,
+          }
+          if resume_run_id:
+              if not resume_run_id.isdigit():
+                  raise SystemExit("ERROR=RESUME_RUN_ID_MUST_BE_NUMERIC")
+              if effective_profile != "full-source-baseline" or profile != "full-source-baseline":
+                  raise SystemExit("ERROR=RESUME_REQUIRES_FULL_SOURCE_BASELINE")
+              from tools.resume_streamed_run import plan_resume
+              previous_manifest_path = Path(os.environ["RESUME_MANIFEST_PATH"])
+              if not previous_manifest_path.is_file():
+                  raise SystemExit("ERROR=RESUME_SOURCE_MANIFEST_MISSING")
+              previous_manifest = json.loads(previous_manifest_path.read_text(encoding="utf-8"))
+              try:
+                  plan = plan_resume(
+                      manifest, previous_manifest,
+                      Path(os.environ["RESUME_GRANULE_ROOT"]),
+                      Path(os.environ["RESUME_CLEANUP_ROOT"]),
+                  )
+              except ValueError as exc:
+                  raise SystemExit(f"ERROR=RESUME_SOURCE_INCOMPATIBLE detail={exc}") from exc
+              matrix_products = plan["products_to_process"]
+              resume_summary.update({
+                  "reused_product_ids": plan["reused_product_ids"],
+                  "products_reused": plan["products_reused"],
+                  "products_to_process_count": plan["products_to_process_count"],
+                  "decisions": plan["decisions"],
+              })
+              print(f"RESUME_SOURCE_RUN_ID={resume_run_id}")
+              print(f"RESUME_PRODUCTS_REUSED={plan['products_reused']}")
+              print(f"RESUME_PRODUCTS_TO_PROCESS={plan['products_to_process_count']}")
+              for decision in plan["decisions"]:
+                  print(
+                      f"RESUME_PRODUCT_DECISION id={decision['product_id']} "
+                      f"decision={decision['decision']} reason={decision['reason']}"
+                  )
+          manifest["resume"] = resume_summary
+          manifest["products_to_process"] = matrix_products
           out = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-stream" / "manifest" / "manifest.json"
           out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
           matrix = [{"id": r["id"], "granule_name": r["granule_name"],
                      "product_type": r["product_type"], "maturity": r["maturity"],
-                     "expected_source_bytes": r["expected_source_bytes"]} for r in selected]
+                     "expected_source_bytes": r["expected_source_bytes"]} for r in matrix_products]
           compact = json.dumps(matrix, separators=(",", ":"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh:
               gh.write("matrix=" + compact + "\n")
+          print(f"PRODUCTS_TO_PROCESS={len(matrix_products)}")
+          print(f"RESUME_ENABLED={bool(resume_run_id)}")
           print(f"REQUESTED_RUN_PROFILE={profile}")
           print(f"RUN_PROFILE={effective_profile}")
           print(f"TIME_WINDOW_START={window_start}")
@@ -224,7 +306,7 @@ jobs:
           manifest_path = Path(os.environ["MANIFEST_PATH"])
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           urgent = [
-              p for p in manifest.get("products", [])
+              p for p in manifest.get("products_to_process", manifest.get("products", []))
               if "_UR_GUNW_" in p.get("granule_name", "") or "_UR_GOFF_" in p.get("granule_name", "")
           ]
           print(f"UR_BASELINE_PRODUCTS_SELECTED={len(urgent)}")
