@@ -17,20 +17,19 @@ Langtang or Lhende polygons.
    default `2025-01-01` through `2026-12-31` covers the currently pinned
    products. The `source` AOI is fixed by the scientific project; there is no
    AOI input and its polygon is not changed.
-3. Drive quota is checked **after each product has been processed**, using the
-   exact bytes of the files we will retain and upload: the full-lossless
-   `*.science.h5` archive, manifests and evidence, plus derived GeoTIFF/CSV
-   outputs. The raw source HDF5 is never in the upload allowlist. The uploader
-   calculates actual file sizes and the bytes genuinely new in Drive, checks
-   available quota before uploading those files, then verifies each remote
-   file's size and MD5. We do not block the run using a full-run storage guess
-   derived from the raw-download estimates. The final ZIP/report/receipts also
-   get the same actual-size check when they are created.
+3. Choose `retention_profile=derived-only` by default to save Drive space. It
+   uploads the validated CSV/GeoTIFF products, source inventory, source SHA-256,
+   preflight and validation receipts without creating or retaining a
+   `*.science.h5` archive. Choose `full-lossless` only when future unrestricted
+   HDF5 reprocessing is worth retaining a near-source-size archive. Quota is
+   checked against actual files and each remote file's size/MD5 is verified.
+   Final ZIP/report/receipts are checked separately; no raw-download-size guess
+   is used as the retained-output estimate.
 4. Keep `validation-pilot` for the first real run. It picks one GUNW and one
-   GOFF that fall inside your selected window. Both families must have at least
-   one baseline product in that window. The retained products are checked and
-   uploaded to Drive, and the single-reader CSV rows are compared with the
-   committed baseline.
+   GOFF within the selected window. Each reader's complete product row is
+   compared against the pinned `gunw_stats_source.csv` or
+   `goff_stats_source.csv` baseline before deletion, and every required TIFF
+   must be present/readable with valid grid, CRS, band layout and source identity.
 5. After the pilot passes, choose `full-source-baseline` to process every
    committed baseline product inside the selected window. A window containing
    all **15 GUNW + 18 GOFF = 33** pinned products uses the full-baseline
@@ -38,11 +37,12 @@ Langtang or Lhende polygons.
    `time-window-selection`: it validates selected product rows and exports but
    intentionally does not claim a full-network time-series/bound equivalence
    comparison. `max-parallel: 1` keeps raw HDF5 processing sequential.
-6. After remote retention succeeds, the workflow deletes only the temporary
-   runner copies of the raw HDF5 and retained local archive. It writes a
-   `local-cleanup-receipt.json`, uploads and checksum-verifies that receipt in
-   the same versioned Drive folder, and the final aggregation gate validates
-   one cleanup receipt for every product before reporting PASS.
+6. Each product's cleanup gate checks the baseline-validation report and remote
+   receipt, requires all expected CSV/GeoTIFF outputs to appear in the verified
+   Drive receipt, and checks that the archive presence matches the selected
+   retention profile. Only then may the temporary raw HDF5 (and, in
+   `full-lossless` mode, the temporary local archive) be deleted. The uploaded
+   cleanup receipt records the policy and deletion evidence.
 7. Open the `sarguardian-streaming-run-*` artifact and inspect
    `batch-equivalence-report.json`. The final Drive bundle is uploaded only
     when the applicable product-level checks (and, for the full baseline, the
@@ -65,25 +65,24 @@ For each granule the workflow does the following:
 1. Load the pinned `science-source/src/nisar_acquisition.py` and set its canonical `source` AOI. Because the baseline already supplies the exact granule name and maturity, form the documented NISAR direct HTTPS path `https://nisar.asf.earthdatacloud.nasa.gov/NISAR/{NISAR_L2_TYPE_MATURITY_V1}/{GRANULE}/{GRANULE}.h5`; probe its HTTP status and size, then download through the same authenticated `build_session()` and `asf_search.download_url()` used by the source project. This avoids the ASF catalog endpoint, which returned wrapped CMR HTTP 500/502 errors on live runs. The separate raster AOI preflight still verifies that the downloaded HDF5 grid intersects the original source polygon before science processing or Drive retention.
 2. Run the AOI-grid preflight for `source`.
 3. Inventory every source dataset/attribute.
-4. Create a `full-lossless` HDF5 retained copy; do not use `engine-ready` for
-   this full-baseline workflow.
-5. Run the actual pinned SARGuardian reader equivalence test on raw versus
-   retained HDF5. A `PASS_NO_VALID_AOI_PIXELS` means the two readers agree but
-   the product supplies no valid science pixels in the AOI; it is not treated
-   as a valid measurement.
-6. Run one original single-product reader with the same source-AOI settings as
-   the batch reader; save the per-product CSV and AOI-clipped GeoTIFF exports.
-7. Upload the full-lossless archive, exports, CSV, inventory, preflight,
-   reader-equivalence report, download manifest and processing metadata into
-   the granule-specific Drive folder. The uploader verifies remote size and
-   MD5; the full original source SHA-256 is retained in provenance.
-8. Delete the runner's raw and archive copies only after verified remote upload,
-   and after the small evidence artifact has been written. The original raw
-   HDF5 itself is not uploaded; its full-lossless HDF5 dataset tree is preserved
-   in Drive for future readers and analysis. This archive has the same source
-   dataset paths/values/attributes needed by the scientific reader but is not
-   promised to be byte-identical to the source container; source SHA-256 proves
-   which original file was processed.
+4. By default, run in `derived-only`: do not create an HDF5 archive. An
+   optional `full-lossless` archive is built only when that retention profile is
+   selected.
+5. Run the original per-product GUNW/GOFF reader, exporting each baseline
+   GeoTIFF and its statistics CSV. Verify the single-reader row against the
+   pinned source-ZIP row **before deletion**, then validate export readability,
+   grid/CRS/bands, dimensions and valid-pixel consistency. If `full-lossless`
+   was selected, also compare raw and archived reads with the science engine.
+6. Upload outputs, source inventory/attributes, source SHA-256, AOI preflight,
+   validation report and download manifest into the granule-specific Drive
+   folder. `full-lossless` adds the archive, archive manifest and reader
+   equivalence report. Remote byte-size/MD5 checks and manifest-specific file
+   checks must pass.
+7. Delete runner-local raw HDF5 only after every required derived output is
+   uploaded and verified. Delete the temporary archive as well if one was made.
+   Store and verify the cleanup receipt. In `derived-only`, arbitrary future
+   raw-dataset queries such as a new product-native LOS geometry analysis are
+   not preserved unless a compact equivalent was explicitly exported.
 
 A failed upload or failed verification never reaches the explicit `rm` step.
 GitHub-hosted runners are disposable; if a run fails before retention succeeds,
@@ -98,8 +97,12 @@ Drive uploader refuses to overwrite a same-name file with different content.
   product artifact.
 - GOFF and GUNW summary time series built from the per-pair AOI GeoTIFFs. The finite-pixel median is recomputed at full raster precision and every PR/UR granule is kept as a graph edge, matching the pinned `--dir` path; the rounded statistics CSV and its PR/UR deduplication helper are deliberately not used for this baseline replay.
 - Pre-event inverse-velocity check with the explicit 2026-08-26 event cutoff.
+- Both `troposphere_gunw_source.csv` and `troposphere_goff_source.csv`, using
+  the committed options (GOFF filtered to `layer2`).
 - Candidate GOFF and GUNW local floors, summer common-reference table, and
   `bound_source.csv`.
+- Candidate-4 local floors (`local_floor_cand4.csv` and
+  `local_floor_cand4_as_floors.csv`) plus its common-datum inverse-velocity gate.
 - `ts_goff_cand4_common.csv`: this point-level common-datum time series is
   reassembled from the fixed-lattice GOFF GeoTIFF exports, with the same
   `common_mask`, target buffer, `rereference`, window median and time-series
@@ -109,7 +112,11 @@ Drive uploader refuses to overwrite a same-name file with different content.
 The report records each table comparison. Float comparisons use a small
 explicit tolerance for the float32 AOI-raster representation and rounded CSV
 outputs; file identity, row identity, required fields, export sets and
-missing/extra rows are checked too.
+missing/extra rows are checked too. The supplied source ZIP has no
+`ts_gunw_source.csv` baseline, so that table is labeled generated/unbaselined
+rather than claimed as a parity PASS. GeoTIFFs are not in the ZIP; the workflow
+validates raster structure and product statistics, but cannot claim historical
+pixel-for-pixel parity against absent TIFF files.
 The output bundle is not marked PASS if any required table differs or any
 product artifact is missing.
 
