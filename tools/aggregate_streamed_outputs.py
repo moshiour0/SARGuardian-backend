@@ -262,6 +262,8 @@ def summarize_retained_storage(
     new_file_ids: set[str] = set()
     accounted = 0
     products = manifest.get("products", [])
+    retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
+    expected_archive_count = 1 if retention_profile == "full-lossless" else 0
 
     for product in products:
         pid = str(product.get("id", ""))
@@ -368,10 +370,12 @@ def summarize_retained_storage(
             continue
 
         archive_rows = [x for x in product_files.values() if x["name"].endswith(".science.h5")]
-        if len(archive_rows) != 1:
+        if len(archive_rows) != expected_archive_count:
             errors.append({
                 "problem": "retention_storage_archive_count_invalid",
                 "id": pid,
+                "retention_profile": retention_profile,
+                "expected": expected_archive_count,
                 "count": len(archive_rows),
             })
             continue
@@ -390,11 +394,13 @@ def summarize_retained_storage(
                 new_file_ids.add(file_id)
 
         product_bytes = sum(row["bytes"] for row in product_files.values())
-        archive_bytes = archive_rows[0]["bytes"]
+        archive_bytes = archive_rows[0]["bytes"] if archive_rows else 0
         ancillary_bytes = product_bytes - archive_bytes
         by_product.append({
             "product_id": pid,
             "granule_name": product.get("granule_name"),
+            "retention_profile": retention_profile,
+            "retained_archive": bool(archive_rows),
             "remote_retained_file_count": len(product_files),
             "retained_archive_bytes": archive_bytes,
             "ancillary_retained_bytes": ancillary_bytes,
@@ -407,6 +413,7 @@ def summarize_retained_storage(
     expected = len(products)
     return {
         "status": "PASS" if accounted == expected and expected > 0 else "FAIL",
+        "retention_profile": retention_profile,
         "accounting_basis": "verified Google Drive upload receipt file sizes after processing; not raw source-size estimates",
         "products_expected": expected,
         "products_accounted": accounted,
