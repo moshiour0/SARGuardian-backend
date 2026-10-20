@@ -611,9 +611,9 @@ def zip_run_bundle(out_root: Path, science_root: Path, manifest_path: Path) -> P
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     bundle = out_root / f"sarguardian-{manifest.get('run_id', 'run')}-results.zip"
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        if manifest.get("run_profile") == "validation-pilot":
-            # A pilot package must not silently bundle stale, committed analyses
-            # and make them look like the result of a two-granule test.
+        if manifest.get("run_profile") in {"validation-pilot", "time-window-selection"}:
+            # Pilot and partial-window packages include only the product-level
+            # outputs created by this run, never unrelated committed analyses.
             out = science_root / "outputs"
             for rel in (
                 "gunw_stats_source.csv", "goff_stats_source.csv",
@@ -656,7 +656,7 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("aoi") != "source":
         raise SystemExit("ERROR=UNEXPECTED_AOI; expected the pinned source AOI")
-    if manifest.get("science_commit") != "77cc9646cfa46d3aff3669d351912f984cf67aa3":
+    if manifest.get("science_commit") != "ab547ecc82bcc4d6ccef545a59852536c2beacc6":
         raise SystemExit("ERROR=UNEXPECTED_SCIENCE_COMMIT")
 
     outputs = science_root / "outputs"
@@ -671,6 +671,8 @@ def main() -> int:
         "schema_version": "sarguardian-streaming-batch-equivalence/1.0",
         "run_id": manifest.get("run_id"),
         "run_profile": manifest.get("run_profile"),
+        "requested_run_profile": manifest.get("requested_run_profile", manifest.get("run_profile")),
+        "time_window": manifest.get("time_window"),
         "aoi": "source",
         "science_commit": manifest.get("science_commit"),
         "products_expected": len(manifest.get("products", [])),
