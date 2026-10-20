@@ -570,7 +570,12 @@ def aggregate_stats(
 
 def compare_output_file(path: Path, baseline_path: Path, report: dict[str, Any]) -> None:
     if not baseline_path.is_file():
-        report["comparisons"].append({"table": str(path.name), "status": "SKIP_NO_COMMITTED_BASELINE"})
+        report["errors"].append({
+            "problem": "required_committed_baseline_missing",
+            "file": path.name,
+            "baseline_path": str(baseline_path),
+        })
+        report["comparisons"].append({"table": str(path.name), "status": "FAIL_REQUIRED_BASELINE_MISSING"})
         return
     try:
         fields, actual = read_csv(path)
@@ -1062,8 +1067,13 @@ def main() -> int:
         "comparisons": [],
         "commands": [],
         "errors": [],
-        "archive_policy": "full-lossless",
-        "raw_delete_policy": "a raw runner copy is removed only after the full-lossless archive, all derived files, and remote checksums have passed; the remote full-lossless HDF5 and provenance are retained",
+        "retention_profile": str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless"))),
+        "archive_policy": str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless"))),
+        "raw_delete_policy": (
+            "raw runner copy is removed only after the full-lossless archive, reader equivalence, all derived files, and remote checksums pass; the remote archive remains retained"
+            if manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")) == "full-lossless" else
+            "raw runner copy is removed only after the complete derived-output baseline gate, all declared outputs, source inventory and remote checksums pass; no HDF5 archive is retained"
+        ),
     }
     aggregate_stats(manifest, artifact_root, science_root, out_root, report)
     report["cleanup_evidence"] = validate_cleanup_evidence(
