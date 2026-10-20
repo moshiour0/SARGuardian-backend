@@ -296,3 +296,38 @@ def test_urgent_response_catalog_url_404_reports_possible_expiration(monkeypatch
             FakeSourceAcquisition(session), urgent, "GUNW", "BETA"
         )
 
+
+def test_probe_only_reports_availability_without_creating_download_directory(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("EARTHDATA_USERNAME", "user")
+    monkeypatch.setenv("EARTHDATA_PASSWORD", "password")
+    out_dir = tmp_path / "must-not-be-created"
+    record = {
+        "granuleName": WANTED,
+        "productType": "GUNW",
+        "maturity": "PROVISIONAL",
+        "downloadUrl": download.direct_product_url(WANTED, "GUNW", "PROVISIONAL"),
+        "_sarguardian_discovery_backend": "direct_https_known_granule",
+    }
+    session = object()
+    monkeypatch.setattr(download, "load_source_acquisition", lambda *_args: (object(), "a" * 64))
+    monkeypatch.setattr(download, "probe_known_product", lambda *_args: (record, session, 123456))
+    monkeypatch.setattr(
+        download.sys,
+        "argv",
+        [
+            str(TOOL),
+            "--product-type", "GUNW",
+            "--maturity", "PROVISIONAL",
+            "--granule-name", WANTED,
+            "--science-root", str(tmp_path),
+            "--out-dir", str(out_dir),
+            "--probe-only",
+        ],
+    )
+
+    assert download.main() == 0
+    output = capsys.readouterr().out
+    assert "PRODUCT_PREFLIGHT_STATUS=PASS" in output
+    assert "DISCOVERY_BACKEND=direct_https_known_granule" in output
+    assert not out_dir.exists()
+
