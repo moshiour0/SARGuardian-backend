@@ -66,3 +66,11 @@ pytest
 ```
 
 The science source and GitHub Actions workflows remain separate from this application foundation.
+
+## Low-disk streaming processing for the Nepal source AOI
+
+The sequential NISAR streaming workflow, its `validation-pilot` / `full-source-baseline`
+profiles, full-lossless Drive retention policy, and output-equivalence gates are
+documented in [docs/STREAMING_BATCH.md](docs/STREAMING_BATCH.md). Start with the
+two-granule pilot; do not start the 33-product run until the pilot passes.
+
