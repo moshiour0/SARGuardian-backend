@@ -26,8 +26,12 @@ IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL b
 BASELINE_DOWNSTREAM = [
     "ts_goff_source.csv",
     "ts_goff_cand4_common.csv",
+    "troposphere_gunw_source.csv",
+    "troposphere_goff_source.csv",
     "local_floor_candidates.csv",
     "local_floor_phase_candidates.csv",
+    "local_floor_cand4.csv",
+    "local_floor_cand4_as_floors.csv",
     "common_ref_summer.csv",
     "bound_source.csv",
 ]
