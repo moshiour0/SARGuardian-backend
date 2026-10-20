@@ -3,7 +3,7 @@
 Status: implementation in progress.
 Baseline authority: the user-supplied SARGuardian-main.zip, especially REPRODUCE_RESULTS.md, src/, and committed outputs/*_source.csv.
 Operational repository: moshiour0/SARGuardian-backend.
-Safety rule: do not delete a temporary raw HDF5 until required raw-dependent outputs and provenance are validated, uploaded, and remotely verified. Do not start the full 33-product run until the two-product pilot passes.
+Safety rule: do not delete a temporary raw HDF5 until required raw-dependent outputs and provenance are validated, uploaded, and remotely verified. The two-product pilot passed, but a failed 33-product run showed source-availability gaps; do not repeat the expensive full run until the selected UR granules pass the new early availability preflight.
 
 ## 1. Dependency inventory
 
@@ -52,27 +52,33 @@ Any newly added output that calls a raw-HDF5 helper must be added to this map be
 
 Storage accounting must be policy-aware: derived-only cleanup must require all derived files and their remote checksums, not an archive.
 
-## 5. Historical gaps, current state, and latest live-pilot finding
+## 5. Live pilot, full-baseline result, and corrective work
 
-- [x] The streaming workflow now defaults to `derived-only` and retains `full-lossless` as an explicit option.
-- [x] Product-vs-baseline CSV checks and GeoTIFF validation run before the raw-HDF5 deletion gate.
+- [x] The streaming workflow defaults to `derived-only`; `full-lossless` remains explicit.
+- [x] Product-level CSV validation and GeoTIFF validation run before the raw-HDF5 deletion gate.
 - [x] Downstream replay includes both troposphere reports and the candidate-4 floor/common-datum chain.
-- [ ] The supplied source ZIP has no `ts_gunw_source.csv` baseline; generated GUNW time series must remain explicitly unbaselined.
 - [x] The workflow pins the declared scientific commit and checks it before processing.
-- Historical context: earlier run #15 failed the stale science-commit guard; run #19 GUNW succeeded but GOFF Drive upload hit HTTP 502. Neither proved full baseline parity.
-- Live pilot run [#20](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39491539621) validated both representative product CSV/raster outputs, and the Drive uploader verified six derived/provenance files for each product. The workflow then failed while parsing `product-processing.json`: three inline JSON writers appended a literal backslash-`n` after the closing JSON object, producing `JSONDecodeError: Extra data`. The failure prevented metadata/cleanup receipts, caused aggregation to report zero streamed rows and zero accounted bytes, and correctly skipped local raw deletion.
-- Fixed in commit `3cf29967272ba7acd79cd9eaf7ccdcdad9ba7886`; regression guard added in `bdae0ffd1703e5af74d426ed99076ec13a50013f`. Latest CI: 133 passed, 1 skipped in the backend suite; 42 passed in the retention suite; workflow YAML and Python checks passed.
-- Actual uploads recorded in run #20 total 603,999 bytes across the two product folders (275,612 + 328,387). The report's `0 bytes` was a consequence of missing receipts, not proof that no files were uploaded. Temporary raw deletion was skipped; no raw HDF5 archive was retained by derived-only policy.
-- [ ] Re-run the two-product live validation pilot on the fixed branch and verify remote metadata/cleanup receipts and actual storage accounting before considering a 33-product run.
+- [ ] The supplied source ZIP has no `ts_gunw_source.csv` baseline; generated GUNW time series must remain explicitly unbaselined.
+- Historical context: run #15 failed the stale science-commit guard; run #19 GUNW succeeded but GOFF Drive upload hit HTTP 502.
+- Validation pilot [run #21](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39493497798) completed successfully on the branch after fixing the prior JSON newline bug.
+- Full-baseline [run #22](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39495122444), pinned to the expected science commit, selected all 33 products but finished FAIL: 28/33 validated; 5 downloads failed. The two exact source-AOI primary CSV comparisons reported zero field mismatches among available rows but were missing 2 GUNW and 3 GOFF identities. The downstream parity chain did not complete, so this run does not establish full baseline parity.
+- Run #22 product-download failures:
+  - GUNW-006 and GOFF-020: transient `ConnectionError` while contacting the Earthdata Login token endpoint. Bounded session retry was added.
+  - GUNW-015, GOFF-032, and GOFF-033: `DIRECT_PRODUCT_HTTP_STATUS_404` on the standard production URL. These names are `UR` (urgent-response) products and need their exact ASF catalog access URLs rather than the standard production bucket URL. The acquisitions are from late August 2026, and run #22 occurred on 2026-10-20; ASF documentation says UR products are kept in a separate bucket with a 30-day retention period. If the exact catalog URL now returns 404 or the exact granule has left the catalog, the raw bytes must be recovered from an independent archive to achieve the original baseline identity; retrying or substituting a different product cannot count as parity.
+- 28 completed product jobs validated and remotely retained their derived outputs; cleanup receipts verified 28/33. Accounting from verified Drive receipts was 8,854,129 bytes across 252 unique remote files (about 0.008246 GiB), excluding the GitHub run-result bundle. The five failed jobs did not produce product-processing/cleanup receipts, and their raw download step never succeeded.
+- [x] Added bounded retries for transient Earthdata/session and HTTP 429/5xx errors; added exact ASF catalog URL fallback for UR products and non-UR direct-URL 404s; added `--probe-only` to check exact source availability without downloading or writing raw data.
+- [x] Added a full-baseline manifest preflight that checks every selected UR product before launching any of the 33 product jobs. It stops early with a sanitized error if a required historical UR granule is no longer retrievable, instead of spending most of an hour processing the other products first.
+- [x] Product diagnostics now keep the sanitized downloader root-cause lines, and aggregation attaches them to missing-product errors instead of reporting only that `product-processing.json` is absent.
+- [ ] The UR catalog fallback and early preflight are unit/CI-tested but have not yet been verified by a new live Actions run. Do not launch another full run until the newest CI is green and the UR availability gate passes.
 
 ## 6. Acceptance gates before processing all 33 products
 
-- Representative GUNW and GOFF product-level validations pass against source-ZIP baselines before cleanup.
+- The two-product validation pilot passes and representative GUNW/GOFF product outputs match the source-ZIP baselines before cleanup.
 - derived-only passes without a .science.h5 in the upload receipt and refuses cleanup for missing/wrong validation, exports or remote checksums.
 - full-lossless remains independently supported with the raw/archive equivalence test.
 - Aggregation handles archive-present/absent policies and measures Drive storage from verified receipts.
 - Both troposphere outputs are regenerated and compared; every available required baseline is compared.
-- Full-source run covers all 15 GUNW + 18 GOFF products, all required comparisons pass, and all 33 product/cleanup receipts verify before the final report can say PASS.
+- Before a full-source run, every selected UR granule must pass the early exact-availability gate; then the full run must cover all 15 GUNW + 18 GOFF products, all required comparisons must pass, and all 33 product/cleanup receipts must verify before the final report can say PASS.
 
 ## 7. Change log
 
