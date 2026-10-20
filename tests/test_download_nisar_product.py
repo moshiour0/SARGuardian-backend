@@ -180,7 +180,7 @@ def test_official_asf_search_client_requires_exact_name_and_trusted_url(monkeypa
         ),
     )
     import pytest
-    with pytest.raises(LookupError, match="MATCH_COUNT_0"):
+    with pytest.raises(RuntimeError, match="ASF_CLIENT_EXACT_MATCH_COUNT_0"):
         download.find_exact_source_product(
             source, WANTED, "GUNW", "PROVISIONAL", catalog_end="2025-12-31"
         )
