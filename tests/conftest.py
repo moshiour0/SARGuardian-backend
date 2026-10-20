@@ -17,7 +17,8 @@ from app.storage.fake_drive_service import FakeDriveService
 # worker separate connections. Sharing one StaticPool in-memory connection
 # across threads can interleave transactions and leave a job stuck at QUEUED.
 engine = None
-TestingSessionLocal = None
+# Keep this factory object stable: callback tests import it directly from conftest.
+TestingSessionLocal = sessionmaker(autoflush=False, autocommit=False, expire_on_commit=False)
 
 
 def override_get_db():
@@ -35,7 +36,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
 def reset_database(tmp_path):
-    global engine, TestingSessionLocal
+    global engine
 
     old_executor = job_worker.executor
     old_executor.shutdown(wait=True)
@@ -49,12 +50,7 @@ def reset_database(tmp_path):
         connect_args={"check_same_thread": False, "timeout": 30},
         pool_pre_ping=True,
     )
-    TestingSessionLocal = sessionmaker(
-        bind=engine,
-        autoflush=False,
-        autocommit=False,
-        expire_on_commit=False,
-    )
+    TestingSessionLocal.configure(bind=engine)
     job_worker.executor = ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="sarguardian-test-job",
@@ -77,7 +73,6 @@ def reset_database(tmp_path):
     job_worker.session_factory_override = None
     engine.dispose()
     engine = None
-    TestingSessionLocal = None
 
 
 @pytest.fixture
