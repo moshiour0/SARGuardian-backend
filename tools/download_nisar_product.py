@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import html
 import importlib.metadata
+import importlib.util
 import json
 import os
 import re
@@ -260,7 +261,7 @@ def search_asf_exact_granule(
             )
             with urllib.request.urlopen(request, timeout=45) as response:
                 body = json.loads(response.read().decode("utf-8"))
-            rows = body.get("results", body if isinstance(body, list) else [])
+            rows = body if isinstance(body, list) else body.get("results", [])
             if not isinstance(rows, list):
                 raise ValueError("ASF search response did not contain a result list")
             match, count = exact_asf_match(rows, wanted)
