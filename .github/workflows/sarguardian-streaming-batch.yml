@@ -467,7 +467,7 @@ jobs:
                   "Derived-only: no HDF5 archive is retained; only validated outputs and provenance are preserved."
               ),
           }
-          (root / "product-processing.json").write_text(json.dumps(metadata, indent=2) + "\\n", encoding="utf-8")
+          (root / "product-processing.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
           PY
 
       - name: Upload validated per-product outputs to Drive with checksum verification
@@ -523,7 +523,7 @@ jobs:
           meta["drive_remote_verification"]="PASS"
           meta["drive_remote_folder_id"]=receipt.get("remote_folder_id")
           meta["drive_retention_receipt"]="drive-retention-receipt.json"
-          meta_path.write_text(json.dumps(meta,indent=2)+"\\n",encoding="utf-8")
+          meta_path.write_text(json.dumps(meta,indent=2),encoding="utf-8")
           PY
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
@@ -705,7 +705,7 @@ jobs:
                 "temporary runner raw deleted after verified derived-only outputs; no HDF5 archive retained"
               )
           }
-          (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2)+"\\n",encoding="utf-8")
+          (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2),encoding="utf-8")
           print("LOCAL_RAW_AND_POLICY_REQUIRED_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes")
           PY
           python tools/drive_resumable_upload.py \
