@@ -302,7 +302,7 @@ jobs:
             --input "$RAW_PATH" --product-type "$PRODUCT_TYPE" \
             --out "$CURATED_DIR/source-inventory.json"
 
-      - name: Create an optional full-lossless retained HDF5 copy
+      - name: Create a full-lossless retained HDF5 copy
         id: archive
         if: env.RETENTION_PROFILE == 'full-lossless'
         env:
@@ -609,7 +609,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-      - name: Delete temporary raw/archive copies only after validation and remote retention
+      - name: Delete local raw/archive only after successful remote retention
         if: success()
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
