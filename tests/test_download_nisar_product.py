@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "download_nisar_product.py"
 spec = importlib.util.spec_from_file_location("download_nisar_product", TOOL)
@@ -19,8 +18,6 @@ ASF_URL = "https://datapool.asf.alaska.edu/NISAR/test-product.h5"
 
 
 class FakeSourceAcquisition:
-    INTERFEROMETRIC = ["GUNW", "GOFF", "RUNW", "ROFF", "RIFG"]
-
     INTERFEROMETRIC = ["GUNW", "GOFF", "RUNW", "ROFF", "RIFG"]
 
     def __init__(self, rows):
