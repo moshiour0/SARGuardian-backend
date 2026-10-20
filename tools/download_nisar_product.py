@@ -129,6 +129,7 @@ def _asf_exact_source_api(
     if len(exact) != 1:
         return None, f"asf_search_api_exact_match_count_{len(exact)}"
     row = dict(exact[0])
+    row["granuleName"] = wanted
     row["_sarguardian_discovery_backend"] = "source_asf_api_granule_list"
     return row, "source_asf_api_granule_list"
 
