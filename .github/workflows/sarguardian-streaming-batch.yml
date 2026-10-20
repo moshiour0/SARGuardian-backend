@@ -54,6 +54,9 @@ jobs:
     outputs:
       matrix: ${{ steps.make.outputs.matrix }}
     steps:
+      - name: Checkout backend repository tools
+        uses: actions/checkout@v4
+
       - name: Checkout pinned scientific project and committed baselines
         uses: actions/checkout@v4
         with:
