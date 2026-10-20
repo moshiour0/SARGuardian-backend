@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Download exactly one NISAR GUNW/GOFF granule for the retention pilot.
+"""Download one exact NISAR granule using SARGuardian's pinned acquisition code.
 
-Credentials are read only from EARTHDATA_USERNAME / EARTHDATA_PASSWORD.
-This helper never prints credentials, token material, signed URLs, or full
-Earthaccess exception text. It does not delete downloaded source files.
+Catalog queries, AOI construction and the authenticated ASF download call are
+reused from science-source/src/nisar_acquisition.py. This wrapper only adds
+single-product, disk-space, filename, checksum and provenance safeguards.
+It never deletes the source file.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
-import html
 import importlib.metadata
 import importlib.util
 import json
@@ -17,401 +17,148 @@ import os
 import re
 import shutil
 import sys
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
-from urllib.parse import urlparse
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 def normal_name(value: str) -> str:
-    name = Path(value.strip()).name
-    return re.sub(r"\.h5$", "", name, flags=re.IGNORECASE)
-
-
-def safe_name(result: Any) -> str:
-    """Get only the public granule identifier from Earthaccess metadata."""
-    if hasattr(result, "get"):
-        for root_key in ("umm", "metadata"):
-            root = result.get(root_key, {})
-            if isinstance(root, dict):
-                umm = root.get("umm", root) if isinstance(root.get("umm", root), dict) else root
-                for key in ("GranuleUR", "producer_granule_id", "granuleName", "name"):
-                    val = umm.get(key)
-                    if val:
-                        return Path(str(val)).name
-        for key in ("granule_ur", "name", "producer_granule_id"):
-            val = result.get(key)
-            if val:
-                return Path(str(val)).name
-    for key in ("granule_ur", "name"):
-        val = getattr(result, key, None)
-        if val:
-            return Path(str(val)).name
-    return ""
-
-
-def temporal_bounds_for_granule(name: str) -> tuple[str, str] | None:
-    """Build a narrow CMR time window from a NISAR interferogram filename."""
-    dates = re.findall(r"_(\d{8})T\d{6}", normal_name(name))
-    if len(dates) < 2:
-        return None
-    start_day = min(dates)
-    end_day = max(dates)
-    try:
-        end_exclusive = datetime.strptime(end_day, "%Y%m%d").date() + timedelta(days=1)
-    except ValueError:
-        return None
-    start_iso = f"{start_day[:4]}-{start_day[4:6]}-{start_day[6:]}"
-    return start_iso, end_exclusive.isoformat()
-
-
-def safe_exception_diagnostics(exc: BaseException) -> dict[str, str | None]:
-    """Summarise a CMR/HTTP exception without logging URLs or authentication material."""
-    status_code: str | None = None
-    details: list[str] = []
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        response = getattr(current, "response", None)
-        code = getattr(response, "status_code", None)
-        if code is None:
-            code = getattr(current, "code", None)
-        if code is not None and status_code is None:
-            status_code = str(code)
-        reason = getattr(response, "reason", None)
-        if reason:
-            details.append(str(reason))
-        for arg in getattr(current, "args", ()):
-            if isinstance(arg, str) and arg.strip():
-                details.append(arg)
-        current = current.__cause__ or current.__context__
-
-    detail = " ".join(details)
-    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL]", detail)
-    detail = re.sub(
-        r"(?i)\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
-        r"authorization|client[_-]?secret|secret)\b\s*[:=]\s*[^,;\s<>]+",
-        r"\1=[REDACTED]",
-        detail,
-    )
-    detail = re.sub(r"<[^>]+>", " ", detail)
-    detail = html.unescape(detail)
-    detail = re.sub(r"\s+", " ", detail).strip()
-    # Keep only a short diagnostic; never emit raw response payloads or URLs.
-    detail = detail[:180]
-    return {
-        "type": type(exc).__name__,
-        "http_status": status_code,
-        "detail_safe": detail or None,
-    }
-
-
-def earthdata_service_status(earthaccess_module: Any) -> dict[str, str]:
-    """Return only public service-status labels; do not log status API payloads."""
-    try:
-        statuses = earthaccess_module.status()
-        if not isinstance(statuses, dict):
-            return {"Earthdata Login": "Unknown", "Common Metadata Repository": "Unknown"}
-        return {
-            "Earthdata Login": str(statuses.get("Earthdata Login", "Unknown"))[:40],
-            "Common Metadata Repository": str(statuses.get("Common Metadata Repository", "Unknown"))[:40],
-        }
-    except Exception:
-        return {"Earthdata Login": "Unknown", "Common Metadata Repository": "Unknown"}
-
-
-def _retry_transient_call(
-    call: Any, *, operation: str, max_attempts: int = 4,
-) -> tuple[Any | None, dict[str, str | None] | None, int]:
-    """Retry transient network/service errors; preserve safe diagnostics after recovery."""
-    last_diag: dict[str, str | None] | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            value = call()
-            if last_diag is not None:
-                recovered = dict(last_diag)
-                recovered["recovered"] = "true"
-                print(
-                    f"{operation}_RETRY_RECOVERED attempts={attempt} "
-                    f"last_http_status={recovered.get('http_status') or 'unknown'}"
-                )
-                return value, recovered, attempt
-            return value, None, attempt
-        except Exception as exc:
-            last_diag = safe_exception_diagnostics(exc)
-            status = last_diag.get("http_status")
-            name = last_diag.get("type", "")
-            transient = status in {"408", "425", "429", "500", "502", "503", "504"}
-            if name in {"Timeout", "ConnectionError", "ConnectTimeout", "ReadTimeout"}:
-                transient = True
-            if not transient or attempt >= max_attempts:
-                return None, last_diag, attempt
-            delay = min(2 ** (attempt - 1), 8)
-            print(
-                f"{operation}_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
-                f"http_status={status or 'unknown'} delay_seconds={delay}",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-    return None, last_diag, max_attempts
-
-
-def _search_data_with_retry(
-    earthaccess_module: Any, parameters: dict[str, Any], max_attempts: int = 4,
-) -> tuple[list[Any] | None, dict[str, str | None] | None, int]:
-    """Retry transient CMR errors, retaining safe diagnostics if a retry recovers."""
-    result, diagnostic, attempts = _retry_transient_call(
-        lambda: list(earthaccess_module.search_data(**parameters)),
-        operation="CMR",
-        max_attempts=max_attempts,
-    )
-    return (None if result is None else list(result)), diagnostic, attempts
-
-
-def search_exact_granule(
-    earthaccess_module: Any, collection: str, wanted: str
-) -> tuple[list[Any], str, dict[str, Any]]:
-    """Exact granule search with bounded transient retries and a safe temporal fallback."""
-    diagnostics: dict[str, Any] = {
-        "exact_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None, "attempts": 0, "recovered": False},
-        "temporal_search": {"type": None, "http_status": None, "detail_safe": None, "match_count": None, "attempts": 0, "recovered": False},
-    }
-    results, exact_error, attempts = _search_data_with_retry(
-        earthaccess_module, {"short_name": collection, "granule_name": wanted, "count": 10}
-    )
-    diagnostics["exact_search"]["attempts"] = attempts
-    if exact_error:
-        diagnostics["exact_search"].update(exact_error)
-        diagnostics["exact_search"]["recovered"] = exact_error.get("recovered") == "true"
-    if results is not None:
-        exact_matches = [item for item in results if normal_name(safe_name(item)) == wanted]
-        diagnostics["exact_search"]["match_count"] = len(exact_matches)
-        if len(exact_matches) == 1:
-            return exact_matches, "exact_granule_name", diagnostics
-        if len(exact_matches) > 1:
-            return exact_matches, "exact_granule_name_ambiguous", diagnostics
-
-    temporal = temporal_bounds_for_granule(wanted)
-    if temporal is None:
-        return [], "no_temporal_fallback_available", diagnostics
-    candidates, temporal_error, attempts = _search_data_with_retry(
-        earthaccess_module, {"short_name": collection, "temporal": temporal, "count": 2000}
-    )
-    diagnostics["temporal_search"]["attempts"] = attempts
-    if temporal_error:
-        diagnostics["temporal_search"].update(temporal_error)
-        diagnostics["temporal_search"]["recovered"] = temporal_error.get("recovered") == "true"
-    if candidates is None:
-        return [], "temporal_fallback_failed", diagnostics
-    matches = [item for item in candidates if normal_name(safe_name(item)) == wanted]
-    diagnostics["temporal_search"]["match_count"] = len(matches)
-    return matches, "temporal_collection_fallback", diagnostics
-
-
-def _asf_properties(row: Any) -> dict[str, Any]:
-    """Normalize ASF dictionary records and asf_search ASFProduct objects."""
-    if isinstance(row, dict):
-        return row
-    properties = getattr(row, "properties", None)
-    return properties if isinstance(properties, dict) else {}
-
-
-def _asf_row_name(row: Any) -> str:
-    props = _asf_properties(row)
-    for key in ("granuleName", "fileName", "sceneName", "fileID", "name"):
-        value = props.get(key)
-        if value:
-            return normal_name(str(value))
-    return ""
-
-
-def _asf_row_url(row: Any) -> str | None:
-    """Obtain a product URL without logging or trusting arbitrary catalog URLs."""
-    props = _asf_properties(row)
-    urls: list[str] = []
-    get_urls = getattr(row, "get_urls", None)
-    if callable(get_urls):
-        try:
-            urls = [str(x) for x in (get_urls() or []) if x]
-        except Exception:
-            urls = []
-    for value in [*urls, props.get("downloadUrl"), props.get("url")]:
-        if not isinstance(value, str) or not value:
-            continue
-        parsed = urlparse(value)
-        host = (parsed.hostname or "").lower()
-        trusted_host = (
-            host.endswith(".asf.alaska.edu")
-            or host == "asf.alaska.edu"
-            or host.endswith(".asf.earthdatacloud.nasa.gov")
-        )
-        if parsed.scheme == "https" and trusted_host:
-            return value
-    return None
-
-
-def exact_asf_match(rows: list[Any], wanted: str) -> tuple[Any | None, int]:
-    """Select one exact public granule; ambiguous or approximate matches fail closed."""
-    exact = [row for row in rows if _asf_row_name(row) == wanted]
-    return (exact[0], len(exact)) if len(exact) == 1 else (None, len(exact))
-
-
-def asf_size_bytes(row: Any) -> int | None:
-    props = _asf_properties(row)
-    for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
-        try:
-            value = int(float(props.get(key)))
-            if value > 0:
-                return value
-        except (TypeError, ValueError, OverflowError):
-            pass
-    try:
-        mb = float(props.get("sizeMB"))
-        if mb > 0:
-            return int(mb * 1024 * 1024)
-    except (TypeError, ValueError, OverflowError):
-        pass
-    return None
-
-
-def search_asf_exact_granule(
-    wanted: str,
-    product_type: str,
-    *,
-    maturity: str = "BETA",
-    max_attempts: int = 4,
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """Search ASF with its supported Python client and strict exact-name matching.
-
-    The previous direct Search API request returned HTTP 400 in the real runner.
-    ASF's NISAR guide documents dataset, dataMaturity, processingLevel, and
-    granule_list through asf_search. Use that client contract and preserve a
-    sanitized diagnostic when ASF or CMR is unavailable.
-    """
-    diag: dict[str, Any] = {
-        "backend": "asf_search",
-        "attempts": 0,
-        "http_status": None,
-        "match_count": None,
-        "error_type": None,
-        "detail_safe": None,
-        "maturity": maturity,
-        "product_type": product_type,
-    }
-    delay = 2.0
-    for attempt in range(1, max_attempts + 1):
-        diag["attempts"] = attempt
-        try:
-            import asf_search
-
-            results = asf_search.search(
-                dataset="NISAR",
-                dataMaturity=maturity,
-                processingLevel=product_type,
-                granule_list=[wanted],
-            )
-            rows = list(results)
-            match, count = exact_asf_match(rows, wanted)
-            diag["http_status"] = "200"
-            diag["match_count"] = count
-            if count == 0:
-                return None, diag
-            if count != 1:
-                diag["error_type"] = "AMBIGUOUS_EXACT_GRANULE"
-                return None, diag
-
-            url_value = _asf_row_url(match)
-            if not url_value:
-                diag["error_type"] = "EXACT_MATCH_WITHOUT_TRUSTED_DOWNLOAD_URL"
-                return None, diag
-            props = _asf_properties(match)
-            normalized = {
-                "granuleName": _asf_row_name(match),
-                "downloadUrl": url_value,
-                "sizeMB": props.get("sizeMB"),
-                "sizeBytes": props.get("sizeBytes"),
-                "fileID": props.get("fileID"),
-                "_sarguardian_download_url": url_value,
-            }
-            return normalized, diag
-        except Exception as exc:
-            safe = safe_exception_diagnostics(exc)
-            diag["error_type"] = safe.get("type")
-            diag["http_status"] = safe.get("http_status")
-            diag["detail_safe"] = safe.get("detail_safe")
-            status = safe.get("http_status")
-            transient = status in {"408", "425", "429", "500", "502", "503", "504"}
-            if type(exc).__name__ in {
-                "Timeout", "TimeoutError", "ConnectionError",
-                "ConnectTimeout", "ReadTimeout", "URLError",
-            }:
-                transient = True
-            if not transient or attempt >= max_attempts:
-                return None, diag
-        print(
-            f"ASF_SEARCH_TRANSIENT_RETRY attempt={attempt}/{max_attempts} "
-            f"http_status={diag.get('http_status') or 'unknown'} delay_seconds={int(delay)}",
-            file=sys.stderr,
-        )
-        time.sleep(delay)
-        delay = min(delay * 2, 16.0)
-    return None, diag
-
-
-def find_size_bytes(result: Any) -> int | None:
-    """Read size estimate from UMM metadata when present; no URL probing."""
-    candidates: list[Any] = []
-    if hasattr(result, "get"):
-        umm = result.get("umm", {})
-        if not isinstance(umm, dict):
-            umm = {}
-        data_granule = umm.get("DataGranule", {})
-        if isinstance(data_granule, dict):
-            dist = data_granule.get("ArchiveAndDistributionInformation", [])
-            if isinstance(dist, dict):
-                dist = [dist]
-            if isinstance(dist, list):
-                for item in dist:
-                    if isinstance(item, dict):
-                        candidates.append(item.get("SizeInBytes"))
-        for key in ("size_bytes", "SizeInBytes", "size"):
-            candidates.append(result.get(key))
-    for value in candidates:
-        try:
-            number = int(float(value))
-            if number > 0:
-                return number
-        except (TypeError, ValueError, OverflowError):
-            continue
-    return None
+    """Normalize a public granule ID or a source filename, preserving the ID."""
+    return re.sub(r"\.h5$", "", Path(value.strip()).name, flags=re.IGNORECASE)
 
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(8 * 1024 * 1024), b""):
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
+    """Load the exact acquisition module shipped by the pinned science repo."""
+    source_file = (science_root / "src" / "nisar_acquisition.py").resolve()
+    if not source_file.is_file():
+        raise FileNotFoundError("PINNED_SCIENCE_ACQUISITION_MODULE_MISSING")
+    source_dir = str(source_file.parent)
+    if source_dir not in sys.path:
+        sys.path.insert(0, source_dir)
+    spec = importlib.util.spec_from_file_location(
+        "sarguardian_pinned_nisar_acquisition", source_file
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError("PINNED_SCIENCE_ACQUISITION_MODULE_COULD_NOT_BE_LOADED")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # This imports AOIs from the same gunw_reader used by all science scripts.
+    module.set_aoi(aoi)
+    return module, sha256_file(source_file)
+
+
+def trusted_asf_url(value: Any) -> bool:
+    """Validate that the existing source catalog returned an HTTPS ASF URL."""
+    if not isinstance(value, str) or not value:
+        return False
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (
+        host == "asf.alaska.edu"
+        or host.endswith(".asf.alaska.edu")
+        or host.endswith(".asf.earthdatacloud.nasa.gov")
+    )
+
+
+def find_exact_source_product(
+    acquisition: Any,
+    wanted: str,
+    product_type: str,
+    maturity: str,
+) -> tuple[dict[str, Any], str, str]:
+    """Use the source project's AOI/time-filtered ASF query and exact-name match.
+
+    Intentionally does not create a separate REST query or use the unsupported
+    combination of maxResults with a non-wildcard granule_list. The source
+    query's spatial bounding box is a discovery filter; the downstream source
+    AOI preflight still checks the real raster footprint before science runs.
+    """
+    pair = acquisition.parse_pair_dates(wanted)
+    if not pair:
+        raise ValueError("GRANULE_NAME_DOES_NOT_CONTAIN_PAIR_DATES")
+    start = min(pair).isoformat()
+    end = max(pair).isoformat()
+
+    rows = acquisition.query_by_year(
+        start,
+        end,
+        platform="NISAR",
+        processingLevel=product_type,
+    )
+    if not isinstance(rows, list):
+        raise TypeError("SOURCE_ACQUISITION_QUERY_DID_NOT_RETURN_A_LIST")
+
+    exact = [
+        row for row in rows
+        if isinstance(row, dict)
+        and normal_name(str(row.get("granuleName", ""))) == wanted
+        and str(row.get("productType", product_type)).upper() == product_type
+    ]
+    if len(exact) != 1:
+        raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact)}")
+
+    record = exact[0]
+    # Some ASF responses expose maturity metadata and some do not. Verify it
+    # when present; the committed baseline name remains the exact identity key.
+    reported_maturity = next(
+        (
+            str(record.get(key)).strip().upper()
+            for key in ("dataMaturity", "maturity", "productMaturity")
+            if record.get(key) not in (None, "")
+        ),
+        None,
+    )
+    if reported_maturity and reported_maturity != maturity.upper():
+        raise ValueError("SOURCE_CATALOG_MATURITY_MISMATCH")
+    url = record.get("downloadUrl")
+    if not trusted_asf_url(url):
+        raise ValueError("SOURCE_CATALOG_DID_NOT_RETURN_A_TRUSTED_ASF_HTTPS_URL")
+    return record, start, end
+
+
+def size_estimate_bytes(record: dict[str, Any]) -> int | None:
+    try:
+        size_mb = float(record.get("size_mb", record.get("sizeMB")))
+        if size_mb > 0:
+            return int(size_mb * 1024 * 1024)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
+        try:
+            size = int(float(record.get(key)))
+            if size > 0:
+                return size
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--product-type", required=True, choices=["GUNW", "GOFF"])
     parser.add_argument("--maturity", required=True, choices=["PROVISIONAL", "BETA"])
-    parser.add_argument("--granule-name", required=True, help="Exact public NISAR granule identifier; no wildcard allowed")
+    parser.add_argument("--granule-name", required=True, help="Exact public NISAR granule identifier; no wildcard")
+    parser.add_argument("--science-root", required=True, type=Path, help="Checkout of the pinned SARGuardian main source")
+    parser.add_argument("--aoi", default="source", help="AOI name defined in the pinned gunw_reader.AOIS")
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--expected-source-bytes", type=int, default=0, help="Optional byte-size estimate from ASF if UMM does not expose one")
-    parser.add_argument("--disk-safety-factor", type=float, default=2.2, help="Require this multiple of estimated source size as free disk space")
+    parser.add_argument("--expected-source-bytes", type=int, default=0)
+    parser.add_argument("--disk-safety-factor", type=float, default=2.2)
     args = parser.parse_args()
 
     supplied_name = args.granule_name.strip()
     wanted = normal_name(supplied_name)
-    if Path(supplied_name).name != supplied_name or not re.fullmatch(r"NISAR_L2_(?:(?:(?:PR|UR|OD))_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}", wanted):
+    if Path(supplied_name).name != supplied_name or not re.fullmatch(
+        r"NISAR_L2_(?:(?:PR|UR|OD)_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}", wanted
+    ):
         print("ERROR=EXACT_PUBLIC_GRANULE_NAME_REQUIRED", file=sys.stderr)
         return 2
     if f"_{args.product_type}_" not in wanted:
@@ -421,59 +168,20 @@ def main() -> int:
         print("ERROR=EARTHDATA_CREDENTIALS_MISSING", file=sys.stderr)
         return 2
 
-    collection = f"NISAR_L2_{args.product_type}_{args.maturity}_V1"
-
-    # Primary: exact ASF Search API discovery. SARGuardian's pinned acquisition
-    # utility already uses this catalog; it avoids making CMR the only gateway.
-    asf_item, asf_diagnostic = search_asf_exact_granule(wanted, args.product_type, maturity=args.maturity)
-    earthaccess = None
-    item = None
-    if asf_item is not None:
-        source_backend = "ASF_Search_API"
-        metadata_bytes = asf_size_bytes(asf_item)
-        print("DISCOVERY_MODE=asf_exact_granule")
-        print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
-    else:
-        # Secondary: preserve the existing NASA Earthaccess/CMR path. If both
-        # catalogs are unavailable, report both safe diagnostics and stop.
-        try:
-            import earthaccess as earthaccess_module
-            earthaccess = earthaccess_module
-        except Exception as exc:
-            print(f"ERROR=EARTHACCESS_IMPORT_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
-            return 2
-        auth, login_diagnostic, login_attempts = _retry_transient_call(
-            lambda: earthaccess.login(strategy="environment"),
-            operation="EARTHDATA_LOGIN",
+    try:
+        acquisition, acquisition_sha256 = load_source_acquisition(args.science_root, args.aoi)
+        record, query_start, query_end = find_exact_source_product(
+            acquisition, wanted, args.product_type, args.maturity
         )
-        print(f"EARTHDATA_LOGIN_ATTEMPTS={login_attempts}")
-        if login_diagnostic:
-            print("EARTHDATA_LOGIN_DIAGNOSTIC=" + json.dumps(login_diagnostic, sort_keys=True, separators=(",", ":")))
-        if auth is None or auth is False:
-            print("ERROR=EARTHDATA_LOGIN_FAILED", file=sys.stderr)
-            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
-            return 2
-        matches, discovery_mode, diagnostics = search_exact_granule(earthaccess, collection, wanted)
-        print(f"DISCOVERY_MODE=earthaccess_{discovery_mode}")
-        if len(matches) != 1:
-            statuses = earthdata_service_status(earthaccess)
-            print(
-                f"CMR_STATUS={statuses['Common Metadata Repository']} "
-                f"EARTHDATA_LOGIN_STATUS={statuses['Earthdata Login']}"
-            )
-            print("ASF_EXACT_QUERY_DIAGNOSTIC=" + json.dumps(asf_diagnostic, sort_keys=True, separators=(",", ":")))
-            print("EXACT_QUERY_DIAGNOSTIC=" + json.dumps(diagnostics["exact_search"], sort_keys=True, separators=(",", ":")))
-            print("TEMPORAL_QUERY_DIAGNOSTIC=" + json.dumps(diagnostics["temporal_search"], sort_keys=True, separators=(",", ":")))
-            if statuses["Common Metadata Repository"].upper() not in {"OK", "UP", "AVAILABLE", "OPERATIONAL"}:
-                print("ERROR=CATALOG_SERVICE_UNAVAILABLE_NO_RAW_DOWNLOAD_ATTEMPTED", file=sys.stderr)
-            else:
-                print(f"ERROR=EXPECTED_ONE_EXACT_GRANULE MATCH_COUNT={len(matches)} COLLECTION={collection} DISCOVERY_MODE={discovery_mode}", file=sys.stderr)
-            return 2
-        source_backend = "Earthaccess_CMR"
-        item = matches[0]
-        metadata_bytes = find_size_bytes(item)
+    except Exception as exc:
+        # No alternate catalog/query is attempted. Report a safe, actionable
+        # failure and leave all local data untouched.
+        print(f"ERROR=SOURCE_AOI_CATALOG_LOOKUP_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
+        print(f"AOI={args.aoi}", file=sys.stderr)
+        return 2
 
+    metadata_bytes = size_estimate_bytes(record)
     expected_bytes = args.expected_source_bytes or metadata_bytes
     if not expected_bytes or expected_bytes <= 0:
         print("ERROR=SOURCE_SIZE_UNKNOWN_PROVIDE_EXPECTED_SOURCE_BYTES", file=sys.stderr)
@@ -482,9 +190,14 @@ def main() -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     free_bytes = shutil.disk_usage(args.out_dir).free
     required_free = int(expected_bytes * args.disk_safety_factor + 512 * 1024 * 1024)
+    collection = f"NISAR_L2_{args.product_type}_{args.maturity}_V1"
     print(f"PRODUCT_TYPE={args.product_type}")
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
+    print(f"AOI={args.aoi}")
+    print("DISCOVERY_BACKEND=science-source/src/nisar_acquisition.py::query_by_year")
+    print(f"DISCOVERY_START={query_start}")
+    print(f"DISCOVERY_END={query_end}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
     print(f"RUNNER_FREE_BYTES_BEFORE_DOWNLOAD={free_bytes}")
     print(f"REQUIRED_FREE_BYTES_WITH_SAFETY_MARGIN={required_free}")
@@ -493,23 +206,16 @@ def main() -> int:
         return 2
 
     try:
-        # One granule only. No parallel download of a multi-date stack.
-        if source_backend == "ASF_Search_API":
-            import asf_search
-            session = asf_search.ASFSession().auth_with_creds(
-                os.environ["EARTHDATA_USERNAME"], os.environ["EARTHDATA_PASSWORD"]
-            )
-            asf_search.download_url(
-                url=asf_item["_sarguardian_download_url"],
-                path=str(args.out_dir),
-                session=session,
-            )
-        else:
-            assert earthaccess is not None and item is not None
-            earthaccess.download([item], local_path=str(args.out_dir), threads=1)
+        import asf_search
+        # Same authenticated ASF download helper used by nisar_acquisition.py.
+        session = acquisition.build_session()
+        asf_search.download_url(
+            url=record["downloadUrl"],
+            path=str(args.out_dir),
+            session=session,
+        )
     except Exception as exc:
-        backend_label = "ASF" if source_backend == "ASF_Search_API" else "EARTHACCESS"
-        print(f"ERROR={backend_label}_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
         return 2
 
     files = sorted([*args.out_dir.rglob("*.h5"), *args.out_dir.rglob("*.H5")])
@@ -517,6 +223,10 @@ def main() -> int:
         print(f"ERROR=EXPECTED_ONE_HDF5_AFTER_DOWNLOAD COUNT={len(files)}", file=sys.stderr)
         return 2
     raw = files[0]
+    if normal_name(raw.name) != wanted:
+        print("ERROR=DOWNLOADED_FILENAME_DOES_NOT_MATCH_REQUESTED_GRANULE", file=sys.stderr)
+        return 2
+
     actual_size = raw.stat().st_size
     free_after = shutil.disk_usage(args.out_dir).free
     if actual_size <= 0 or actual_size > free_bytes:
@@ -527,21 +237,25 @@ def main() -> int:
         return 2
 
     receipt = {
-        "schema_version": "sarguardian-single-granule-download/1.0",
+        "schema_version": "sarguardian-single-granule-download/2.0",
         "downloaded_at_utc": datetime.now(timezone.utc).isoformat(),
         "product_type": args.product_type,
-        "maturity": args.maturity,
+        "maturity_requested": args.maturity,
+        "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": source_backend,
+        "discovery_backend": "science-source/src/nisar_acquisition.py::query_by_year",
+        "science_acquisition_sha256": acquisition_sha256,
+        "discovery_start": query_start,
+        "discovery_end": query_end,
         "granule_name": wanted,
         "source_filename": raw.name,
         "source_bytes": actual_size,
         "source_sha256": sha256_file(raw),
         "downloader_script": Path(__file__).name,
         "downloader_script_sha256": sha256_file(Path(__file__).resolve()),
-        "earthaccess_version": importlib.metadata.version("earthaccess") if importlib.util.find_spec("earthaccess") else None,
         "asf_search_version": importlib.metadata.version("asf_search"),
-        "metadata_size_estimate_bytes": metadata_bytes,
+        "catalog_size_estimate_bytes": metadata_bytes,
+        "expected_size_bytes": expected_bytes,
         "runner_free_bytes_after_download": free_after,
         "source_deleted": False,
         "signed_download_urls_stored": False,
