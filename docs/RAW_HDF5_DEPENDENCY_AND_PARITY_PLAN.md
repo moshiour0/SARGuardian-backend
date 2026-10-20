@@ -52,14 +52,18 @@ Any newly added output that calls a raw-HDF5 helper must be added to this map be
 
 Storage accounting must be policy-aware: derived-only cleanup must require all derived files and their remote checksums, not an archive.
 
-## 5. Known current workflow gaps
+## 5. Historical gaps, current state, and latest live-pilot finding
 
-- Streaming Batch currently always creates/uploads a full-lossless .science.h5 although aggregate replay reads derived outputs.
-- Product-vs-baseline checks mostly occur later in aggregation, after the raw cleanup; this must move into the pre-deletion gate.
-- Current BASELINE_DOWNSTREAM omits both troposphere CSVs and downstream replay does not invoke troposphere.py.
-- ts_gunw_source.csv is generated without a committed baseline in the supplied ZIP; its status must stay explicit.
-- The workflow's scientific commit must match the declared baseline; stale commit guards must fail before processing.
-- Earlier run #15 failed on a stale science-commit guard. Run #19 GUNW succeeded but GOFF Drive upload got HTTP 502. Neither proves full baseline parity.
+- [x] The streaming workflow now defaults to `derived-only` and retains `full-lossless` as an explicit option.
+- [x] Product-vs-baseline CSV checks and GeoTIFF validation run before the raw-HDF5 deletion gate.
+- [x] Downstream replay includes both troposphere reports and the candidate-4 floor/common-datum chain.
+- [ ] The supplied source ZIP has no `ts_gunw_source.csv` baseline; generated GUNW time series must remain explicitly unbaselined.
+- [x] The workflow pins the declared scientific commit and checks it before processing.
+- Historical context: earlier run #15 failed the stale science-commit guard; run #19 GUNW succeeded but GOFF Drive upload hit HTTP 502. Neither proved full baseline parity.
+- Live pilot run [#20](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39491539621) validated both representative product CSV/raster outputs, and the Drive uploader verified six derived/provenance files for each product. The workflow then failed while parsing `product-processing.json`: three inline JSON writers appended a literal backslash-`n` after the closing JSON object, producing `JSONDecodeError: Extra data`. The failure prevented metadata/cleanup receipts, caused aggregation to report zero streamed rows and zero accounted bytes, and correctly skipped local raw deletion.
+- Fixed in commit `3cf29967272ba7acd79cd9eaf7ccdcdad9ba7886`; regression guard added in `bdae0ffd1703e5af74d426ed99076ec13a50013f`. Latest CI: 133 passed, 1 skipped in the backend suite; 42 passed in the retention suite; workflow YAML and Python checks passed.
+- Actual uploads recorded in run #20 total 603,999 bytes across the two product folders (275,612 + 328,387). The report's `0 bytes` was a consequence of missing receipts, not proof that no files were uploaded. Temporary raw deletion was skipped; no raw HDF5 archive was retained by derived-only policy.
+- [ ] Re-run the two-product live validation pilot on the fixed branch and verify remote metadata/cleanup receipts and actual storage accounting before considering a 33-product run.
 
 ## 6. Acceptance gates before processing all 33 products
 
@@ -79,6 +83,6 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Add pre-cleanup per-product CSV/raster validation.
 - [x] Add derived-only and full-lossless retention modes with policy-aware cleanup.
 - [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
-- [x] CI/static validation on draft PR #28: 132 passed, 1 skipped in the backend suite after installing Rasterio so GeoTIFF fixtures run; 42 passed in the retention suite; workflow YAML and Python syntax checks passed.
+- [x] CI/static validation on draft PR #28: 133 passed, 1 skipped in the backend suite after adding the JSON-newline regression guard; 42 passed in the retention suite; workflow YAML and Python syntax checks passed.
 - [ ] Run the two-product live validation pilot with `derived-only` retention; verify Drive receipts and cleanup gates before any full run.
 - [ ] Run all 33 only after the live pilot passes and every required source-ZIP downstream parity gate passes.
