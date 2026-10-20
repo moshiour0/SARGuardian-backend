@@ -1,10 +1,10 @@
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app import job_worker
@@ -13,21 +13,16 @@ from app.science.service import MockScienceService
 from app.storage.fake_drive_service import FakeDriveService
 
 
-engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-
-TestingSessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
-    autocommit=False,
-    expire_on_commit=False,
-)
+# A file-backed SQLite database gives the API-request thread and background
+# worker separate connections. Sharing one StaticPool in-memory connection
+# across threads can interleave transactions and leave a job stuck at QUEUED.
+engine = None
+TestingSessionLocal = None
 
 
 def override_get_db():
+    if TestingSessionLocal is None:
+        raise RuntimeError("Test database has not been initialized")
     db = TestingSessionLocal()
     try:
         yield db
@@ -40,9 +35,26 @@ app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
 def reset_database(tmp_path):
+    global engine, TestingSessionLocal
+
     old_executor = job_worker.executor
     old_executor.shutdown(wait=True)
 
+    if engine is not None:
+        engine.dispose()
+
+    database_path = (tmp_path / "sarguardian-test.sqlite3").resolve()
+    engine = create_engine(
+        f"sqlite:///{database_path.as_posix()}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+        pool_pre_ping=True,
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
     job_worker.executor = ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="sarguardian-test-job",
@@ -63,6 +75,9 @@ def reset_database(tmp_path):
     job_worker.science_service_override = None
     job_worker.drive_service_override = None
     job_worker.session_factory_override = None
+    engine.dispose()
+    engine = None
+    TestingSessionLocal = None
 
 
 @pytest.fixture
