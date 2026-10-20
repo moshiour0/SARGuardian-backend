@@ -26,7 +26,7 @@ Langtang or Lhende polygons.
 
 For each granule the workflow does the following:
 
-1. Load the pinned `science-source/src/nisar_acquisition.py` and set its `source` AOI. Try the original `query_by_year`/`asf_query` path first. If ASF returns its wrapped catalog 400/500/502 error, retry using the official exact `granule_list` search form with only the baseline-pinned full granule name and `output=json` (no `dataset`, geometry filter, or `maxResults`). The actual product raster must still pass the separate source-AOI grid preflight before any science processing or Drive retention.
+1. Load the pinned `science-source/src/nisar_acquisition.py` and set its canonical `source` AOI. Because the baseline already supplies the exact granule name and maturity, form the documented NISAR direct HTTPS path `https://nisar.asf.earthdatacloud.nasa.gov/NISAR/{NISAR_L2_TYPE_MATURITY_V1}/{GRANULE}/{GRANULE}.h5`; probe its HTTP status and size, then download through the same authenticated `build_session()` and `asf_search.download_url()` used by the source project. This avoids the ASF catalog endpoint, which returned wrapped CMR HTTP 500/502 errors on live runs. The separate raster AOI preflight still verifies that the downloaded HDF5 grid intersects the original source polygon before science processing or Drive retention.
 2. Run the AOI-grid preflight for `source`.
 3. Inventory every source dataset/attribute.
 4. Create a `full-lossless` HDF5 retained copy; do not use `engine-ready` for
