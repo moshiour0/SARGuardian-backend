@@ -27,7 +27,10 @@ def test_raw_deletion_is_only_after_verified_drive_upload():
     section = text.split(marker, 1)[1].split("\n      - name:", 1)[0]
     assert "if: success()" in section
     assert "DRIVE_OUTPUTS_NOT_REMOTELY_VERIFIED" in text
+    assert "FULL_LOSSLESS_ARCHIVE_NOT_FOUND_IN_DRIVE_RECEIPT" in text
     assert "REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION" in section
+    assert "REFUSING_RAW_DELETION_WITHOUT_DERIVED_BASELINE_VALIDATION" in section
+    assert "REMOTE_REQUIRED_DERIVED_OUTPUT_MISSING" in section
 
 
 def test_product_run_diagnostics_are_explicitly_pre_cleanup():
