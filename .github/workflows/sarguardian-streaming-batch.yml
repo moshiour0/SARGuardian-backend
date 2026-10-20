@@ -971,19 +971,52 @@ jobs:
           name: sarguardian-stream-run-manifest
           path: ${{ runner.temp }}/sarguardian-aggregation/run-manifest
 
-      - name: Download per-granule artifacts without mixing identical filenames
+      - name: Download current-run per-granule artifacts
         if: always()
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
-          path: ${{ runner.temp }}/sarguardian-aggregation/granule-artifacts
+          path: ${{ runner.temp }}/sarguardian-aggregation/current-granule-artifacts
 
-      - name: Download post-cleanup evidence without mixing product identities
+      - name: Download current-run post-cleanup evidence
         if: always()
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
-          path: ${{ runner.temp }}/sarguardian-aggregation/cleanup-artifacts
+          path: ${{ runner.temp }}/sarguardian-aggregation/current-cleanup-artifacts
+
+      - name: Download prior per-granule checkpoints for resume
+        if: always() && inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-granule-*
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-aggregation/resume-granule-artifacts
+
+      - name: Download prior post-cleanup evidence for resume
+        if: always() && inputs.resume_from_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-cleanup-*
+          run-id: ${{ inputs.resume_from_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-aggregation/resume-cleanup-artifacts
+
+      - name: Assemble complete product checkpoints for aggregation
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-aggregation"
+          mkdir -p "$root/resume-granule-artifacts" "$root/resume-cleanup-artifacts" \
+                   "$root/current-granule-artifacts" "$root/current-cleanup-artifacts"
+          python tools/resume_streamed_run.py merge \
+            --kind granule --previous-root "$root/resume-granule-artifacts" \
+            --current-root "$root/current-granule-artifacts" --output-root "$root/granule-artifacts"
+          python tools/resume_streamed_run.py merge \
+            --kind cleanup --previous-root "$root/resume-cleanup-artifacts" \
+            --current-root "$root/current-cleanup-artifacts" --output-root "$root/cleanup-artifacts"
 
       - name: Aggregate outputs and run batch-equivalence gates
         id: aggregate_results
