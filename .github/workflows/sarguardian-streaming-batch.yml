@@ -547,6 +547,7 @@ jobs:
         if: always()
         env:
           RUN_ROOT: ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}
+          DOWNLOAD_LOG: ${{ runner.temp }}/sarguardian-download-${{ matrix.id }}.log
           DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
           AOI_PREFLIGHT_OUTCOME: ${{ steps.aoi_preflight.outcome }}
           ARCHIVE_OUTCOME: ${{ steps.archive.outcome }}
@@ -562,6 +563,26 @@ jobs:
           from pathlib import Path
           root = Path(os.environ["RUN_ROOT"])
           curated = root / "curated"
+          download_log = Path(os.environ["DOWNLOAD_LOG"])
+          diagnostic_prefixes = (
+              "ERROR=",
+              "DIRECT_PRODUCT_DIAGNOSTIC=",
+              "SOURCE_ACQUISITION_MODULE=",
+              "DISCOVERY_FALLBACK=",
+              "DIRECT_PRODUCT_HTTP_404=",
+              "NETWORK_RETRY=",
+          )
+          download_diagnostics = []
+          if download_log.is_file():
+              for raw_line in download_log.read_text(encoding="utf-8", errors="replace").splitlines():
+                  line = raw_line.strip()
+                  if line.startswith(diagnostic_prefixes):
+                      download_diagnostics.append(line[:420])
+          download_diagnostics = download_diagnostics[:16]
+          download_error_code = next(
+              (line for line in download_diagnostics if line.startswith("ERROR=")),
+              None,
+          )
           record = {
               "schema_version": "sarguardian-product-run-diagnostic/1.0",
               "product_id": os.environ.get("PRODUCT_ID"),
@@ -577,6 +598,8 @@ jobs:
                   "reader": os.environ.get("READER_OUTCOME"),
                   "drive": os.environ.get("DRIVE_OUTCOME"),
               },
+              "download_error_code": download_error_code,
+              "download_diagnostics": download_diagnostics,
               "download_manifest_created": (curated / "download-manifest.json").is_file(),
               "raw_hdf5_present_at_diagnostic_time": any(root.glob("raw/**/*.h5")),
               "retained_archive_created": any((curated / "archive").glob("*.science.h5")),
