@@ -41,7 +41,6 @@ def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
     downloader = (root / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
     stream = WORKFLOW.read_text(encoding="utf-8")
     live = (root / ".github" / "workflows" / "sarguardian-live-validation.yml").read_text(encoding="utf-8")
-    assert "src" / Path("nisar_acquisition.py") if False else True
     assert "src" in downloader and "nisar_acquisition.py" in downloader
     assert "query_by_year" in downloader
     assert "asf_search.download_url" in downloader
