@@ -17,14 +17,15 @@ Langtang or Lhende polygons.
    default `2025-01-01` through `2026-12-31` covers the currently pinned
    products. The `source` AOI is fixed by the scientific project; there is no
    AOI input and its polygon is not changed.
-3. Before any raw download begins, a run-level Drive quota preflight estimates
-   storage for the selected profile and fails closed if there is not enough
-   available space. The current full-baseline estimate is roughly **63 GB**
-   (about **58.3 GiB**) after the safety margin and metadata allowance; the
-   two-product validation pilot requires about **3.9 GiB**. A failure log
-   reports required capacity without disclosing exact account usage. Selecting
-   a narrower time window lowers the estimate. Per-product uploads still check
-   quota and verify remote file size and MD5 after upload.
+3. Drive quota is checked **after each product has been processed**, using the
+   exact bytes of the files we will retain and upload: the full-lossless
+   `*.science.h5` archive, manifests and evidence, plus derived GeoTIFF/CSV
+   outputs. The raw source HDF5 is never in the upload allowlist. The uploader
+   calculates actual file sizes and the bytes genuinely new in Drive, checks
+   available quota before uploading those files, then verifies each remote
+   file's size and MD5. We do not block the run using a full-run storage guess
+   derived from the raw-download estimates. The final ZIP/report/receipts also
+   get the same actual-size check when they are created.
 4. Keep `validation-pilot` for the first real run. It picks one GUNW and one
    GOFF that fall inside your selected window. Both families must have at least
    one baseline product in that window. The retained products are checked and
