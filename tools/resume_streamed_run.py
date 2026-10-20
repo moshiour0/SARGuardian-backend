@@ -47,8 +47,8 @@ def validate_resume_compatibility(current: dict[str, Any], previous: dict[str, A
         raise ValueError("RESUME_MANIFEST_PRODUCTS_INVALID")
     if [_identity(p) for p in now] != [_identity(p) for p in old]:
         raise ValueError("RESUME_BASELINE_PRODUCT_IDENTITIES_CHANGED")
-    if len(now) != 33:
-        raise ValueError(f"RESUME_EXPECTED_FULL_BASELINE_COUNT_33 actual={len(now)}")
+    if not now:
+        raise ValueError("RESUME_BASELINE_PRODUCT_SET_EMPTY")
 
 
 def _valid_granule(path: Path, product: dict[str, Any], manifest: dict[str, Any]) -> tuple[bool, str]:
@@ -167,8 +167,47 @@ def plan_resume(current: dict[str, Any], previous: dict[str, Any],
 
 
 def _complete(path: Path, kind: str) -> bool:
+    """Return true only for a receipt-backed checkpoint, not just files with matching names."""
     required = GRANULE_REQUIRED if kind == "granule" else CLEANUP_REQUIRED
-    return path.is_dir() and all((path / name).is_file() for name in required)
+    if not path.is_dir() or not all((path / name).is_file() for name in required):
+        return False
+    if kind == "granule":
+        meta = read_json(path / "product-processing.json")
+        validation = read_json(path / "derived-output-validation.json")
+        retention = read_json(path / "drive-retention-receipt.json")
+        if not meta or not validation or not retention:
+            return False
+        source_sha = str(meta.get("source_file_sha256", ""))
+        try:
+            source_bytes = int(meta.get("source_file_bytes", 0))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return (
+            validation.get("status") == "PASS"
+            and meta.get("derived_output_validation_status") == "PASS"
+            and meta.get("drive_remote_verification") == "PASS"
+            and retention.get("remote_verification") == "PASS"
+            and bool(retention.get("remote_folder_id"))
+            and retention.get("remote_folder_id") == meta.get("drive_remote_folder_id")
+            and len(source_sha) == 64
+            and source_bytes > 0
+        )
+    cleanup = read_json(path / "local-cleanup-receipt.json")
+    upload = read_json(path / "drive-cleanup-upload-receipt.json")
+    if not cleanup or not upload:
+        return False
+    uploaded_names = {
+        str(item.get("name", ""))
+        for item in upload.get("files", [])
+        if isinstance(item, dict)
+    }
+    return (
+        cleanup.get("runner_raw_hdf5_deleted") is True
+        and cleanup.get("remote_retention_verification") == "PASS"
+        and bool(cleanup.get("remote_retention_folder_id"))
+        and upload.get("remote_verification") == "PASS"
+        and "local-cleanup-receipt.json" in uploaded_names
+    )
 
 
 def merge_artifact_roots(previous: Path, current: Path, output: Path, kind: str) -> dict[str, int]:
