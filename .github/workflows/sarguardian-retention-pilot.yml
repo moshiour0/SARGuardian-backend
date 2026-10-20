@@ -120,7 +120,7 @@ jobs:
           name = os.environ['GRANULE_NAME'].strip()
           if name.lower().endswith('.h5'):
               name = name[:-3]
-          if not re.fullmatch(r'NISAR_L2_(?:(?:PR|OD)_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}', name):
+          if not re.fullmatch(r'NISAR_L2_(?:(?:PR|UR|OD)_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}', name):
               raise SystemExit('ERROR=GRANULE_NAME_FORMAT_INVALID')
           if f"_{os.environ['PRODUCT_TYPE']}_" not in name:
               raise SystemExit('ERROR=GRANULE_NAME_PRODUCT_TYPE_MISMATCH')
