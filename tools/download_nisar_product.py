@@ -253,7 +253,7 @@ def main() -> int:
 
     supplied_name = args.granule_name.strip()
     wanted = normal_name(supplied_name)
-    if Path(supplied_name).name != supplied_name or not re.fullmatch(r"NISAR_L2_(?:(?:PR|OD)_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}", wanted):
+    if Path(supplied_name).name != supplied_name or not re.fullmatch(r"NISAR_L2_(?:(?:(?:PR|UR|OD))_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}", wanted):
         print("ERROR=EXACT_PUBLIC_GRANULE_NAME_REQUIRED", file=sys.stderr)
         return 2
     if f"_{args.product_type}_" not in wanted:
