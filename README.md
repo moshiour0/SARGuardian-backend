@@ -69,8 +69,12 @@ The science source and GitHub Actions workflows remain separate from this applic
 
 ## Low-disk streaming processing for the Nepal source AOI
 
-The sequential NISAR streaming workflow, its `validation-pilot` / `full-source-baseline`
-profiles, full-lossless Drive retention policy, and output-equivalence gates are
-documented in [docs/STREAMING_BATCH.md](docs/STREAMING_BATCH.md). Start with the
-two-granule pilot; do not start the 33-product run until the pilot passes.
+The sequential NISAR streaming workflow, its `validation-pilot` /
+`full-source-baseline` profiles, default `derived-only` retention mode,
+optional `full-lossless` archive mode, pre-cleanup baseline validation and
+downstream parity gates are documented in
+[docs/STREAMING_BATCH.md](docs/STREAMING_BATCH.md) and
+[docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md](docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md).
+Start with the two-granule live pilot; do not start the 33-product run until
+that pilot and every required parity gate pass.
 
