@@ -22,7 +22,7 @@ on:
         type: choice
         options: [PROVISIONAL, BETA]
       expected_source_bytes:
-        description: Optional exact size estimate in bytes from ASF metadata if Earthaccess does not expose it
+        description: Optional size estimate in bytes if ASF catalog metadata does not expose one
         required: false
         default: '0'
         type: string
