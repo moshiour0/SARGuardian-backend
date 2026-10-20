@@ -21,6 +21,7 @@ ASF_URL = "https://datapool.asf.alaska.edu/NISAR/test-product.h5"
 
 class FakeSourceAcquisition:
     INTERFEROMETRIC = ["GUNW", "GOFF", "RUNW", "ROFF", "RIFG"]
+    SEARCH_WKT = "POLYGON((85.4 28.2,85.5 28.2,85.5 28.3,85.4 28.3,85.4 28.2))"
 
     def __init__(self, rows):
         self.rows = rows
