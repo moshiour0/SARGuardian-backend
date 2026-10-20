@@ -17,6 +17,7 @@ on:
       - "tools/validate_product_aoi.py"
       - "tools/drive_resumable_upload.py"
       - "tools/requirements-retention.txt"
+      - "tools/time_window.py"
   workflow_dispatch:
     inputs:
       run_profile:
@@ -27,6 +28,16 @@ on:
           - validation-pilot
           - full-source-baseline
         default: validation-pilot
+      start_date:
+        description: Inclusive secondary-acquisition date start (YYYY-MM-DD); filters the pinned source-AOI baseline only
+        required: true
+        type: string
+        default: '2025-01-01'
+      end_date:
+        description: Inclusive secondary-acquisition date end (YYYY-MM-DD); AOI remains fixed to source
+        required: true
+        type: string
+        default: '2026-12-31'
 
 permissions:
   contents: read
@@ -55,6 +66,8 @@ jobs:
         shell: bash
         env:
           RUN_PROFILE: ${{ inputs.run_profile || 'validation-pilot' }}
+          WINDOW_START: ${{ inputs.start_date || '2025-01-01' }}
+          WINDOW_END: ${{ inputs.end_date || '2026-12-31' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
@@ -64,6 +77,7 @@ jobs:
           python - <<'PY'
           import csv, json, os, re
           from pathlib import Path
+          from tools.time_window import filter_products_by_time_window
 
           root = Path("science-source")
           rows = []
@@ -97,19 +111,48 @@ jobs:
           counts = {family: sum(r["product_type"] == family for r in rows) for family in ("GUNW", "GOFF")}
           if counts != {"GUNW": 15, "GOFF": 18}:
               raise SystemExit(f"ERROR=PINNED_BASELINE_PRODUCT_COUNTS_CHANGED counts={counts}")
+          window_start = os.environ["WINDOW_START"]
+          window_end = os.environ["WINDOW_END"]
+          try:
+              window_rows = filter_products_by_time_window(rows, window_start, window_end)
+          except ValueError as exc:
+              raise SystemExit(f"ERROR=TIME_WINDOW_INVALID detail={exc}")
+          if not window_rows:
+              raise SystemExit("ERROR=NO_BASELINE_PRODUCTS_IN_SELECTED_TIME_WINDOW")
+
+          available_families = {r["product_type"] for r in window_rows}
           profile = os.environ["RUN_PROFILE"]
           if profile == "validation-pilot":
-              selected = [next(r for r in rows if r["product_type"] == family) for family in ("GUNW", "GOFF")]
+              missing_families = [family for family in ("GUNW", "GOFF") if family not in available_families]
+              if missing_families:
+                  raise SystemExit(f"ERROR=TIME_WINDOW_MISSING_PRODUCT_FAMILY families={missing_families}")
+              selected = [next(r for r in window_rows if r["product_type"] == family) for family in ("GUNW", "GOFF")]
+              effective_profile = "validation-pilot"
           elif profile == "full-source-baseline":
-              selected = rows
+              selected = window_rows
+              all_names = {r["granule_name"] for r in rows}
+              selected_names = {r["granule_name"] for r in window_rows}
+              effective_profile = "full-source-baseline" if selected_names == all_names else "time-window-selection"
           else:
               raise SystemExit("ERROR=RUN_PROFILE_INVALID")
           for idx, row in enumerate(selected, 1):
               row["id"] = f'{row["product_type"]}-{idx:03d}'
+          all_names = {r["granule_name"] for r in rows}
+          window_names = {r["granule_name"] for r in window_rows}
           manifest = {
               "schema_version": "sarguardian-stream-run-manifest/1.0",
               "run_id": f'{os.environ["RUN_ID"]}-{os.environ["RUN_ATTEMPT"]}',
-              "run_profile": profile,
+              "run_profile": effective_profile,
+              "requested_run_profile": profile,
+              "time_window": {
+                  "start_date": window_start,
+                  "end_date": window_end,
+                  "date_basis": "secondary_acquisition_date",
+                  "inclusive": True,
+                  "baseline_products_in_window": len(window_rows),
+                  "baseline_products_total": len(rows),
+                  "covers_full_baseline": window_names == all_names,
+              },
               "aoi": "source",
               "science_commit": os.environ["SCIENCE_COMMIT"],
               "baseline_product_counts": counts,
@@ -125,9 +168,14 @@ jobs:
           compact = json.dumps(matrix, separators=(",", ":"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh:
               gh.write("matrix=" + compact + "\n")
-          print(f"RUN_PROFILE={profile}")
+          print(f"REQUESTED_RUN_PROFILE={profile}")
+          print(f"RUN_PROFILE={effective_profile}")
+          print(f"TIME_WINDOW_START={window_start}")
+          print(f"TIME_WINDOW_END={window_end}")
+          print(f"TIME_WINDOW_DATE_BASIS=secondary_acquisition_date")
           print(f"BASELINE_PRODUCTS_GUNW={counts['GUNW']}")
           print(f"BASELINE_PRODUCTS_GOFF={counts['GOFF']}")
+          print(f"PRODUCTS_IN_TIME_WINDOW={len(window_rows)}")
           print(f"PRODUCTS_SELECTED={len(selected)}")
           PY
 
