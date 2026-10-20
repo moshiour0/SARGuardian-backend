@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 
 def normal_name(value: str) -> str:
@@ -86,129 +86,71 @@ def safe_catalog_error(exc: BaseException) -> str:
     return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
 
 
-def _asf_exact_source_api(
-    acquisition: Any, wanted: str, product_type: str
-) -> tuple[dict[str, Any] | None, str]:
-    """Query the pinned module's ASF Search API for one exact granule.
-
-    The source module's broad AOI/date query currently returns HTTP 400/502 in
-    live runs. Its asf_search client fallback routed through CMR and returned
-    HTTP 500. This uses the SAME Search API endpoint and source AOI WKT, but
-    uses the documented granule_list form and deliberately omits maxResults:
-    ASF's API/client rejects maxResults with a non-wildcard granule_list.
-    """
-    params = {
-        # This is a baseline-pinned exact name, so avoid broad AOI/dataset
-        # catalog filters here. They have repeatedly triggered ASF's wrapped
-        # CMR 500 response even though exact granule_list is the documented
-        # form. The HDF5 raster still has to pass the source-AOI preflight.
-        "granule_list": wanted,
-        "output": "json",
-    }
-    url = f"{acquisition.ASF_API}?{urlencode(params)}"
-    try:
-        body = acquisition._get(url)
-    except Exception as exc:
-        raise RuntimeError(
-            f"ASF_EXACT_GRANULE_QUERY_FAILED {safe_catalog_error(exc)}"
-        ) from exc
-
-    if isinstance(body, dict):
-        rows = body.get("results", [])
-    elif isinstance(body, list):
-        rows = body
-    else:
-        rows = []
-    if not isinstance(rows, list):
-        raise TypeError("ASF_EXACT_GRANULE_RESPONSE_SCHEMA_INVALID")
-
-    exact = [
-        row for row in rows
-        if isinstance(row, dict)
-        and normal_name(str(row.get("granuleName", ""))) == wanted
-        and str(row.get("productType", product_type)).upper() == product_type
-    ]
-    if len(exact) != 1:
-        return None, f"asf_search_api_exact_match_count_{len(exact)}"
-    row = dict(exact[0])
-    row["granuleName"] = wanted
-    row["_sarguardian_discovery_backend"] = "source_asf_api_granule_list"
-    return row, "source_asf_api_granule_list"
-
-
-
-def find_exact_source_product(
-    acquisition: Any,
-    wanted: str,
-    product_type: str,
-    maturity: str,
-    *,
-    catalog_start: str = "2025-01-01",
-    catalog_end: str | None = None,
-) -> tuple[dict[str, Any], str, str]:
-    """Use the pinned source AOI query first, then its exact-granule ASF API form."""
-    end = catalog_end or datetime.now(timezone.utc).date().isoformat()
-    source_query_error: Exception | None = None
-    rows: list[Any] = []
-    try:
-        rows = acquisition.query_by_year(
-            catalog_start,
-            end,
-            platform="NISAR",
-            processingLevel=",".join(acquisition.INTERFEROMETRIC),
-        )
-    except Exception as exc:
-        source_query_error = exc
-        print(
-            f"SOURCE_AOI_QUERY_RETRYING_WITH_ASF_CLIENT TYPE={type(exc).__name__}",
-            file=sys.stderr,
-        )
-
-    exact_source = [
-        row for row in rows
-        if isinstance(row, dict)
-        and normal_name(str(row.get("granuleName", ""))) == wanted
-        and str(row.get("productType", product_type)).upper() == product_type
-    ]
-    if len(exact_source) == 1:
-        record = dict(exact_source[0])
-        record["_sarguardian_discovery_backend"] = "source_query_by_year"
-    else:
-        try:
-            record, backend = _asf_exact_source_api(acquisition, wanted, product_type)
-        except Exception as fallback_error:
-            source_status = (
-                safe_catalog_error(source_query_error)
-                if source_query_error is not None else
-                f"exact_match_count={len(exact_source)}"
-            )
-            raise RuntimeError(
-                f"SOURCE_QUERY_FAILED {source_status}; {safe_catalog_error(fallback_error)}"
-            ) from fallback_error
-        if record is None:
-            if source_query_error is not None:
-                raise RuntimeError(
-                    f"SOURCE_QUERY_FAILED {safe_catalog_error(source_query_error)}; "
-                    f"ASF_EXACT_QUERY_{backend}"
-                ) from source_query_error
-            raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact_source)}")
-        record["_sarguardian_discovery_backend"] = backend
-
-    reported_maturity = next(
-        (
-            str(record.get(key)).strip().upper()
-            for key in ("dataMaturity", "maturity", "productMaturity")
-            if record.get(key) not in (None, "")
-        ),
-        None,
+def direct_product_url(wanted: str, product_type: str, maturity: str) -> str:
+    """Build the documented NISAR Earthdata HTTPS path for an exact granule."""
+    collection = f"NISAR_L2_{product_type}_{maturity.upper()}_V1"
+    return (
+        "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/"
+        f"{collection}/{wanted}/{wanted}.h5"
     )
-    if reported_maturity and reported_maturity != maturity.upper():
-        raise ValueError("SOURCE_CATALOG_MATURITY_MISMATCH")
-    url = record.get("downloadUrl") or record.get("url")
+
+
+def probe_direct_product(
+    acquisition: Any, wanted: str, product_type: str, maturity: str
+) -> tuple[dict[str, Any], Any, int | None]:
+    """Verify the exact HTTPS object and read its size without catalog search.
+
+    This is for product names already supplied by the pinned SARGuardian
+    baseline. Its URL scheme is documented by ASF's NISAR data guide. The
+    raster AOI is still independently checked from the actual downloaded
+    HDF5 before any science processing or retention.
+    """
+    url = direct_product_url(wanted, product_type, maturity)
     if not trusted_asf_url(url):
-        raise ValueError("SOURCE_CATALOG_DID_NOT_RETURN_A_TRUSTED_ASF_HTTPS_URL")
-    record["downloadUrl"] = url
-    return record, catalog_start, end
+        raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
+
+    session = acquisition.build_session()
+    response = None
+    try:
+        response = session.head(url, allow_redirects=True, timeout=60)
+        if response.status_code in {405, 501}:
+            response.close()
+            response = session.get(
+                url,
+                headers={"Range": "bytes=0-0"},
+                allow_redirects=True,
+                stream=True,
+                timeout=60,
+            )
+        status = int(response.status_code)
+        if status >= 400:
+            raise RuntimeError(
+                f"DIRECT_PRODUCT_HTTP_STATUS_{status} {response.reason or ''}".strip()
+            )
+        content_range = response.headers.get("Content-Range", "")
+        match = re.search(r"/(\d+)\s*$", content_range)
+        if match:
+            remote_bytes = int(match.group(1))
+        else:
+            raw_size = response.headers.get("Content-Length")
+            try:
+                remote_bytes = int(raw_size) if raw_size else 0
+            except (TypeError, ValueError, OverflowError):
+                remote_bytes = 0
+    finally:
+        if response is not None:
+            response.close()
+
+    record = {
+        "granuleName": wanted,
+        "productType": product_type,
+        "maturity": maturity.upper(),
+        "downloadUrl": url,
+        "sizeBytes": remote_bytes if remote_bytes > 0 else None,
+        "_sarguardian_discovery_backend": "direct_https_known_granule",
+    }
+    return record, session, remote_bytes if remote_bytes > 0 else None
+
 
 
 def size_estimate_bytes(record: dict[str, Any]) -> int | None:
