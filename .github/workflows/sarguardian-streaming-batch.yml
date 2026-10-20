@@ -3,6 +3,20 @@ name: SARGuardian Streaming Batch (source AOI)
 # Manual, sequential low-disk workflow. Start with validation-pilot; only run
 # full-source-baseline after both product families match the committed baseline.
 on:
+  # Every code change affecting the streaming engine automatically runs the
+  # low-cost one-GUNW/one-GOFF validation pilot. The full 33-product run remains
+  # a deliberate manual dispatch after the pilot passes.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sarguardian-streaming-batch.yml"
+      - "tools/download_nisar_product.py"
+      - "tools/aggregate_streamed_outputs.py"
+      - "tools/sarguardian_hdf5_archive.py"
+      - "tools/verify_reader_equivalence.py"
+      - "tools/validate_product_aoi.py"
+      - "tools/drive_resumable_upload.py"
+      - "tools/requirements-retention.txt"
   workflow_dispatch:
     inputs:
       run_profile:
@@ -40,7 +54,7 @@ jobs:
         id: make
         shell: bash
         env:
-          RUN_PROFILE: ${{ inputs.run_profile }}
+          RUN_PROFILE: ${{ inputs.run_profile || 'validation-pilot' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: 77cc9646cfa46d3aff3669d351912f984cf67aa3
@@ -455,15 +469,15 @@ jobs:
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Checkout backend aggregation tools
+        uses: actions/checkout@v4
+
       - name: Checkout pinned science baseline
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
           ref: 77cc9646cfa46d3aff3669d351912f984cf67aa3
           path: science-source
-
-      - name: Checkout backend aggregation tools
-        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
