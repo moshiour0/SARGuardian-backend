@@ -470,22 +470,31 @@ jobs:
           (root / "product-processing.json").write_text(json.dumps(metadata, indent=2) + "\\n", encoding="utf-8")
           PY
 
-      - name: Upload retained archive and all per-product outputs to Drive with checksum verification
+      - name: Upload validated per-product outputs to Drive with checksum verification
         id: drive
         env:
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           MANIFEST_PATH: ${{ steps.archive.outputs.manifest_path }}
           CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          RETENTION_PROFILE: ${{ env.RETENTION_PROFILE }}
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t derived_files < <(find "$CURATED_DIR/derived" -type f -print | sort)
           files=(
-            "$ARCHIVE_PATH" "$MANIFEST_PATH"
             "$CURATED_DIR/source-inventory.json" "$CURATED_DIR/preflight-report.json"
-            "$CURATED_DIR/reader-equivalence.json" "$CURATED_DIR/download-manifest.json"
+            "$CURATED_DIR/derived-output-validation.json" "$CURATED_DIR/download-manifest.json"
             "${derived_files[@]}"
           )
+          if [[ "$RETENTION_PROFILE" == "full-lossless" ]]; then
+            test -s "$ARCHIVE_PATH" && test -s "$MANIFEST_PATH" && test -s "$CURATED_DIR/reader-equivalence.json"
+            files+=("$ARCHIVE_PATH" "$MANIFEST_PATH" "$CURATED_DIR/reader-equivalence.json")
+          else
+            if [[ -n "$ARCHIVE_PATH" || -e "$CURATED_DIR/reader-equivalence.json" ]]; then
+              echo "ERROR=UNEXPECTED_ARCHIVE_ARTIFACT_IN_DERIVED_ONLY" >&2
+              exit 2
+            fi
+          fi
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" --files "${files[@]}" \
@@ -495,30 +504,43 @@ jobs:
           from pathlib import Path
           root=Path(os.environ["CURATED_DIR"])
           receipt=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
+          meta_path=root/"product-processing.json"
+          meta=json.loads(meta_path.read_text(encoding="utf-8"))
           if receipt.get("remote_verification") != "PASS":
-              raise SystemExit("ERROR=DRIVE_ARCHIVE_NOT_REMOTELY_VERIFIED")
-          if not any(str(r.get("name","")).endswith(".science.h5") for r in receipt.get("files", [])):
+              raise SystemExit("ERROR=DRIVE_OUTPUTS_NOT_REMOTELY_VERIFIED")
+          uploaded={str(item.get("name","")) for item in receipt.get("files", [])}
+          required={"source-inventory.json","preflight-report.json","derived-output-validation.json","download-manifest.json"}
+          required.add(Path(meta["stats_csv"]).name)
+          required.update(Path(rel).name for rel in meta["export_files"])
+          missing=sorted(required-uploaded)
+          if missing:
+              raise SystemExit("ERROR=REMOTE_OUTPUT_MISSING names="+",".join(missing))
+          archives=[name for name in uploaded if name.endswith(".science.h5")]
+          if meta["retention_profile"] == "full-lossless" and len(archives) != 1:
               raise SystemExit("ERROR=FULL_LOSSLESS_ARCHIVE_NOT_FOUND_IN_DRIVE_RECEIPT")
-          p=root/"product-processing.json"; meta=json.loads(p.read_text(encoding="utf-8"))
+          if meta["retention_profile"] == "derived-only" and archives:
+              raise SystemExit("ERROR=ARCHIVE_PRESENT_IN_DERIVED_ONLY_DRIVE_RECEIPT")
           meta["drive_remote_verification"]="PASS"
           meta["drive_remote_folder_id"]=receipt.get("remote_folder_id")
-          meta["drive_archive_receipt"]="drive-retention-receipt.json"
-          p.write_text(json.dumps(meta,indent=2)+"\n",encoding="utf-8")
+          meta["drive_retention_receipt"]="drive-retention-receipt.json"
+          meta_path.write_text(json.dumps(meta,indent=2)+"\\n",encoding="utf-8")
           PY
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
-            --granule-name "$GRANULE_NAME" \
-            --version-tag "$DRIVE_VERSION_TAG" \
+            --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" \
             --files "$CURATED_DIR/product-processing.json" "$CURATED_DIR/drive-retention-receipt.json" \
             --out "$CURATED_DIR/drive-metadata-upload-receipt.json"
           python - <<'PY'
           import json, os
           from pathlib import Path
           root=Path(os.environ["CURATED_DIR"])
-          d=json.loads((root/"drive-metadata-upload-receipt.json").read_text(encoding="utf-8"))
-          if d.get("remote_verification") != "PASS":
+          receipt=json.loads((root/"drive-metadata-upload-receipt.json").read_text(encoding="utf-8"))
+          if receipt.get("remote_verification") != "PASS":
               raise SystemExit("ERROR=DRIVE_METADATA_NOT_REMOTELY_VERIFIED")
-          print(f"DRIVE_ARCHIVE_AND_DERIVED_OUTPUTS_VERIFIED={len(d.get('files', []))}")
+          uploaded={str(item.get("name","")) for item in receipt.get("files", [])}
+          if not {"product-processing.json","drive-retention-receipt.json"}.issubset(uploaded):
+              raise SystemExit("ERROR=DRIVE_METADATA_RECEIPT_FILES_MISSING")
+          print(f"DRIVE_VALIDATED_OUTPUTS_VERIFIED={len(receipt.get('files', []))}")
           PY
 
       - name: Write a compact diagnostic receipt even when a product fails
