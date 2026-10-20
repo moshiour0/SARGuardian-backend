@@ -111,13 +111,22 @@ def validate_rasters(
 
             first = ds.read(1, masked=True)
             valid_first = int(np.count_nonzero(~np.ma.getmaskarray(first) & np.isfinite(first.filled(np.nan))))
+            try:
+                expected_valid = int(float((row.get("valid_px") or "").strip()))
+            except (TypeError, ValueError):
+                expected_valid = None
             if valid_first == 0:
-                errors.append({"problem": "raster_displacement_band_has_no_valid_pixels", "path": name})
+                if expected_valid == 0:
+                    record["science_valid_pixels"] = "NONE_AS_IN_BASELINE"
+                else:
+                    errors.append({"problem": "raster_displacement_band_has_no_valid_pixels", "path": name,
+                                   "baseline_valid_px": expected_valid})
             if family == "GOFF" and ds.count >= 3:
                 corr = ds.read(3, masked=True)
                 valid_corr = int(np.count_nonzero(~np.ma.getmaskarray(corr) & np.isfinite(corr.filled(np.nan))))
-                if valid_corr == 0:
-                    errors.append({"problem": "goff_correlation_band_has_no_valid_pixels", "path": name})
+                if valid_corr == 0 and expected_valid != 0:
+                    errors.append({"problem": "goff_correlation_band_has_no_valid_pixels", "path": name,
+                                   "baseline_valid_px": expected_valid})
 
             record.update({
                 "width": ds.width,
