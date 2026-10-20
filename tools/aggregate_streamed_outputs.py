@@ -242,7 +242,7 @@ def validate_cleanup_evidence(
         verified += 1
 
     status = "PASS" if verified == expected and expected > 0 else "FAIL"
-    return {"status": status, "expected": expected, "verified": verified, "retention_profile": profile}
+    return {"status": status, "expected": expected, "verified": verified}
 
 
 def summarize_retained_storage(
