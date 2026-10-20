@@ -14,22 +14,33 @@ Langtang or Lhende polygons.
    default `2025-01-01` through `2026-12-31` covers the currently pinned
    products. The `source` AOI is fixed by the scientific project; there is no
    AOI input and its polygon is not changed.
-3. Keep `validation-pilot` for the first real run. It picks one GUNW and one
+3. Before any raw download begins, a run-level Drive quota preflight estimates
+   storage for the selected profile and fails closed if there is not enough
+   available space. The current full-baseline estimate is roughly **63 GB**
+   after the safety margin and metadata allowance. Selecting a narrower
+   time window lowers the estimate. Per-product uploads still check quota and
+   verify remote file size and MD5 after upload.
+4. Keep `validation-pilot` for the first real run. It picks one GUNW and one
    GOFF that fall inside your selected window. Both families must have at least
    one baseline product in that window. The retained products are checked and
    uploaded to Drive, and the single-reader CSV rows are compared with the
    committed baseline.
-4. After the pilot passes, choose `full-source-baseline` to process every
+5. After the pilot passes, choose `full-source-baseline` to process every
    committed baseline product inside the selected window. A window containing
    all **15 GUNW + 18 GOFF = 33** pinned products uses the full-baseline
    downstream comparison. A narrower window is recorded as
    `time-window-selection`: it validates selected product rows and exports but
    intentionally does not claim a full-network time-series/bound equivalence
    comparison. `max-parallel: 1` keeps raw HDF5 processing sequential.
-5. Open the `sarguardian-streaming-run-*` artifact and inspect
+6. After remote retention succeeds, the workflow deletes only the temporary
+   runner copies of the raw HDF5 and retained local archive. It writes a
+   `local-cleanup-receipt.json`, uploads and checksum-verifies that receipt in
+   the same versioned Drive folder, and the final aggregation gate validates
+   one cleanup receipt for every product before reporting PASS.
+7. Open the `sarguardian-streaming-run-*` artifact and inspect
    `batch-equivalence-report.json`. The final Drive bundle is uploaded only
    when the applicable product-level checks (and, for the full baseline, the
-   regenerated downstream results) pass.
+   regenerated downstream results and all cleanup receipts) pass.
 
 **Scope:** the selectable window filters the 33 products in the committed
 source-AOI baseline. It does not yet discover additional granules outside those

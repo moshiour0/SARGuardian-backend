@@ -19,6 +19,7 @@ on:
       - "tools/drive_resumable_upload.py"
       - "tools/requirements-retention.txt"
       - "tools/time_window.py"
+      - "tools/preflight_drive_quota.py"
   workflow_dispatch:
     inputs:
       run_profile:
@@ -52,6 +53,9 @@ jobs:
   manifest:
     name: Build the exact source-AOI product manifest
     runs-on: ubuntu-24.04
+    env:
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
     outputs:
       matrix: ${{ steps.make.outputs.matrix }}
     steps:
@@ -183,7 +187,17 @@ jobs:
           print(f"PRODUCTS_SELECTED={len(selected)}")
           PY
 
+      - name: Preflight Drive quota before starting any product downloads
+        if: steps.make.outcome == 'success'
+        shell: bash
+        env:
+          MANIFEST_PATH: ${{ runner.temp }}/sarguardian-stream/manifest/manifest.json
+        run: |
+          set -euo pipefail
+          python tools/preflight_drive_quota.py --manifest "$MANIFEST_PATH" --safety-factor 1.15
+
       - name: Preserve run manifest for aggregation
+        if: always() && steps.make.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: sarguardian-stream-run-manifest
@@ -415,7 +429,8 @@ jobs:
               "export_dir":export_dir.relative_to(root).as_posix(), "export_files":exports,
               "reader_equivalence_status":eq["status"], "source_dataset_inventory":"source-inventory.json",
               "preflight_report":"preflight-report.json", "download_manifest":"download-manifest.json",
-              "drive_remote_verification":"PENDING", "local_raw_source_deleted":False,
+              "drive_remote_verification":"PENDING", "local_raw_source_deleted_at_manifest_creation":False,
+              "cleanup_receipt":"local-cleanup-receipt.json",
               "source_dataset_inventory_count":len(inventory.get("datasets", [])), "excluded_dataset_count":0,
               "future_reprocessing_note":"Full-lossless HDF5 archive retains all source datasets and attributes; original source byte SHA-256 is recorded.",
           }
@@ -493,7 +508,7 @@ jobs:
           root = Path(os.environ["RUN_ROOT"])
           curated = root / "curated"
           record = {
-              "schema_version": "sarguardian-product-failure-diagnostic/1.0",
+              "schema_version": "sarguardian-product-run-diagnostic/1.0",
               "product_id": os.environ.get("PRODUCT_ID"),
               "product_type": os.environ.get("PRODUCT_TYPE"),
               "granule_name": os.environ.get("GRANULE_NAME"),
@@ -508,15 +523,15 @@ jobs:
                   "drive": os.environ.get("DRIVE_OUTCOME"),
               },
               "download_manifest_created": (curated / "download-manifest.json").is_file(),
-              "raw_hdf5_present": any(root.glob("raw/**/*.h5")),
+              "raw_hdf5_present_at_diagnostic_time": any(root.glob("raw/**/*.h5")),
               "retained_archive_created": any((curated / "archive").glob("*.science.h5")),
               "drive_receipt_created": (curated / "drive-retention-receipt.json").is_file(),
               "local_raw_delete_step_is_gated_on_success": True,
           }
-          (curated / "failure-diagnostics.json").write_text(
+          (curated / "product-run-diagnostics.json").write_text(
               json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
           )
-          print("FAILURE_DIAGNOSTICS_WRITTEN=" + str(curated / "failure-diagnostics.json"))
+          print("PRODUCT_RUN_DIAGNOSTICS_WRITTEN=" + str(curated / "product-run-diagnostics.json"))
           PY
 
       - name: Upload small per-granule evidence for final aggregation
@@ -525,7 +540,7 @@ jobs:
         with:
           name: sarguardian-granule-${{ matrix.id }}
           path: |
-            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/failure-diagnostics.json
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/product-run-diagnostics.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/product-processing.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/reader-equivalence.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/source-inventory.json
@@ -542,6 +557,12 @@ jobs:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
           ARCHIVE_PATH: ${{ steps.archive.outputs.archive_path }}
           CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          PRODUCT_ID: ${{ matrix.id }}
+          GRANULE_NAME: ${{ matrix.granule_name }}
+          PRODUCT_TYPE: ${{ matrix.product_type }}
+          MATURITY: ${{ matrix.maturity }}
+          DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
+          SCIENCE_COMMIT: ${{ env.SCIENCE_COMMIT }}
         shell: bash
         run: |
           set -euo pipefail
@@ -553,12 +574,78 @@ jobs:
           receipt=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
           if meta.get("drive_remote_verification")!="PASS" or receipt.get("remote_verification")!="PASS":
               raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION")
-          if not any(str(r.get("name","")).endswith(".science.h5") for r in receipt.get("files", [])):
-              raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_RETAINED_ARCHIVE")
+          archives=[r for r in receipt.get("files", []) if str(r.get("name","")).endswith(".science.h5")]
+          if len(archives) != 1:
+              raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_ONE_RETAINED_ARCHIVE")
+          if meta.get("drive_remote_folder_id") != receipt.get("remote_folder_id"):
+              raise SystemExit("ERROR=REMOTE_RETENTION_FOLDER_ID_MISMATCH")
           print("REMOTE_FULL_LOSSLESS_ARCHIVE_AND_DERIVED_OUTPUTS_VERIFIED=PASS")
           PY
           rm -f -- "$RAW_PATH" "$ARCHIVE_PATH"
-          echo "LOCAL_RAW_AND_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes"
+          test ! -e "$RAW_PATH"
+          test ! -e "$ARCHIVE_PATH"
+          python - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path(os.environ["CURATED_DIR"])
+          meta=json.loads((root/"product-processing.json").read_text(encoding="utf-8"))
+          download=json.loads((root/"download-manifest.json").read_text(encoding="utf-8"))
+          retention=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
+          archive_files=[r for r in retention.get("files", []) if str(r.get("name","")).endswith(".science.h5")]
+          raw_exists=Path(os.environ["RAW_PATH"]).exists()
+          archive_exists=Path(os.environ["ARCHIVE_PATH"]).exists()
+          if raw_exists or archive_exists or retention.get("remote_verification") != "PASS" or len(archive_files) != 1:
+              raise SystemExit("ERROR=LOCAL_CLEANUP_RECEIPT_GATE_FAILED")
+          record={
+              "schema_version":"sarguardian-local-cleanup-receipt/1.0",
+              "created_utc":datetime.now(timezone.utc).isoformat(),
+              "product_id":os.environ["PRODUCT_ID"],
+              "product_type":os.environ["PRODUCT_TYPE"],
+              "maturity":os.environ["MATURITY"],
+              "granule_name":os.environ["GRANULE_NAME"],
+              "aoi":"source",
+              "science_commit":os.environ["SCIENCE_COMMIT"],
+              "source_file_sha256":download["source_sha256"],
+              "retained_archive_name":archive_files[0]["name"],
+              "retained_archive_sha256":meta["retained_archive_sha256"],
+              "remote_retention_verification":"PASS",
+              "remote_retention_folder_id":retention["remote_folder_id"],
+              "runner_raw_hdf5_deleted":True,
+              "runner_archive_deleted":True,
+              "runner_paths_stored":False,
+              "cleanup_scope":"temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained"
+          }
+          (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2)+"\n",encoding="utf-8")
+          print("LOCAL_RAW_AND_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes")
+          PY
+          python tools/drive_resumable_upload.py \
+            --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
+            --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" \
+            --files "$CURATED_DIR/local-cleanup-receipt.json" \
+            --out "$CURATED_DIR/drive-cleanup-upload-receipt.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ["CURATED_DIR"])
+          receipt=json.loads((root/"drive-cleanup-upload-receipt.json").read_text(encoding="utf-8"))
+          if receipt.get("remote_verification") != "PASS":
+              raise SystemExit("ERROR=LOCAL_CLEANUP_RECEIPT_NOT_REMOTELY_VERIFIED")
+          if not any(r.get("name")=="local-cleanup-receipt.json" for r in receipt.get("files", [])):
+              raise SystemExit("ERROR=LOCAL_CLEANUP_RECEIPT_MISSING_FROM_DRIVE_RECEIPT")
+          print("LOCAL_CLEANUP_RECEIPT_DRIVE_VERIFIED=PASS")
+          PY
+
+      - name: Upload final post-cleanup evidence for aggregation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-cleanup-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/local-cleanup-receipt.json
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/drive-cleanup-upload-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
 
   aggregate:
     name: Reassemble outputs and compare with the committed batch baseline
@@ -608,6 +695,13 @@ jobs:
           pattern: sarguardian-granule-*
           path: ${{ runner.temp }}/sarguardian-aggregation/granule-artifacts
 
+      - name: Download post-cleanup evidence without mixing product identities
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-cleanup-*
+          path: ${{ runner.temp }}/sarguardian-aggregation/cleanup-artifacts
+
       - name: Aggregate outputs and run batch-equivalence gates
         id: aggregate_results
         shell: bash
@@ -620,6 +714,7 @@ jobs:
             --science-root "$PWD/science-source" \
             --manifest "$root/run-manifest/manifest.json" \
             --artifact-root "$root/granule-artifacts" \
+            --cleanup-artifact-root "$root/cleanup-artifacts" \
             --out-root "$root/output" 2>&1 | tee "$root/aggregation.log" || status=$?
           if [[ -s "$root/output/batch-equivalence-report.json" ]]; then
             report_status="$(python -c 'import json,sys;print(json.load(open(sys.argv[1]))["status"])' "$root/output/batch-equivalence-report.json")"
