@@ -154,6 +154,82 @@ def locate_product_artifact(artifact_root: Path, product_id: str) -> Path:
     raise FileNotFoundError(f"Product artifact missing: sarguardian-granule-{product_id}")
 
 
+def validate_cleanup_evidence(
+    manifest: dict[str, Any],
+    artifact_root: Path,
+    cleanup_artifact_root: Path,
+    errors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Require evidence that raw runner copies were deleted after remote retention."""
+    expected = len(manifest.get("products", []))
+    verified = 0
+    for product in manifest.get("products", []):
+        pid = str(product.get("id", ""))
+        cleanup_dir = cleanup_artifact_root / f"sarguardian-cleanup-{pid}"
+        cleanup_path = cleanup_dir / "local-cleanup-receipt.json"
+        drive_receipt_path = cleanup_dir / "drive-cleanup-upload-receipt.json"
+        processing_path = artifact_root / f"sarguardian-granule-{pid}" / "product-processing.json"
+        try:
+            receipt = json.loads(cleanup_path.read_text(encoding="utf-8"))
+            drive_receipt = json.loads(drive_receipt_path.read_text(encoding="utf-8"))
+            meta = json.loads(processing_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            errors.append({
+                "problem": "cleanup_evidence_missing_or_unreadable",
+                "id": pid,
+                "type": type(exc).__name__,
+                "detail": str(exc)[:240],
+            })
+            continue
+
+        retained_path = Path(str(meta.get("retained_archive", ""))).name
+        uploaded_receipts = drive_receipt.get("files", [])
+        checks = {
+            "schema_version": (receipt.get("schema_version"), "sarguardian-local-cleanup-receipt/1.0"),
+            "product_id": (receipt.get("product_id"), pid),
+            "product_type": (receipt.get("product_type"), product.get("product_type")),
+            "maturity": (receipt.get("maturity"), product.get("maturity")),
+            "granule_name": (receipt.get("granule_name"), product.get("granule_name")),
+            "aoi": (receipt.get("aoi"), "source"),
+            "science_commit": (receipt.get("science_commit"), manifest.get("science_commit")),
+            "remote_retention_verification": (receipt.get("remote_retention_verification"), "PASS"),
+            "remote_retention_folder_id": (receipt.get("remote_retention_folder_id"), meta.get("drive_remote_folder_id")),
+            "source_file_sha256": (receipt.get("source_file_sha256"), meta.get("source_file_sha256")),
+            "retained_archive_name": (receipt.get("retained_archive_name"), retained_path),
+            "retained_archive_sha256": (receipt.get("retained_archive_sha256"), meta.get("retained_archive_sha256")),
+            "runner_raw_hdf5_deleted": (receipt.get("runner_raw_hdf5_deleted"), True),
+            "runner_archive_deleted": (receipt.get("runner_archive_deleted"), True),
+            "cleanup_scope": (
+                receipt.get("cleanup_scope"),
+                "temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained",
+            ),
+        }
+        mismatches = [
+            {"field": field, "expected": want, "actual": actual}
+            for field, (actual, want) in checks.items()
+            if actual != want
+        ]
+        if drive_receipt.get("remote_verification") != "PASS":
+            mismatches.append({
+                "field": "cleanup_receipt_remote_verification",
+                "expected": "PASS",
+                "actual": drive_receipt.get("remote_verification"),
+            })
+        if not any(row.get("name") == "local-cleanup-receipt.json" for row in uploaded_receipts):
+            mismatches.append({
+                "field": "cleanup_receipt_uploaded_to_drive",
+                "expected": True,
+                "actual": False,
+            })
+        if mismatches:
+            errors.append({"problem": "cleanup_evidence_mismatch", "id": pid, "mismatches": mismatches})
+            continue
+        verified += 1
+
+    status = "PASS" if verified == expected and expected > 0 else "FAIL"
+    return {"status": status, "expected": expected, "verified": verified}
+
+
 def aggregate_stats(
     manifest: dict[str, Any],
     artifact_root: Path,
@@ -648,10 +724,13 @@ def main() -> int:
     parser.add_argument("--science-root", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--artifact-root", required=True, type=Path)
+    parser.add_argument("--cleanup-artifact-root", required=True, type=Path)
     parser.add_argument("--out-root", required=True, type=Path)
     args = parser.parse_args()
     science_root, manifest_path = args.science_root.resolve(), args.manifest.resolve()
-    artifact_root, out_root = args.artifact_root.resolve(), args.out_root.resolve()
+    artifact_root, cleanup_artifact_root, out_root = (
+        args.artifact_root.resolve(), args.cleanup_artifact_root.resolve(), args.out_root.resolve()
+    )
     out_root.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("aoi") != "source":
@@ -684,6 +763,9 @@ def main() -> int:
         "raw_delete_policy": "a raw runner copy is removed only after the full-lossless archive, all derived files, and remote checksums have passed; the remote full-lossless HDF5 and provenance are retained",
     }
     aggregate_stats(manifest, artifact_root, science_root, out_root, report)
+    report["cleanup_evidence"] = validate_cleanup_evidence(
+        manifest, artifact_root, cleanup_artifact_root, report["errors"]
+    )
     report["products_validated"] = len({
         str(p["id"]) for p in manifest["products"]
         if (artifact_root / f"sarguardian-granule-{p['id']}" / "product-processing.json").is_file()
