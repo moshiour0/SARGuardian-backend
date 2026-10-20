@@ -29,11 +29,31 @@ def test_raw_deletion_is_only_after_verified_drive_upload():
     assert "REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION" in section
 
 
-def test_failed_product_always_emits_machine_readable_diagnostics():
+def test_product_run_diagnostics_are_explicitly_pre_cleanup():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "- name: Write a compact diagnostic receipt even when a product fails" in text
-    assert "failure-diagnostics.json" in text
+    assert "product-run-diagnostics.json" in text
+    assert '"schema_version": "sarguardian-product-run-diagnostic/1.0"' in text
+    assert "raw_hdf5_present_at_diagnostic_time" in text
     assert "if-no-files-found: error" in text
+
+
+def test_drive_quota_is_checked_before_any_product_download():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    manifest = text.split("  manifest:\\n", 1)[1].split("\\n  process-one:", 1)[0]
+    assert "Preflight Drive quota before starting any product downloads" in manifest
+    assert "python tools/preflight_drive_quota.py" in manifest
+    assert manifest.index("preflight_drive_quota.py") < manifest.index("Preserve run manifest for aggregation")
+
+
+def test_cleanup_receipt_is_uploaded_and_aggregator_requires_it():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "LOCAL_CLEANUP_RECEIPT_GATE_FAILED" in text
+    assert "LOCAL_CLEANUP_RECEIPT_NOT_REMOTELY_VERIFIED" in text
+    assert "local-cleanup-receipt.json" in text
+    assert "drive-cleanup-upload-receipt.json" in text
+    assert 'pattern: sarguardian-cleanup-*' in text
+    assert '--cleanup-artifact-root "$root/cleanup-artifacts"' in text
 
 
 def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
