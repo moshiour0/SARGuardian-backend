@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Download one exact NISAR granule using SARGuardian's pinned acquisition code.
+"""Download one exact NISAR granule through the official direct HTTPS path.
 
-Catalog queries, AOI construction and the authenticated ASF download call are
-reused from science-source/src/nisar_acquisition.py. This wrapper only adds
-single-product, disk-space, filename, checksum and provenance safeguards.
-It never deletes the source file.
+The pinned science module supplies the canonical AOI setup and authenticated
+ASF session. The direct HTTPS object layout is documented by the NISAR guide,
+so the known name/maturity from the committed baseline avoids catalog search.
+This wrapper adds single-product, disk-space, filename, HDF5, checksum and
+provenance safeguards. It never deletes the source file.
 """
 from __future__ import annotations
 
@@ -57,7 +58,7 @@ def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
 
 
 def trusted_asf_url(value: Any) -> bool:
-    """Validate that the existing source catalog returned an HTTPS ASF URL."""
+    """Validate an HTTPS URL against the trusted ASF data hosts.""");
     if not isinstance(value, str) or not value:
         return False
     parsed = urlparse(value)
@@ -69,8 +70,8 @@ def trusted_asf_url(value: Any) -> bool:
     )
 
 
-def safe_catalog_error(exc: BaseException) -> str:
-    """Emit short catalog diagnostics without leaking URLs or credentials."""
+def safe_remote_error(exc: BaseException) -> str:
+    """Emit short network diagnostics without leaking URLs or credentials.""");
     code = getattr(exc, "code", None)
     response = getattr(exc, "response", None)
     if code is None:
@@ -153,22 +154,6 @@ def probe_direct_product(
 
 
 
-def size_estimate_bytes(record: dict[str, Any]) -> int | None:
-    try:
-        size_mb = float(record.get("size_mb", record.get("sizeMB")))
-        if size_mb > 0:
-            return int(size_mb * 1024 * 1024)
-    except (TypeError, ValueError, OverflowError):
-        pass
-    for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
-        try:
-            size = int(float(record.get(key)))
-            if size > 0:
-                return size
-        except (TypeError, ValueError, OverflowError):
-            pass
-    return None
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -203,7 +188,7 @@ def main() -> int:
         )
     except Exception as exc:
         print(f"ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
@@ -270,7 +255,7 @@ def main() -> int:
     except Exception as exc:
         shutil.rmtree(staging_dir, ignore_errors=True)
         print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         return 2
     finally:
         shutil.rmtree(staging_dir, ignore_errors=True)
