@@ -107,3 +107,18 @@ def test_inline_json_receipts_do_not_append_literal_backslash_n():
     assert r'json.dumps(metadata, indent=2) + "\\n"' not in text
     assert r'json.dumps(meta,indent=2)+"\\n"' not in text
     assert r'json.dumps(record,indent=2)+"\\n"' not in text
+
+def test_failed_download_diagnostics_are_preserved_for_aggregation():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    diagnostic = text.split(
+        "- name: Write a compact diagnostic receipt even when a product fails", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert "DOWNLOAD_LOG: ${{ runner.temp }}/sarguardian-download-${{ matrix.id }}.log" in diagnostic
+    assert '"DIRECT_PRODUCT_DIAGNOSTIC="' not in diagnostic  # diagnostics are parsed as log-line prefixes
+    assert '"DIRECT_PRODUCT_DIAGNOSTIC="' not in diagnostic
+    assert '"download_diagnostics": download_diagnostics' in diagnostic
+    assert '"download_error_code": download_error_code' in diagnostic
+    aggregator = (WORKFLOW.parents[2] / "tools" / "aggregate_streamed_outputs.py").read_text(encoding="utf-8")
+    assert "read_product_diagnostic_context(artifact_dir)" in aggregator
+    assert '"download_error_code": record.get("download_error_code")' in aggregator
+
