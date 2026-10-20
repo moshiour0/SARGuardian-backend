@@ -69,6 +69,110 @@ def trusted_asf_url(value: Any) -> bool:
     )
 
 
+def safe_catalog_error(exc: BaseException) -> str:
+    """Emit short catalog diagnostics without leaking URLs or credentials."""
+    code = getattr(exc, "code", None)
+    response = getattr(exc, "response", None)
+    if code is None:
+        code = getattr(response, "status_code", None)
+    detail = re.sub(r"https?://[^\s\"'<>]+", "[URL]", str(exc))
+    detail = re.sub(
+        r"(?i)\b(password|passwd|token|access[_-]?token|refresh[_-]?token|"
+        r"authorization|client[_-]?secret|secret)\b\s*[:=]\s*[^,;\s<>]+",
+        r"\1=[REDACTED]",
+        detail,
+    )
+    detail = re.sub(r"\s+", " ", detail).strip()[:220]
+    return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
+
+
+def _catalog_item_properties(item: Any) -> dict[str, Any]:
+    """Normalize source JSON records and supported ASFProduct results."""
+    if isinstance(item, dict):
+        return item
+    props = getattr(item, "properties", None)
+    return props if isinstance(props, dict) else {}
+
+
+def _catalog_item_name(item: Any) -> str:
+    props = _catalog_item_properties(item)
+    for key in ("granuleName", "sceneName", "fileName", "fileID", "name"):
+        value = props.get(key)
+        if value:
+            return normal_name(str(value))
+    return ""
+
+
+def _catalog_item_url(item: Any) -> str | None:
+    props = _catalog_item_properties(item)
+    for value in (props.get("downloadUrl"), props.get("url")):
+        if trusted_asf_url(value):
+            return value
+    get_urls = getattr(item, "get_urls", None)
+    if callable(get_urls):
+        try:
+            for value in get_urls() or []:
+                if trusted_asf_url(value) and _catalog_item_name(item) in Path(urlparse(value).path).name:
+                    return str(value)
+        except Exception:
+            pass
+    return None
+
+
+def _asf_search_fallback(
+    acquisition: Any, wanted: str, product_type: str, catalog_start: str, catalog_end: str
+) -> tuple[dict[str, Any] | None, str]:
+    """Use the official ASF client with the same AOI/window/product filters.
+
+    The pinned source project's legacy JSON query is tried first. When ASF
+    returns HTTP 400/502 through that path, this client-based equivalent is
+    used instead of hand-constructing another REST URL or querying CMR.
+    """
+    import asf_search
+
+    first = datetime.strptime(catalog_start, "%Y-%m-%d").date()
+    last = datetime.strptime(catalog_end, "%Y-%m-%d").date()
+    found: dict[str, Any] = {}
+    year = first.year
+    while year <= last.year:
+        lo = max(first, datetime(year, 1, 1).date())
+        hi = min(last, datetime(year, 12, 31).date())
+        try:
+            results = asf_search.search(
+                dataset="NISAR",
+                shortName=[f"NISAR_L2_{product_type}_V1"],
+                intersectsWith=acquisition.SEARCH_WKT,
+                start=f"{lo.isoformat()}T00:00:00Z",
+                end=f"{hi.isoformat()}T23:59:59Z",
+                maxResults=2000,
+            )
+            items = list(results)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ASF_SEARCH_CLIENT_QUERY_FAILED year={year} {safe_catalog_error(exc)}"
+            ) from exc
+        for item in items:
+            if _catalog_item_name(item) != wanted:
+                continue
+            props = _catalog_item_properties(item)
+            url = _catalog_item_url(item)
+            if not url:
+                continue
+            found[wanted] = {
+                "granuleName": wanted,
+                "productType": props.get("productType", product_type),
+                "downloadUrl": url,
+                "sizeMB": props.get("sizeMB", props.get("size_mb")),
+                "sizeBytes": props.get("sizeBytes", props.get("bytes")),
+                "dataMaturity": props.get("dataMaturity", props.get("maturity")),
+                "_sarguardian_discovery_backend": "asf_search.search",
+            }
+        year += 1
+    if len(found) == 1:
+        return next(iter(found.values())), "asf_search.search"
+    return None, "asf_search.search"
+
+
 def find_exact_source_product(
     acquisition: Any,
     wanted: str,
@@ -78,38 +182,56 @@ def find_exact_source_product(
     catalog_start: str = "2025-01-01",
     catalog_end: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
-    """Use the source project's original AOI and date-window ASF catalog query.
-
-    The pinned recon_nisar() searches from 2025-01-01 through today in
-    calendar-year chunks, filtering server-side with platform=NISAR and its
-    established INTERFEROMETRIC product family. Do that same query here rather
-    than inventing a per-granule temporal request. The result is then reduced
-    to the one exact requested product. The real raster AOI is independently
-    checked by validate_product_aoi.py before any scientific processing.
-    """
+    """Use the pinned source AOI query first, then ASF's supported Python client."""
     end = catalog_end or datetime.now(timezone.utc).date().isoformat()
-    rows = acquisition.query_by_year(
-        catalog_start,
-        end,
-        platform="NISAR",
-        processingLevel=",".join(acquisition.INTERFEROMETRIC),
-    )
-    if not isinstance(rows, list):
-        raise TypeError("SOURCE_ACQUISITION_QUERY_DID_NOT_RETURN_A_LIST")
+    source_query_error: Exception | None = None
+    rows: list[Any] = []
+    try:
+        rows = acquisition.query_by_year(
+            catalog_start,
+            end,
+            platform="NISAR",
+            processingLevel=",".join(acquisition.INTERFEROMETRIC),
+        )
+    except Exception as exc:
+        source_query_error = exc
+        print(
+            f"SOURCE_AOI_QUERY_RETRYING_WITH_ASF_CLIENT TYPE={type(exc).__name__}",
+            file=sys.stderr,
+        )
 
-    exact = [
+    exact_source = [
         row for row in rows
         if isinstance(row, dict)
         and normal_name(str(row.get("granuleName", ""))) == wanted
         and str(row.get("productType", product_type)).upper() == product_type
     ]
-    if len(exact) != 1:
-        raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact)}")
+    if len(exact_source) == 1:
+        record = dict(exact_source[0])
+        record["_sarguardian_discovery_backend"] = "source_query_by_year"
+    else:
+        try:
+            record, backend = _asf_search_fallback(
+                acquisition, wanted, product_type, catalog_start, end
+            )
+        except Exception as fallback_error:
+            source_status = (
+                safe_catalog_error(source_query_error)
+                if source_query_error is not None else
+                f"exact_match_count={len(exact_source)}"
+            )
+            raise RuntimeError(
+                f"SOURCE_QUERY_FAILED {source_status}; {safe_catalog_error(fallback_error)}"
+            ) from fallback_error
+        if record is None:
+            if source_query_error is not None:
+                raise RuntimeError(
+                    f"SOURCE_QUERY_FAILED {safe_catalog_error(source_query_error)}; "
+                    "ASF_CLIENT_EXACT_MATCH_COUNT_0"
+                ) from source_query_error
+            raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact_source)}")
+        record["_sarguardian_discovery_backend"] = backend
 
-    record = exact[0]
-    # Some ASF responses expose maturity metadata and some do not. Verify it
-    # when present; otherwise the pinned baseline's exact name remains the
-    # selection key, matching the existing acquisition script's behavior.
     reported_maturity = next(
         (
             str(record.get(key)).strip().upper()
@@ -120,9 +242,10 @@ def find_exact_source_product(
     )
     if reported_maturity and reported_maturity != maturity.upper():
         raise ValueError("SOURCE_CATALOG_MATURITY_MISMATCH")
-    url = record.get("downloadUrl")
+    url = record.get("downloadUrl") or record.get("url")
     if not trusted_asf_url(url):
         raise ValueError("SOURCE_CATALOG_DID_NOT_RETURN_A_TRUSTED_ASF_HTTPS_URL")
+    record["downloadUrl"] = url
     return record, catalog_start, end
 
 
@@ -178,6 +301,7 @@ def main() -> int:
         # No alternate catalog/query is attempted. Report a safe, actionable
         # failure and leave all local data untouched.
         print(f"ERROR=SOURCE_AOI_CATALOG_LOOKUP_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("CATALOG_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
@@ -196,7 +320,7 @@ def main() -> int:
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
     print(f"AOI={args.aoi}")
-    print("DISCOVERY_BACKEND=science-source/src/nisar_acquisition.py::query_by_year")
+    print("DISCOVERY_BACKEND=" + str(record.get("_sarguardian_discovery_backend", "source_query_by_year")) )
     print(f"DISCOVERY_START={query_start}")
     print(f"DISCOVERY_END={query_end}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
@@ -244,7 +368,7 @@ def main() -> int:
         "maturity_requested": args.maturity,
         "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": "science-source/src/nisar_acquisition.py::query_by_year",
+        "discovery_backend": record.get("_sarguardian_discovery_backend", "source_query_by_year"),
         "science_acquisition_sha256": acquisition_sha256,
         "discovery_start": query_start,
         "discovery_end": query_end,
