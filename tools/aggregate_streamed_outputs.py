@@ -847,6 +847,32 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
         report["errors"].append({"problem": "event_cutoff_diagnostic_missing",
                                  "log_tail": done.stdout[-1200:]})
 
+    # Rebuild both troposphere reports from the retained, reader-exported rasters.
+    troposphere_commands = [
+        [sys.executable, "src/troposphere.py", "--dir", "outputs/export_src",
+         "--aoi", "source", "--report-only", "--csv", "outputs/troposphere_gunw_source.csv"],
+        [sys.executable, "src/troposphere.py", "--dir", "outputs/export_goff_src",
+         "--aoi", "source", "--match", "layer2", "--report-only",
+         "--csv", "outputs/troposphere_goff_source.csv"],
+    ]
+    for label, argv in zip(("GUNW troposphere report", "GOFF troposphere report"), troposphere_commands):
+        done = subprocess.run(argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, check=False)
+        log_path = out_root / "logs" / (label.lower().replace(" ", "_") + ".log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(done.stdout, encoding="utf-8")
+        report["commands"].append({"name": label, "argv": argv[1:], "exit_code": done.returncode,
+                                   "log": str(log_path.relative_to(out_root)),
+                                   "source": "reader-exported GeoTIFFs, not raw HDF5"})
+        if done.returncode:
+            report["errors"].append({"problem": "downstream_command_failed", "name": label,
+                                     "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+            return
+        if not (science_root / argv[-1]).is_file():
+            report["errors"].append({"problem": "downstream_output_missing", "name": label,
+                                     "expected_output": argv[-1]})
+            return
+
     # These are the exact input dates/exclusions documented for Result 7.
     local_floor_commands = [
         [
@@ -893,6 +919,65 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
     except Exception as exc:
         report["errors"].append({"problem": "common_reference_target_series_failed",
                                  "type": type(exc).__name__, "detail": str(exc)[:400]})
+
+    # Candidate-4 floor tables are required by the source project's final detector gate.
+    candidate4_floor_cmd = [
+        sys.executable, "src/local_floor.py", "--dir", "outputs/export_goff_src",
+        "--match", "layer2", "--lat", "28.27799", "--lon", "85.52983",
+        "--radius", "6", "--exclude", "_UR_", "20260828", "20260831",
+        "--csv", "outputs/local_floor_cand4.csv",
+        "--as-floors", "outputs/local_floor_cand4_as_floors.csv",
+    ]
+    done = subprocess.run(candidate4_floor_cmd, cwd=science_root, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    log_path = out_root / "logs" / "candidate4_local_floors.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(done.stdout, encoding="utf-8")
+    report["commands"].append({
+        "name": "Candidate-4 floors for common-datum time series",
+        "argv": candidate4_floor_cmd[1:],
+        "exit_code": done.returncode,
+        "log": str(log_path.relative_to(out_root)),
+        "source": "GOFF layer2 reader-exported GeoTIFFs, not raw HDF5",
+    })
+    if done.returncode:
+        report["errors"].append({"problem": "downstream_command_failed", "name": "candidate4_local_floors",
+                                 "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+        return
+    if not (science_root / "outputs/local_floor_cand4.csv").is_file() or not (
+        science_root / "outputs/local_floor_cand4_as_floors.csv"
+    ).is_file():
+        report["errors"].append({"problem": "candidate4_floor_outputs_missing"})
+        return
+
+    candidate4_velocity_cmd = [
+        sys.executable, "src/inverse_velocity.py", "--ts", "outputs/ts_goff_cand4_common.csv",
+        "--floors", "outputs/local_floor_cand4_as_floors.csv", "--floors-layer", "layer2",
+        "--event-date", "2026-08-26",
+    ]
+    done = subprocess.run(candidate4_velocity_cmd, cwd=science_root, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    log_path = out_root / "logs" / "candidate4_inverse_velocity.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(done.stdout, encoding="utf-8")
+    report["commands"].append({
+        "name": "Candidate-4 common-datum inverse-velocity gate",
+        "argv": candidate4_velocity_cmd[1:],
+        "exit_code": done.returncode,
+        "log": str(log_path.relative_to(out_root)),
+    })
+    if done.returncode:
+        report["errors"].append({"problem": "downstream_command_failed", "name": "candidate4_inverse_velocity",
+                                 "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+        return
+
+    # The science ZIP contains no committed ts_gunw_source.csv; report it as
+    # generated but unbaselined, never as a parity PASS.
+    report["unbaselined_outputs"] = [{
+        "file": "ts_gunw_source.csv",
+        "status": "GENERATED_NO_COMMITTED_BASELINE",
+        "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline.",
+    }]
 
     # Compare regenerated key outputs with the pinned repository's committed baselines.
     baseline_dir = out_root / "baseline-snapshot"
