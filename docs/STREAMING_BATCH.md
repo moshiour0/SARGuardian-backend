@@ -8,19 +8,33 @@ Langtang or Lhende polygons.
 ## Run it safely
 
 1. Open **Actions → SARGuardian Streaming Batch (source AOI) → Run workflow**.
-2. Keep `validation-pilot` for the first real run. It downloads one GUNW and
-   one GOFF from the committed baseline, verifies each against its full-lossless
-   retained HDF5 copy, uploads both retained products and their small derived
-   outputs to Drive, and compares the single-reader CSV rows against the
-   committed batch rows.
-3. Only after the pilot reports `BATCH_EQUIVALENCE_STATUS=PASS`, run
-   `full-source-baseline`. The pinned `outputs/*_stats_source.csv` files define
-   **15 GUNW + 18 GOFF = 33 product jobs**. `max-parallel: 1` makes the jobs
-   sequential, so only one source HDF5 is processed on a runner at a time.
-4. Open the `sarguardian-streaming-run-*` artifact and inspect
+2. Choose the inclusive `start_date` and `end_date` inputs in `YYYY-MM-DD`
+   format. The window is applied to each baseline granule's **secondary
+   acquisition date** (the third timestamp in the NISAR granule name). The
+   default `2025-01-01` through `2026-12-31` covers the currently pinned
+   products. The `source` AOI is fixed by the scientific project; there is no
+   AOI input and its polygon is not changed.
+3. Keep `validation-pilot` for the first real run. It picks one GUNW and one
+   GOFF that fall inside your selected window. Both families must have at least
+   one baseline product in that window. The retained products are checked and
+   uploaded to Drive, and the single-reader CSV rows are compared with the
+   committed baseline.
+4. After the pilot passes, choose `full-source-baseline` to process every
+   committed baseline product inside the selected window. A window containing
+   all **15 GUNW + 18 GOFF = 33** pinned products uses the full-baseline
+   downstream comparison. A narrower window is recorded as
+   `time-window-selection`: it validates selected product rows and exports but
+   intentionally does not claim a full-network time-series/bound equivalence
+   comparison. `max-parallel: 1` keeps raw HDF5 processing sequential.
+5. Open the `sarguardian-streaming-run-*` artifact and inspect
    `batch-equivalence-report.json`. The final Drive bundle is uploaded only
-   when the product-level CSVs and regenerated downstream results pass their
-   comparison gates.
+   when the applicable product-level checks (and, for the full baseline, the
+   regenerated downstream results) pass.
+
+**Scope:** the selectable window filters the 33 products in the committed
+source-AOI baseline. It does not yet discover additional granules outside those
+committed CSVs; the live catalog discovery path has been returning upstream
+ASF errors. The AOI remains the original fixed `source` polygon either way.
 
 ## Per-product sequence and retention rules
 
