@@ -61,3 +61,121 @@ def test_compare_rows_detects_missing_extra_and_value_differences():
     assert result["row_keys_extra"] == 1
     assert result["field_mismatches"] == 1
     assert errors
+
+
+def test_cleanup_evidence_requires_verified_remote_retention_and_deleted_runner_copies(tmp_path):
+    import json
+
+    artifact_root = tmp_path / "product-artifacts"
+    cleanup_root = tmp_path / "cleanup-artifacts"
+    product_id = "GUNW-001"
+    granule = (
+        "NISAR_L2_PR_GUNW_006_048_D_074_007_2000_SH_"
+        "20251125T125813_20251125T125848_20251207T125814_20251207T125849_X05010_N_F_J_001.h5"
+    )
+    product_dir = artifact_root / f"sarguardian-granule-{product_id}"
+    cleanup_dir = cleanup_root / f"sarguardian-cleanup-{product_id}"
+    product_dir.mkdir(parents=True)
+    cleanup_dir.mkdir(parents=True)
+    meta = {
+        "drive_remote_folder_id": "drive-folder-123",
+        "source_file_sha256": "source-sha",
+        "retained_archive": f"archive/{granule[:-3]}.science.h5",
+        "retained_archive_sha256": "archive-sha",
+    }
+    (product_dir / "product-processing.json").write_text(json.dumps(meta), encoding="utf-8")
+    receipt = {
+        "schema_version": "sarguardian-local-cleanup-receipt/1.0",
+        "product_id": product_id,
+        "product_type": "GUNW",
+        "maturity": "BETA",
+        "granule_name": granule,
+        "aoi": "source",
+        "science_commit": "science-sha",
+        "source_file_sha256": "source-sha",
+        "retained_archive_name": f"{granule[:-3]}.science.h5",
+        "retained_archive_sha256": "archive-sha",
+        "remote_retention_verification": "PASS",
+        "remote_retention_folder_id": "drive-folder-123",
+        "runner_raw_hdf5_deleted": True,
+        "runner_archive_deleted": True,
+        "cleanup_scope": "temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained",
+    }
+    (cleanup_dir / "local-cleanup-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    drive_receipt = {
+        "remote_verification": "PASS",
+        "files": [{"name": "local-cleanup-receipt.json", "bytes": 100, "md5": "abc"}],
+    }
+    (cleanup_dir / "drive-cleanup-upload-receipt.json").write_text(json.dumps(drive_receipt), encoding="utf-8")
+    manifest = {
+        "science_commit": "science-sha",
+        "products": [{
+            "id": product_id,
+            "product_type": "GUNW",
+            "maturity": "BETA",
+            "granule_name": granule,
+        }],
+    }
+    errors = []
+    result = agg.validate_cleanup_evidence(manifest, artifact_root, cleanup_root, errors)
+    assert result == {"status": "PASS", "expected": 1, "verified": 1}
+    assert errors == []
+
+
+def test_cleanup_evidence_fails_if_runner_archive_not_deleted(tmp_path):
+    import json
+
+    artifact_root = tmp_path / "product-artifacts"
+    cleanup_root = tmp_path / "cleanup-artifacts"
+    product_id = "GOFF-001"
+    granule = (
+        "NISAR_L2_PR_GOFF_006_048_D_074_007_2000_SH_"
+        "20251125T125813_20251125T125848_20251207T125814_20251207T125849_X05010_N_F_J_001.h5"
+    )
+    product_dir = artifact_root / f"sarguardian-granule-{product_id}"
+    cleanup_dir = cleanup_root / f"sarguardian-cleanup-{product_id}"
+    product_dir.mkdir(parents=True)
+    cleanup_dir.mkdir(parents=True)
+    meta = {
+        "drive_remote_folder_id": "drive-folder-456",
+        "source_file_sha256": "source-sha",
+        "retained_archive": f"archive/{granule[:-3]}.science.h5",
+        "retained_archive_sha256": "archive-sha",
+    }
+    (product_dir / "product-processing.json").write_text(json.dumps(meta), encoding="utf-8")
+    receipt = {
+        "schema_version": "sarguardian-local-cleanup-receipt/1.0",
+        "product_id": product_id,
+        "product_type": "GOFF",
+        "maturity": "BETA",
+        "granule_name": granule,
+        "aoi": "source",
+        "science_commit": "science-sha",
+        "source_file_sha256": "source-sha",
+        "retained_archive_name": f"{granule[:-3]}.science.h5",
+        "retained_archive_sha256": "archive-sha",
+        "remote_retention_verification": "PASS",
+        "remote_retention_folder_id": "drive-folder-456",
+        "runner_raw_hdf5_deleted": True,
+        "runner_archive_deleted": False,
+        "cleanup_scope": "temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained",
+    }
+    (cleanup_dir / "local-cleanup-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+    drive_receipt = {
+        "remote_verification": "PASS",
+        "files": [{"name": "local-cleanup-receipt.json", "bytes": 100, "md5": "abc"}],
+    }
+    (cleanup_dir / "drive-cleanup-upload-receipt.json").write_text(json.dumps(drive_receipt), encoding="utf-8")
+    manifest = {
+        "science_commit": "science-sha",
+        "products": [{
+            "id": product_id,
+            "product_type": "GOFF",
+            "maturity": "BETA",
+            "granule_name": granule,
+        }],
+    }
+    errors = []
+    result = agg.validate_cleanup_evidence(manifest, artifact_root, cleanup_root, errors)
+    assert result == {"status": "FAIL", "expected": 1, "verified": 0}
+    assert errors[0]["problem"] == "cleanup_evidence_mismatch"
