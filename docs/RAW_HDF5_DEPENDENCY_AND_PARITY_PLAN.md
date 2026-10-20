@@ -69,7 +69,7 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Added bounded retries for transient Earthdata/session and HTTP 429/5xx errors; added exact ASF catalog URL fallback for UR products and non-UR direct-URL 404s; added `--probe-only` to check exact source availability without downloading or writing raw data.
 - [x] Added a full-baseline manifest preflight that checks every selected UR product before launching any of the 33 product jobs. It stops early with a sanitized error if a required historical UR granule is no longer retrievable, instead of spending most of an hour processing the other products first.
 - [x] Product diagnostics now keep the sanitized downloader root-cause lines, and aggregation attaches them to missing-product errors instead of reporting only that `product-processing.json` is absent.
-- [ ] The UR catalog fallback and early preflight are unit/CI-tested but have not yet been verified by a new live Actions run. Do not launch another full run until the newest CI is green and the UR availability gate passes.
+- [ ] The UR catalog fallback and early preflight are unit/CI-tested but have not yet been verified by a new live Actions run. Run the updated full-baseline workflow once; the new manifest gate will check all selected UR source objects first and stop before matrix processing if any required object is unavailable. Recover missing historical HDF5 files from an independent archive if the gate confirms ASF has expired them.
 
 ## 6. Acceptance gates before processing all 33 products
 
@@ -88,7 +88,11 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Add this plan to the backend branch.
 - [x] Add pre-cleanup per-product CSV/raster validation.
 - [x] Add derived-only and full-lossless retention modes with policy-aware cleanup.
+- [x] Add bounded network retries, exact ASF-catalog URL fallback, and a no-download source-probe mode.
+- [x] Add a full-baseline UR availability gate before scheduling any product downloads.
+- [x] Preserve sanitized downloader root-cause details in product diagnostic artifacts and aggregate failure reports.
+- [x] Cover retry, UR routing/expiry, probe-only, workflow gating, and aggregation diagnostics with regression tests.
 - [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
-- [x] CI/static validation on draft PR #28: 133 passed, 1 skipped in the backend suite after adding the JSON-newline regression guard; 42 passed in the retention suite; workflow YAML and Python syntax checks passed.
+- [x] Latest CI on commit `9b9f5594e98fd0d4633a5d0c2b4b313394d61de8`: 144 passed, 1 skipped in the backend suite; 44 passed in the retention suite; workflow YAML and Python syntax checks passed.
 - [ ] Run the two-product live validation pilot with `derived-only` retention; verify Drive receipts and cleanup gates before any full run.
 - [ ] Run all 33 only after the live pilot passes and every required source-ZIP downstream parity gate passes.
