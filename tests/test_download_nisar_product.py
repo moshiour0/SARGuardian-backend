@@ -331,3 +331,36 @@ def test_probe_only_reports_availability_without_creating_download_directory(mon
     assert "DISCOVERY_BACKEND=direct_https_known_granule" in output
     assert not out_dir.exists()
 
+
+
+def test_retryable_remote_failure_classifier_only_retries_transient_failures():
+    assert download.is_retryable_remote_failure(download.requests.exceptions.ConnectionError("network down"))
+    assert download.is_retryable_remote_failure(download.requests.exceptions.Timeout("timed out"))
+    permanent_http = download.requests.exceptions.HTTPError("not found")
+    permanent_http.response = FakeResponse(404, reason="Not Found")
+    transient_http = download.requests.exceptions.HTTPError("temporary unavailable")
+    transient_http.response = FakeResponse(503, reason="Service Unavailable")
+    assert not download.is_retryable_remote_failure(permanent_http)
+    assert download.is_retryable_remote_failure(transient_http)
+    assert not download.is_retryable_remote_failure(RuntimeError("INVALID_HDF5_CONTAINER"))
+
+
+def test_authenticated_session_can_be_configured_for_more_than_two_attempts(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
+    session = FakeSession(head_response=FakeResponse(200, {"Content-Length": "123"}))
+
+    class FlakyAcquisition:
+        def __init__(self):
+            self.calls = 0
+
+        def build_session(self):
+            self.calls += 1
+            if self.calls < 4:
+                raise download.requests.exceptions.ConnectionError("temporary endpoint outage")
+            return session
+
+    acquisition = FlakyAcquisition()
+    assert download.build_authenticated_session_with_retry(acquisition, attempts=4) is session
+    assert acquisition.calls == 4
+    assert len(sleeps) == 3
