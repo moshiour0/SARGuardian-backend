@@ -189,3 +189,92 @@ def test_earthdata_service_status_returns_only_public_status_labels():
         "Earthdata Login": "OK",
         "Common Metadata Repository": "Warning",
     }
+
+
+def test_transient_earthdata_login_connection_error_retries_and_recovers(monkeypatch):
+    calls = []
+    sleeps = []
+
+    from requests.exceptions import ConnectionError
+
+    def login():
+        calls.append(1)
+        if len(calls) < 3:
+            raise ConnectionError("temporary network interruption")
+        return True
+
+    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
+    result, diagnostic, attempts = download._retry_transient_call(
+        login, operation="TEST_LOGIN"
+    )
+    assert result is True
+    assert attempts == 3
+    assert diagnostic["type"] == "ConnectionError"
+    assert diagnostic["recovered"] == "true"
+    assert sleeps == [1, 2]
+
+
+def test_transient_cmr_500_retries_and_preserves_diagnostic_after_recovery(monkeypatch):
+    wanted = (
+        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
+        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_"
+        "P05023_N_F_J_001"
+    )
+    calls = []
+    sleeps = []
+
+    class FakeResponse:
+        status_code = 500
+        reason = "Internal Server Error"
+
+    from requests.exceptions import HTTPError
+
+    class FakeEarthaccess:
+        @staticmethod
+        def search_data(**kwargs):
+            calls.append(kwargs)
+            if len(calls) <= 2:
+                low = HTTPError("https://cmr.example.test/query?token=secret-value")
+                low.response = FakeResponse()
+                wrapped = RuntimeError("CMR internal error")
+                wrapped.__cause__ = low
+                raise wrapped
+            return [{"umm": {"GranuleUR": wanted}}]
+
+    monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
+    matches, mode, diagnostics = download.search_exact_granule(
+        FakeEarthaccess, "NISAR_L2_GUNW_PROVISIONAL_V1", wanted
+    )
+    assert len(matches) == 1
+    assert mode == "exact_granule_name"
+    assert diagnostics["exact_search"]["attempts"] == 3
+    assert diagnostics["exact_search"]["http_status"] == "500"
+    assert diagnostics["exact_search"]["recovered"] is True
+    assert sleeps == [1, 2]
+    assert "secret-value" not in (diagnostics["exact_search"]["detail_safe"] or "")
+    assert len(calls) == 3
+
+
+def test_permanent_cmr_400_is_not_retried(monkeypatch):
+    from requests.exceptions import HTTPError
+
+    class FakeResponse:
+        status_code = 400
+        reason = "Bad Request"
+
+    calls = []
+
+    def call():
+        calls.append(1)
+        low = HTTPError("https://cmr.example.test/query?token=secret")
+        low.response = FakeResponse()
+        wrapped = RuntimeError("invalid request")
+        wrapped.__cause__ = low
+        raise wrapped
+
+    monkeypatch.setattr(download.time, "sleep", lambda seconds: (_ for _ in ()).throw(AssertionError("should not sleep")))
+    result, diagnostic, attempts = download._retry_transient_call(call, operation="TEST_CMR")
+    assert result is None
+    assert attempts == 1
+    assert diagnostic["http_status"] == "400"
+    assert len(calls) == 1
