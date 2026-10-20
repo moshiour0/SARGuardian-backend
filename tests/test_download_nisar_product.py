@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib
-from urllib.parse import parse_qs, urlparse import Path
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 TOOL = Path(__file__).resolve().parents[1] / "tools" / "download_nisar_product.py"
 spec = importlib.util.spec_from_file_location("download_nisar_product", TOOL)
@@ -159,7 +159,7 @@ def test_exact_source_api_fallback_requires_exact_name_and_trusted_download_url(
         ],
     )
     import pytest
-    with pytest.raises(RuntimeError, match="ASF_EXACT_QUERY"):
+    with pytest.raises(ValueError, match="TRUSTED_ASF_HTTPS_URL"):
         download.find_exact_source_product(
             source, WANTED, "GUNW", "PROVISIONAL", catalog_end="2025-12-31"
         )
