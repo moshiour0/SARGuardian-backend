@@ -38,6 +38,8 @@ class FakeSession:
 
     def head(self, url, **kwargs):
         self.head_calls.append((url, kwargs))
+        if isinstance(self.head_response, list):
+            return self.head_response.pop(0)
         return self.head_response
 
     def get(self, url, **kwargs):
@@ -153,3 +155,118 @@ def test_load_source_acquisition_sets_requested_aoi_and_records_module_hash(tmp_
     module, module_hash = download.load_source_acquisition(tmp_path, "source")
     assert module.AOI_NAME == "source"
     assert len(module_hash) == 64
+
+def test_probe_url_retries_transient_http_status(monkeypatch):
+    monkeypatch.setattr(download.time, "sleep", lambda _seconds: None)
+    session = FakeSession(
+        head_response=[
+            FakeResponse(503, reason="Service Unavailable"),
+            FakeResponse(200, {"Content-Length": "123456"}),
+        ]
+    )
+    size = download.probe_url_content_length(
+        session,
+        "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/example.h5",
+    )
+    assert size == 123456
+    assert len(session.head_calls) == 2
+
+
+def test_authenticated_session_retries_connection_error(monkeypatch):
+    monkeypatch.setattr(download.time, "sleep", lambda _seconds: None)
+    session = FakeSession(head_response=FakeResponse(200, {"Content-Length": "123"}))
+
+    class FlakyAcquisition:
+        def __init__(self):
+            self.calls = 0
+
+        def build_session(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise download.requests.exceptions.ConnectionError("temporary endpoint outage")
+            return session
+
+    acquisition = FlakyAcquisition()
+    assert download.build_authenticated_session_with_retry(acquisition) is session
+    assert acquisition.calls == 2
+
+
+def test_urgent_response_product_uses_exact_asf_catalog_url(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(download.time, "sleep", lambda _seconds: None)
+    urgent = WANTED.replace("_PR_GUNW_", "_UR_GUNW_")
+    url = f"https://nisar.asf.earthdatacloud.nasa.gov/UR/{urgent}/{urgent}.h5"
+
+    class FakeCatalogProduct:
+        properties = {"fileName": f"{urgent}.h5", "bytes": 123}
+
+        def get_urls(self):
+            return [url]
+
+    calls = []
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(search=lambda **kwargs: (calls.append(kwargs) or [FakeCatalogProduct()])),
+    )
+    session = FakeSession(head_response=FakeResponse(200, {"Content-Length": "123"}))
+    acquisition = FakeSourceAcquisition(session)
+
+    record, returned_session, size = download.probe_known_product(
+        acquisition, urgent, "GUNW", "BETA"
+    )
+
+    assert calls == [{"dataset": "NISAR", "granule_list": [urgent]}]
+    assert record["downloadUrl"] == url
+    assert record["_sarguardian_discovery_backend"] == "asf_catalog_exact_granule"
+    assert returned_session is session
+    assert size == 123
+
+
+def test_missing_urgent_response_catalog_entry_is_actionable(monkeypatch):
+    from types import SimpleNamespace
+
+    urgent = WANTED.replace("_PR_GUNW_", "_UR_GUNW_")
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(search=lambda **kwargs: []),
+    )
+    with pytest.raises(RuntimeError, match="UR_GRANULE_NOT_FOUND_IN_ASF_CATALOG"):
+        download._catalog_record_for_exact_granule(urgent, "GUNW", "BETA")
+
+
+def test_non_urgent_direct_404_falls_back_to_exact_catalog_url(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(download.time, "sleep", lambda _seconds: None)
+    catalog_url = f"https://datapool.asf.alaska.edu/{WANTED}.h5"
+
+    class FakeCatalogProduct:
+        properties = {"fileName": f"{WANTED}.h5"}
+
+        def get_urls(self):
+            return [catalog_url]
+
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(search=lambda **kwargs: [FakeCatalogProduct()]),
+    )
+    session = FakeSession(
+        head_response=[
+            FakeResponse(404, reason="Not Found"),
+            FakeResponse(200, {"Content-Length": "987"}),
+        ]
+    )
+    record, returned_session, size = download.probe_known_product(
+        FakeSourceAcquisition(session), WANTED, "GUNW", "PROVISIONAL"
+    )
+
+    assert record["downloadUrl"] == catalog_url
+    assert record["_sarguardian_discovery_backend"] == "asf_catalog_exact_granule"
+    assert returned_session is session
+    assert size == 987
+    assert len(session.head_calls) == 2
+
