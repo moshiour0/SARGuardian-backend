@@ -37,6 +37,36 @@ BASELINE_DOWNSTREAM = [
 ]
 
 
+def read_product_diagnostic_context(artifact_dir: Path) -> dict[str, Any]:
+    """Expose the relevant sanitized per-product diagnostics when primary metadata is absent."""
+    path = artifact_dir / "product-run-diagnostics.json"
+    if not path.is_file():
+        return {"diagnostics_artifact_present": False}
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "diagnostics_artifact_present": True,
+            "diagnostics_parse_error": f"{type(exc).__name__}: {str(exc)[:180]}",
+        }
+    if not isinstance(record, dict):
+        return {
+            "diagnostics_artifact_present": True,
+            "diagnostics_parse_error": "diagnostics JSON root is not an object",
+        }
+    outcomes = record.get("step_outcomes")
+    lines = record.get("download_diagnostics")
+    return {
+        "diagnostics_artifact_present": True,
+        "diagnostic_step_outcomes": outcomes if isinstance(outcomes, dict) else {},
+        "download_error_code": record.get("download_error_code"),
+        "download_diagnostics": lines[:16] if isinstance(lines, list) else [],
+        "download_manifest_created": record.get("download_manifest_created"),
+        "drive_receipt_created": record.get("drive_receipt_created"),
+        "raw_hdf5_present_at_diagnostic_time": record.get("raw_hdf5_present_at_diagnostic_time"),
+    }
+
+
 def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     with path.open("r", newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -510,8 +540,13 @@ def aggregate_stats(
             rows_by_type[meta["product_type"]].extend(rows)
             product_meta[pid] = (meta, artifact_dir)
         except Exception as exc:
-            errors.append({"problem": "product_artifact_read_failed", "id": pid,
-                           "type": type(exc).__name__, "detail": str(exc)[:240]})
+            errors.append({
+                "problem": "product_artifact_read_failed",
+                "id": pid,
+                "type": type(exc).__name__,
+                "detail": str(exc)[:240],
+                **read_product_diagnostic_context(artifact_dir),
+            })
 
     # Write canonical aggregate CSVs in the original batch baseline order.
     # Full profile must reproduce every row; pilot profile compares its subset only.
