@@ -92,8 +92,9 @@ def find_exact_source_product(
         start,
         end,
         platform="NISAR",
-        processingLevel=product_type,
-        dataMaturity=maturity.upper(),
+        # Match recon_nisar() in the pinned source repository exactly; its
+        # INTERFEROMETRIC filter is known to be accepted by the ASF endpoint.
+        processingLevel=",".join(acquisition.INTERFEROMETRIC),
     )
     if not isinstance(rows, list):
         raise TypeError("SOURCE_ACQUISITION_QUERY_DID_NOT_RETURN_A_LIST")
