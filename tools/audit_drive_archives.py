@@ -53,6 +53,7 @@ def logical_archive_signature(manifest: dict[str, Any]) -> str:
         "dtype": row.get("dtype"),
         "attrs_sha256": row.get("attrs_sha256"),
         "logical_data_sha256": row.get("logical_data_sha256"),
+        "dimension_links": row.get("dimension_links") or [],
         "retention_status": row.get("retention_status"),
         "reason": row.get("reason"),
         "archive_dtype": row.get("archive_dtype"),
@@ -271,13 +272,13 @@ def inspect_run_folder(
     }
     errors.extend(name for name, passed in checks.items() if not passed)
 
+    receipt_archives = [row for row in receipt.get("files", []) if row.get("name") == archive_file.get("name")]
+    receipt_archive = receipt_archives[0] if len(receipt_archives) == 1 else {}
     try:
         remote_size = int(archive_file.get("size", -1))
-        receipt_archives = [row for row in receipt.get("files", []) if row.get("name") == archive_file.get("name")]
-        receipt_archive = receipt_archives[0] if len(receipt_archives) == 1 else {}
         receipt_size = int(receipt_archive.get("bytes", -1))
     except (TypeError, ValueError):
-        remote_size, receipt_size, receipt_archive = -1, -1, {}
+        remote_size, receipt_size = -1, -1
         errors.append("remote_archive_size_unparseable")
     if len(receipt_archives) != 1:
         errors.append("drive_receipt_archive_entry_count_not_one")
