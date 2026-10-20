@@ -49,9 +49,18 @@ def write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None
 
 
 def row_key(row: dict[str, str], fields: list[str]) -> tuple[str, ...]:
-    chosen = [x for x in ("file", "layer") if x in fields]
-    if not chosen:
-        chosen = ["id"] if "id" in fields else fields[:1]
+    # Each scientific table has a different natural key. Prefer the most
+    # specific one so candidate-level rows never collide on their input file.
+    candidates = (
+        ("file", "layer"),
+        ("target_id", "file", "window_px", "reading"),
+        ("target_id", "file", "window_px"),
+        ("target_id", "pair", "window_px"),
+        ("geometry", "component", "epoch"),
+        ("id",),
+        ("file",),
+    )
+    chosen = next((group for group in candidates if all(k in fields for k in group)), tuple(fields))
     return tuple((row.get(k) or "").strip() for k in chosen)
 
 
@@ -227,7 +236,7 @@ def aggregate_stats(
         canonical_rows = [available[row_key(r, fields)] for r in expected_rows if row_key(r, fields) in available]
         out_path = outputs / f"{family.lower()}_stats_source.csv"
         write_csv(out_path, fields, canonical_rows)
-        result = compare_rows(expected_rows, canonical_rows, fields,
+        result = compare_rows(expected_rows, streamed, fields,
                               label=f"outputs/{family.lower()}_stats_source.csv", errors=errors)
         report["comparisons"].append(result)
 
@@ -384,16 +393,34 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
 
 
 def zip_run_bundle(out_root: Path, science_root: Path, manifest_path: Path) -> Path:
-    bundle = out_root / f"sarguardian-{manifest_path.parent.name}-results.zip"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    bundle = out_root / f"sarguardian-{manifest.get('run_id', 'run')}-results.zip"
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        for folder_name in ("outputs", "logs"):
-            folder = science_root / folder_name if folder_name == "outputs" else out_root / folder_name
-            if not folder.exists():
-                continue
+        if manifest.get("run_profile") == "validation-pilot":
+            # A pilot package must not silently bundle stale, committed analyses
+            # and make them look like the result of a two-granule test.
+            out = science_root / "outputs"
+            for rel in (
+                "gunw_stats_source.csv", "goff_stats_source.csv",
+                "export_src", "export_goff_src",
+            ):
+                path = out / rel
+                if path.is_file():
+                    z.write(path, f"outputs/{rel}")
+                elif path.is_dir():
+                    for item in sorted(path.rglob("*")):
+                        if item.is_file() and item.suffix.lower() in {".tif", ".tiff"}:
+                            z.write(item, f"outputs/{rel}/{item.relative_to(path).as_posix()}")
+        else:
+            folder = science_root / "outputs"
             for path in sorted(folder.rglob("*")):
-                if path.is_file() and (folder_name != "outputs" or path.suffix.lower() not in {".h5", ".hdf5"}):
-                    arcname = f"{folder_name}/{path.relative_to(folder).as_posix()}"
-                    z.write(path, arcname)
+                if path.is_file() and path.suffix.lower() not in {".h5", ".hdf5"}:
+                    z.write(path, f"outputs/{path.relative_to(folder).as_posix()}")
+        logs = out_root / "logs"
+        if logs.exists():
+            for path in sorted(logs.rglob("*")):
+                if path.is_file():
+                    z.write(path, f"logs/{path.relative_to(logs).as_posix()}")
         z.write(manifest_path, "run-manifest.json")
         report_path = out_root / "batch-equivalence-report.json"
         if report_path.exists():
