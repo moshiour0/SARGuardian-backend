@@ -96,7 +96,7 @@ jobs:
           RAW_DIR: ${{ steps.paths.outputs.raw_dir }}
         run: |
           set -euo pipefail
-          args=(--product-type "$PRODUCT_TYPE" --maturity "$MATURITY" --granule-name "$GRANULE_NAME" --out-dir "$RAW_DIR")
+          args=(--product-type "$PRODUCT_TYPE" --maturity "$MATURITY" --granule-name "$GRANULE_NAME" --science-root "$PWD/science-source" --aoi "$AOI_NAME" --out-dir "$RAW_DIR")
           if [[ "$EXPECTED_SOURCE_BYTES" =~ ^[0-9]+$ ]] && [[ "$EXPECTED_SOURCE_BYTES" -gt 0 ]]; then
             args+=(--expected-source-bytes "$EXPECTED_SOURCE_BYTES")
           fi
