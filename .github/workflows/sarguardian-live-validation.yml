@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 77cc9646cfa46d3aff3669d351912f984cf67aa3
+          ref: 4b00ebfd21865882c7235fce957f6433010cb5f8
           path: science-source
 
       - name: Verify pinned science revision
@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected='77cc9646cfa46d3aff3669d351912f984cf67aa3'
+          expected='4b00ebfd21865882c7235fce957f6433010cb5f8'
           actual="$(git -C science-source rev-parse HEAD)"
           test "$actual" = "$expected"
           echo "science_commit=$actual" >> "$GITHUB_OUTPUT"
