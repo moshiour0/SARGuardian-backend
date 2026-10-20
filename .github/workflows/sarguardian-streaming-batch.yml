@@ -608,7 +608,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-      - name: Delete local raw/archive only after successful remote retention
+      - name: Delete temporary raw/archive copies only after validation and remote retention
         if: success()
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
@@ -620,6 +620,7 @@ jobs:
           MATURITY: ${{ matrix.maturity }}
           DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
           SCIENCE_COMMIT: ${{ env.SCIENCE_COMMIT }}
+          RETENTION_PROFILE: ${{ env.RETENTION_PROFILE }}
         shell: bash
         run: |
           set -euo pipefail
@@ -628,19 +629,42 @@ jobs:
           from pathlib import Path
           root=Path(os.environ["CURATED_DIR"])
           meta=json.loads((root/"product-processing.json").read_text(encoding="utf-8"))
-          receipt=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
-          if meta.get("drive_remote_verification")!="PASS" or receipt.get("remote_verification")!="PASS":
+          retention=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
+          validation=json.loads((root/"derived-output-validation.json").read_text(encoding="utf-8"))
+          if validation.get("status") != "PASS" or meta.get("derived_output_validation_status") != "PASS":
+              raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_DERIVED_BASELINE_VALIDATION")
+          if meta.get("drive_remote_verification") != "PASS" or retention.get("remote_verification") != "PASS":
               raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION")
-          archives=[r for r in receipt.get("files", []) if str(r.get("name","")).endswith(".science.h5")]
-          if len(archives) != 1:
-              raise SystemExit("ERROR=REFUSING_RAW_DELETION_WITHOUT_ONE_RETAINED_ARCHIVE")
-          if meta.get("drive_remote_folder_id") != receipt.get("remote_folder_id"):
+          if meta.get("drive_remote_folder_id") != retention.get("remote_folder_id"):
               raise SystemExit("ERROR=REMOTE_RETENTION_FOLDER_ID_MISMATCH")
-          print("REMOTE_FULL_LOSSLESS_ARCHIVE_AND_DERIVED_OUTPUTS_VERIFIED=PASS")
+          names={str(x.get("name","")) for x in retention.get("files", [])}
+          required={"source-inventory.json","preflight-report.json","derived-output-validation.json","download-manifest.json"}
+          required.add(Path(meta["stats_csv"]).name)
+          required.update(Path(rel).name for rel in meta["export_files"])
+          missing=sorted(required-names)
+          if missing:
+              raise SystemExit("ERROR=REMOTE_REQUIRED_DERIVED_OUTPUT_MISSING names="+",".join(missing))
+          archives=[r for r in retention.get("files", []) if str(r.get("name","")).endswith(".science.h5")]
+          archive_path=os.environ.get("ARCHIVE_PATH","").strip()
+          if meta["retention_profile"] == "full-lossless":
+              eq=json.loads((root/"reader-equivalence.json").read_text(encoding="utf-8"))
+              if len(archives)!=1 or not archive_path or eq.get("status") not in {"PASS","PASS_NO_VALID_AOI_PIXELS"}:
+                  raise SystemExit("ERROR=FULL_LOSSLESS_ARCHIVE_OR_EQUIVALENCE_NOT_VERIFIED")
+          elif meta["retention_profile"] == "derived-only":
+              if archives or archive_path:
+                  raise SystemExit("ERROR=ARCHIVE_PRESENT_IN_DERIVED_ONLY_RETENTION")
+          else:
+              raise SystemExit("ERROR=RETENTION_PROFILE_INVALID")
+          print("REMOTE_DERIVED_OUTPUTS_AND_RETENTION_POLICY_VERIFIED=PASS")
           PY
-          rm -f -- "$RAW_PATH" "$ARCHIVE_PATH"
+          rm -f -- "$RAW_PATH"
           test ! -e "$RAW_PATH"
-          test ! -e "$ARCHIVE_PATH"
+          archive_path="${ARCHIVE_PATH:-}"
+          if [[ -n "$archive_path" ]]; then
+            test -f "$archive_path"
+            rm -f -- "$archive_path"
+            test ! -e "$archive_path"
+          fi
           python - <<'PY'
           import json, os
           from datetime import datetime, timezone
@@ -649,32 +673,39 @@ jobs:
           meta=json.loads((root/"product-processing.json").read_text(encoding="utf-8"))
           download=json.loads((root/"download-manifest.json").read_text(encoding="utf-8"))
           retention=json.loads((root/"drive-retention-receipt.json").read_text(encoding="utf-8"))
-          archive_files=[r for r in retention.get("files", []) if str(r.get("name","")).endswith(".science.h5")]
           raw_exists=Path(os.environ["RAW_PATH"]).exists()
-          archive_exists=Path(os.environ["ARCHIVE_PATH"]).exists()
-          if raw_exists or archive_exists or retention.get("remote_verification") != "PASS" or len(archive_files) != 1:
+          archive_path=os.environ.get("ARCHIVE_PATH","").strip()
+          archive_exists=Path(archive_path).exists() if archive_path else False
+          if raw_exists or archive_exists or retention.get("remote_verification")!="PASS":
               raise SystemExit("ERROR=LOCAL_CLEANUP_RECEIPT_GATE_FAILED")
+          archive_files=[r for r in retention.get("files",[]) if str(r.get("name","")).endswith(".science.h5")]
+          if meta["retention_profile"]=="full-lossless" and len(archive_files)!=1:
+              raise SystemExit("ERROR=FULL_LOSSLESS_ARCHIVE_RECEIPT_MISSING")
+          if meta["retention_profile"]=="derived-only" and archive_files:
+              raise SystemExit("ERROR=DERIVED_ONLY_ARCHIVE_MUST_NOT_BE_RETAINED")
           record={
-              "schema_version":"sarguardian-local-cleanup-receipt/1.0",
+              "schema_version":"sarguardian-local-cleanup-receipt/1.1",
               "created_utc":datetime.now(timezone.utc).isoformat(),
-              "product_id":os.environ["PRODUCT_ID"],
-              "product_type":os.environ["PRODUCT_TYPE"],
-              "maturity":os.environ["MATURITY"],
-              "granule_name":os.environ["GRANULE_NAME"],
-              "aoi":"source",
-              "science_commit":os.environ["SCIENCE_COMMIT"],
+              "product_id":os.environ["PRODUCT_ID"], "product_type":os.environ["PRODUCT_TYPE"],
+              "maturity":os.environ["MATURITY"], "granule_name":os.environ["GRANULE_NAME"],
+              "aoi":"source", "science_commit":os.environ["SCIENCE_COMMIT"],
+              "retention_profile":meta["retention_profile"],
               "source_file_sha256":download["source_sha256"],
-              "retained_archive_name":archive_files[0]["name"],
-              "retained_archive_sha256":meta["retained_archive_sha256"],
+              "retained_archive_name":archive_files[0]["name"] if archive_files else None,
+              "retained_archive_sha256":meta.get("retained_archive_sha256"),
               "remote_retention_verification":"PASS",
               "remote_retention_folder_id":retention["remote_folder_id"],
               "runner_raw_hdf5_deleted":True,
-              "runner_archive_deleted":True,
+              "runner_archive_deleted":not archive_exists,
               "runner_paths_stored":False,
-              "cleanup_scope":"temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained"
+              "cleanup_scope":(
+                "temporary runner raw and archive deleted; remote full-lossless archive remains retained"
+                if meta["retention_profile"]=="full-lossless" else
+                "temporary runner raw deleted after verified derived-only outputs; no HDF5 archive retained"
+              )
           }
-          (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2)+"\n",encoding="utf-8")
-          print("LOCAL_RAW_AND_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes")
+          (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2)+"\\n",encoding="utf-8")
+          print("LOCAL_RAW_AND_POLICY_REQUIRED_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes")
           PY
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
