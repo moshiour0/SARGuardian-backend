@@ -164,8 +164,9 @@ def validate_cleanup_evidence(
     cleanup_artifact_root: Path,
     errors: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Require evidence that raw runner copies were deleted after remote retention."""
+    """Require policy-aware proof that derived outputs were retained before raw cleanup."""
     expected = len(manifest.get("products", []))
+    profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
     verified = 0
     for product in manifest.get("products", []):
         pid = str(product.get("id", ""))
@@ -186,10 +187,10 @@ def validate_cleanup_evidence(
             })
             continue
 
-        retained_path = Path(str(meta.get("retained_archive", ""))).name
-        uploaded_receipts = drive_receipt.get("files", [])
+        schema = receipt.get("schema_version")
         checks = {
-            "schema_version": (receipt.get("schema_version"), "sarguardian-local-cleanup-receipt/1.0"),
+            "schema_version": (schema in {"sarguardian-local-cleanup-receipt/1.0",
+                                          "sarguardian-local-cleanup-receipt/1.1"}, True),
             "product_id": (receipt.get("product_id"), pid),
             "product_type": (receipt.get("product_type"), product.get("product_type")),
             "maturity": (receipt.get("maturity"), product.get("maturity")),
@@ -199,27 +200,37 @@ def validate_cleanup_evidence(
             "remote_retention_verification": (receipt.get("remote_retention_verification"), "PASS"),
             "remote_retention_folder_id": (receipt.get("remote_retention_folder_id"), meta.get("drive_remote_folder_id")),
             "source_file_sha256": (receipt.get("source_file_sha256"), meta.get("source_file_sha256")),
-            "retained_archive_name": (receipt.get("retained_archive_name"), retained_path),
-            "retained_archive_sha256": (receipt.get("retained_archive_sha256"), meta.get("retained_archive_sha256")),
             "runner_raw_hdf5_deleted": (receipt.get("runner_raw_hdf5_deleted"), True),
             "runner_archive_deleted": (receipt.get("runner_archive_deleted"), True),
-            "cleanup_scope": (
-                receipt.get("cleanup_scope"),
-                "temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained",
-            ),
+            "retention_profile": (receipt.get("retention_profile", "full-lossless" if schema == "sarguardian-local-cleanup-receipt/1.0" else None), profile),
         }
         mismatches = [
             {"field": field, "expected": want, "actual": actual}
             for field, (actual, want) in checks.items()
             if actual != want
         ]
+        retained_name = receipt.get("retained_archive_name")
+        retained_sha = receipt.get("retained_archive_sha256")
+        meta_archive = Path(str(meta.get("retained_archive") or "")).name if meta.get("retained_archive") else None
+        if profile == "full-lossless":
+            if not meta_archive or retained_name != meta_archive:
+                mismatches.append({"field": "retained_archive_name", "expected": meta_archive, "actual": retained_name})
+            if not meta.get("retained_archive_sha256") or retained_sha != meta.get("retained_archive_sha256"):
+                mismatches.append({"field": "retained_archive_sha256", "expected": meta.get("retained_archive_sha256"), "actual": retained_sha})
+        else:
+            if retained_name is not None or retained_sha is not None or meta.get("retained_archive") is not None:
+                mismatches.append({"field": "derived_only_must_not_retain_archive",
+                                   "expected": None, "actual": {"name": retained_name, "sha256": retained_sha,
+                                                                "metadata_path": meta.get("retained_archive")}})
+
+        uploaded_receipts = drive_receipt.get("files", []) if isinstance(drive_receipt, dict) else []
         if drive_receipt.get("remote_verification") != "PASS":
             mismatches.append({
                 "field": "cleanup_receipt_remote_verification",
                 "expected": "PASS",
                 "actual": drive_receipt.get("remote_verification"),
             })
-        if not any(row.get("name") == "local-cleanup-receipt.json" for row in uploaded_receipts):
+        if not any(row.get("name") == "local-cleanup-receipt.json" for row in uploaded_receipts if isinstance(row, dict)):
             mismatches.append({
                 "field": "cleanup_receipt_uploaded_to_drive",
                 "expected": True,
@@ -231,7 +242,7 @@ def validate_cleanup_evidence(
         verified += 1
 
     status = "PASS" if verified == expected and expected > 0 else "FAIL"
-    return {"status": status, "expected": expected, "verified": verified}
+    return {"status": status, "expected": expected, "verified": verified, "retention_profile": profile}
 
 
 def summarize_retained_storage(
