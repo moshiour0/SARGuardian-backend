@@ -370,6 +370,26 @@ jobs:
           test -s "$stats"
           echo "stats_path=$stats" >> "$GITHUB_OUTPUT"
 
+      - name: Validate derived outputs against the source-ZIP baseline before cleanup
+        id: derived_validation
+        env:
+          STATS_PATH: ${{ steps.reader.outputs.stats_path }}
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          family_lc="$(printf '%s' "$PRODUCT_TYPE" | tr '[:upper:]' '[:lower:]')"
+          export_dir="$CURATED_DIR/derived/export_src"
+          if [[ "$PRODUCT_TYPE" == "GOFF" ]]; then
+            export_dir="$CURATED_DIR/derived/export_goff_src"
+          fi
+          python tools/verify_derived_product_outputs.py \
+            --product-id "$PRODUCT_ID" --product-type "$PRODUCT_TYPE" \
+            --granule-name "$GRANULE_NAME" \
+            --baseline-csv "science-source/outputs/${family_lc}_stats_source.csv" \
+            --stats-csv "$STATS_PATH" --export-dir "$export_dir" \
+            --out "$CURATED_DIR/derived-output-validation.json"
+
       - name: Build the per-granule processing and retention manifest
         id: metadata
         env:
