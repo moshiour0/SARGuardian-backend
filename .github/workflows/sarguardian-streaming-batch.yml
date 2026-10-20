@@ -598,6 +598,7 @@ jobs:
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/product-run-diagnostics.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/product-processing.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/reader-equivalence.json
+            ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/derived-output-validation.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/source-inventory.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/preflight-report.json
             ${{ runner.temp }}/sarguardian-stream/${{ matrix.id }}/curated/download-manifest.json
