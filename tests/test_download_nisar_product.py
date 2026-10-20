@@ -140,10 +140,10 @@ def test_exact_source_api_granule_list_is_used_after_source_aoi_query_fails():
     url = source.fallback_urls[0]
     assert url.startswith(FakeSourceAcquisition.ASF_API + "?")
     query = parse_qs(urlparse(url).query)
-    assert query["dataset"] == ["NISAR"]
-    assert query["granule_list"] == [WANTED]
-    assert query["intersectsWith"] == [FakeSourceAcquisition.SEARCH_WKT]
-    assert query["output"] == ["json"]
+    assert query == {
+        "granule_list": [WANTED],
+        "output": ["json"],
+    }
     assert "maxResults" not in query and "maxresults" not in query
 
 

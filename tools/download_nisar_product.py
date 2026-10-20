@@ -98,10 +98,11 @@ def _asf_exact_source_api(
     ASF's API/client rejects maxResults with a non-wildcard granule_list.
     """
     params = {
-        "dataset": "NISAR",
-        "intersectsWith": acquisition.SEARCH_WKT,
+        # This is a baseline-pinned exact name, so avoid broad AOI/dataset
+        # catalog filters here. They have repeatedly triggered ASF's wrapped
+        # CMR 500 response even though exact granule_list is the documented
+        # form. The HDF5 raster still has to pass the source-AOI preflight.
         "granule_list": wanted,
-        # ASF Search API supports JSON; jsonlite returns HTTP 400.
         "output": "json",
     }
     url = f"{acquisition.ASF_API}?{urlencode(params)}"
