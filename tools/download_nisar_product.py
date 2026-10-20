@@ -58,7 +58,7 @@ def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
 
 
 def trusted_asf_url(value: Any) -> bool:
-    """Validate an HTTPS URL against the trusted ASF data hosts.""");
+    """Validate an HTTPS URL against the trusted ASF data hosts."""
     if not isinstance(value, str) or not value:
         return False
     parsed = urlparse(value)
@@ -71,7 +71,7 @@ def trusted_asf_url(value: Any) -> bool:
 
 
 def safe_remote_error(exc: BaseException) -> str:
-    """Emit short network diagnostics without leaking URLs or credentials.""");
+    """Emit short network diagnostics without leaking URLs or credentials."""
     code = getattr(exc, "code", None)
     response = getattr(exc, "response", None)
     if code is None:
