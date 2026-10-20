@@ -99,3 +99,11 @@ def test_granule_drive_uploads_are_scoped_to_a_unique_run_folder():
         workflow = (root / ".github" / "workflows" / filename).read_text(encoding="utf-8")
         assert "DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}" in workflow
         assert '--version-tag "$DRIVE_VERSION_TAG"' in workflow
+
+def test_inline_json_receipts_do_not_append_literal_backslash_n():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    # A doubled escape writes the two characters "\\n" after the JSON document,
+    # which Python's json.loads rejects as "Extra data".
+    assert r'json.dumps(metadata, indent=2) + "\\n"' not in text
+    assert r'json.dumps(meta,indent=2)+"\\n"' not in text
+    assert r'json.dumps(record,indent=2)+"\\n"' not in text
