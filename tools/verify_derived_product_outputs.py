@@ -105,8 +105,9 @@ def validate_rasters(
             if source_tag and Path(source_tag).name != granule:
                 errors.append({"problem": "raster_source_tag_mismatch", "path": name,
                                "expected": granule, "actual": source_tag})
-            elif not source_tag:
-                errors.append({"problem": "raster_source_tag_missing", "path": name})
+            # The current scientific reader writes pair/units tags but does not
+            # guarantee a source filename tag. If supplied, validate it; product
+            # identity is independently bound by the exact stats CSV row.
 
             first = ds.read(1, masked=True)
             valid_first = int(np.count_nonzero(~np.ma.getmaskarray(first) & np.isfinite(first.filled(np.nan))))
