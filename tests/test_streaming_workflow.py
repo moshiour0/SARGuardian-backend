@@ -26,7 +26,7 @@ def test_raw_deletion_is_only_after_verified_drive_upload():
     marker = "- name: Delete local raw/archive only after successful remote retention"
     section = text.split(marker, 1)[1].split("\n      - name:", 1)[0]
     assert "if: success()" in section
-    assert "DRIVE_ARCHIVE_NOT_REMOTELY_VERIFIED" in text
+    assert "DRIVE_OUTPUTS_NOT_REMOTELY_VERIFIED" in text
     assert "REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION" in section
 
 
@@ -46,7 +46,10 @@ def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
     assert "preflight_drive_quota.py" not in text
     assert "expected_source_bytes" in manifest  # disk/download estimate only
     assert "Create a full-lossless retained HDF5 copy" in process
-    assert "Upload retained archive and all per-product outputs to Drive with checksum verification" in process
+    assert "Upload validated per-product outputs to Drive with checksum verification" in process
+    assert "default: derived-only" in text
+    assert "if: env.RETENTION_PROFILE == 'full-lossless'" in process
+    assert "derived-output-validation.json" in process
     uploader = (WORKFLOW.parents[2] / "tools" / "drive_resumable_upload.py").read_text(encoding="utf-8")
     assert "CURATED_UPLOAD_ACTUAL_BYTES" in uploader
     assert "DRIVE_NEW_BYTES_REQUIRED_ACTUAL" in uploader
