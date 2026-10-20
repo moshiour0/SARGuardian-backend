@@ -79,6 +79,6 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Add pre-cleanup per-product CSV/raster validation.
 - [x] Add derived-only and full-lossless retention modes with policy-aware cleanup.
 - [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
-- [ ] Finish CI/static validation and review any reported failures on draft PR #28.
-- [ ] Run two-product live validation only after review; do not delete raw until the new gates pass.
-- [ ] Run all 33 only after the pilot and complete source-ZIP parity gates pass.
+- [x] CI/static validation on draft PR #28: 129 passed, 2 skipped in the backend suite; 42 passed in the retention suite; workflow YAML and Python syntax checks passed.
+- [ ] Run the two-product live validation pilot with `derived-only` retention; verify Drive receipts and cleanup gates before any full run.
+- [ ] Run all 33 only after the live pilot passes and every required source-ZIP downstream parity gate passes.
