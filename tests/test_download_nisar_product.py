@@ -54,7 +54,7 @@ def test_exact_product_lookup_uses_pinned_source_catalog_and_narrow_pair_dates()
         (
             "2025-11-25",
             "2025-12-07",
-            {"platform": "NISAR", "processingLevel": "GUNW"},
+            {"platform": "NISAR", "processingLevel": "GUNW", "dataMaturity": "PROVISIONAL"},
         )
     ]
 
