@@ -192,6 +192,81 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Set up Python for urgent-response source preflight
+        if: inputs.run_profile == 'full-source-baseline'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          check-latest: false
+
+      - name: Install pinned source-acquisition dependencies for urgent-response preflight
+        if: inputs.run_profile == 'full-source-baseline'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r tools/requirements-retention.txt
+
+      - name: Fail fast when a selected urgent-response baseline product is unavailable
+        if: inputs.run_profile == 'full-source-baseline'
+        env:
+          EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+          EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+          MANIFEST_PATH: ${{ runner.temp }}/sarguardian-stream/manifest/manifest.json
+          PREFLIGHT_OUT_DIR: ${{ runner.temp }}/sarguardian-stream/ur-preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREFLIGHT_OUT_DIR"
+          python - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+
+          manifest_path = Path(os.environ["MANIFEST_PATH"])
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          urgent = [
+              p for p in manifest.get("products", [])
+              if "_UR_GUNW_" in p.get("granule_name", "") or "_UR_GOFF_" in p.get("granule_name", "")
+          ]
+          print(f"UR_BASELINE_PRODUCTS_SELECTED={len(urgent)}")
+          if not urgent:
+              print("UR_PREFLIGHT_STATUS=PASS_NO_UR_PRODUCTS_SELECTED")
+              raise SystemExit(0)
+
+          visible_prefixes = (
+              "PRODUCT_PREFLIGHT_STATUS=", "DISCOVERY_BACKEND=",
+              "REMOTE_CONTENT_LENGTH_BYTES=", "DISCOVERY_FALLBACK=",
+              "DIRECT_PRODUCT_HTTP_404=", "NETWORK_RETRY=", "ERROR=",
+              "DIRECT_PRODUCT_DIAGNOSTIC=", "SOURCE_ACQUISITION_MODULE=",
+          )
+          for product in urgent:
+              product_id = str(product["id"])
+              print(f"UR_PREFLIGHT_PRODUCT={product_id}")
+              command = [
+                  sys.executable, "tools/download_nisar_product.py",
+                  "--product-type", str(product["product_type"]),
+                  "--maturity", str(product["maturity"]),
+                  "--granule-name", str(product["granule_name"]),
+                  "--science-root", str(Path("science-source").resolve()),
+                  "--aoi", "source",
+                  "--out-dir", str(Path(os.environ["PREFLIGHT_OUT_DIR"]) / product_id),
+                  "--probe-only",
+              ]
+              result = subprocess.run(command, capture_output=True, text=True, env=os.environ.copy())
+              for channel in (result.stdout, result.stderr):
+                  for raw in channel.splitlines():
+                      line = raw.strip()
+                      if line.startswith(visible_prefixes):
+                          print(line[:500])
+              if result.returncode != 0:
+                  print(
+                      f"ERROR=UR_BASELINE_SOURCE_UNAVAILABLE id={product_id}; "
+                      "full-baseline processing stopped before any product downloads"
+                  )
+                  raise SystemExit(2)
+          print("UR_PREFLIGHT_STATUS=PASS_ALL_SELECTED_UR_PRODUCTS_RETRIEVABLE")
+          PY
+
+
   process-one:
     name: Process ${{ matrix.id }} (one raw product at a time)
     needs: manifest
