@@ -198,22 +198,26 @@ def main() -> int:
 
     try:
         acquisition, acquisition_sha256 = load_source_acquisition(args.science_root, args.aoi)
-        record, query_start, query_end = find_exact_source_product(
+        record, session, remote_content_length_bytes = probe_direct_product(
             acquisition, wanted, args.product_type, args.maturity
         )
     except Exception as exc:
-        # No alternate catalog/query is attempted. Report a safe, actionable
-        # failure and leave all local data untouched.
-        print(f"ERROR=SOURCE_AOI_CATALOG_LOOKUP_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-        print("CATALOG_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
+        print(f"ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
 
-    metadata_bytes = size_estimate_bytes(record)
-    expected_bytes = args.expected_source_bytes or metadata_bytes
-    if not expected_bytes or expected_bytes <= 0:
-        print("ERROR=SOURCE_SIZE_UNKNOWN_PROVIDE_EXPECTED_SOURCE_BYTES", file=sys.stderr)
+    # The pinned baseline run supplies a conservative family estimate; a real
+    # Content-Length from the exact HTTPS object wins when available.
+    family_estimate = 2_400_000_000 if args.product_type == "GUNW" else 1_000_000_000
+    expected_bytes = max(
+        args.expected_source_bytes or 0,
+        remote_content_length_bytes or 0,
+        family_estimate if remote_content_length_bytes is None and not args.expected_source_bytes else 0,
+    )
+    if expected_bytes <= 0:
+        print("ERROR=SOURCE_SIZE_ESTIMATE_UNAVAILABLE", file=sys.stderr)
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -224,9 +228,8 @@ def main() -> int:
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
     print(f"AOI={args.aoi}")
-    print("DISCOVERY_BACKEND=" + str(record.get("_sarguardian_discovery_backend", "source_query_by_year")) )
-    print(f"DISCOVERY_START={query_start}")
-    print(f"DISCOVERY_END={query_end}")
+    print("DISCOVERY_BACKEND=direct_https_known_granule")
+    print(f"REMOTE_CONTENT_LENGTH_BYTES={remote_content_length_bytes or 'unknown'}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
     print(f"RUNNER_FREE_BYTES_BEFORE_DOWNLOAD={free_bytes}")
     print(f"REQUIRED_FREE_BYTES_WITH_SAFETY_MARGIN={required_free}")
@@ -234,36 +237,46 @@ def main() -> int:
         print("ERROR=INSUFFICIENT_RUNNER_DISK_SPACE", file=sys.stderr)
         return 2
 
+    staging_dir = args.out_dir / ".download-staging"
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(mode=0o700)
     try:
         import asf_search
-        # Same authenticated ASF download helper used by nisar_acquisition.py.
-        session = acquisition.build_session()
+        # Same authenticated ASF downloader used by nisar_acquisition.py.
         asf_search.download_url(
             url=record["downloadUrl"],
-            path=str(args.out_dir),
+            path=str(staging_dir),
             session=session,
         )
+        files = sorted([*staging_dir.glob("*.h5"), *staging_dir.glob("*.H5")])
+        if len(files) != 1:
+            raise RuntimeError(f"EXPECTED_ONE_HDF5_AFTER_DOWNLOAD_COUNT_{len(files)}")
+        staged_raw = files[0]
+        if normal_name(staged_raw.name) != wanted:
+            raise RuntimeError("DOWNLOADED_FILENAME_DOES_NOT_MATCH_REQUESTED_GRANULE")
+        import h5py
+        if not h5py.is_hdf5(staged_raw):
+            raise RuntimeError("DOWNLOADED_FILE_IS_NOT_A_VALID_HDF5_CONTAINER")
+        actual_size = staged_raw.stat().st_size
+        if actual_size <= 0 or actual_size > free_bytes:
+            raise RuntimeError("INVALID_DOWNLOADED_SOURCE_SIZE")
+        if remote_content_length_bytes is not None and actual_size != remote_content_length_bytes:
+            raise RuntimeError("DOWNLOADED_SIZE_DIFFERS_FROM_REMOTE_CONTENT_LENGTH")
+        raw = args.out_dir / staged_raw.name
+        if raw.exists():
+            raise RuntimeError("REFUSING_TO_OVERWRITE_EXISTING_RAW_PRODUCT")
+        shutil.move(str(staged_raw), str(raw))
     except Exception as exc:
+        shutil.rmtree(staging_dir, ignore_errors=True)
         print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
         return 2
-
-    files = sorted([*args.out_dir.rglob("*.h5"), *args.out_dir.rglob("*.H5")])
-    if len(files) != 1:
-        print(f"ERROR=EXPECTED_ONE_HDF5_AFTER_DOWNLOAD COUNT={len(files)}", file=sys.stderr)
-        return 2
-    raw = files[0]
-    if normal_name(raw.name) != wanted:
-        print("ERROR=DOWNLOADED_FILENAME_DOES_NOT_MATCH_REQUESTED_GRANULE", file=sys.stderr)
-        return 2
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     actual_size = raw.stat().st_size
     free_after = shutil.disk_usage(args.out_dir).free
-    if actual_size <= 0 or actual_size > free_bytes:
-        print("ERROR=INVALID_DOWNLOADED_SOURCE_SIZE", file=sys.stderr)
-        return 2
-    if actual_size > expected_bytes * 1.20:
-        print("ERROR=ACTUAL_SIZE_EXCEEDS_METADATA_ESTIMATE", file=sys.stderr)
-        return 2
 
     receipt = {
         "schema_version": "sarguardian-single-granule-download/2.0",
@@ -272,10 +285,10 @@ def main() -> int:
         "maturity_requested": args.maturity,
         "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": record.get("_sarguardian_discovery_backend", "source_query_by_year"),
+        "discovery_backend": "direct_https_known_granule",
         "science_acquisition_sha256": acquisition_sha256,
-        "discovery_start": query_start,
-        "discovery_end": query_end,
+        "discovery_start": None,
+        "discovery_end": None,
         "granule_name": wanted,
         "source_filename": raw.name,
         "source_bytes": actual_size,
@@ -283,7 +296,8 @@ def main() -> int:
         "downloader_script": Path(__file__).name,
         "downloader_script_sha256": sha256_file(Path(__file__).resolve()),
         "asf_search_version": importlib.metadata.version("asf_search"),
-        "catalog_size_estimate_bytes": metadata_bytes,
+        "catalog_size_estimate_bytes": None,
+        "remote_content_length_bytes": remote_content_length_bytes,
         "expected_size_bytes": expected_bytes,
         "runner_free_bytes_after_download": free_after,
         "source_deleted": False,
