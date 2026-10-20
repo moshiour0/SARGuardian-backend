@@ -113,7 +113,7 @@ def _sleep_before_retry(stage: str, attempt: int, detail: str) -> None:
     time.sleep(delay)
 
 
-def build_authenticated_session_with_retry(acquisition: Any, attempts: int = 3) -> Any:
+def build_authenticated_session_with_retry(acquisition: Any, attempts: int = 2) -> Any:
     """Retry transient Earthdata token/session setup failures, but never hide auth errors."""
     for attempt in range(1, attempts + 1):
         try:
@@ -299,7 +299,16 @@ def probe_catalog_product(
         wanted, product_type, maturity
     )
     session = build_authenticated_session_with_retry(acquisition)
-    remote_bytes = probe_url_content_length(session, record["downloadUrl"])
+    try:
+        remote_bytes = probe_url_content_length(session, record["downloadUrl"])
+    except RuntimeError as exc:
+        if is_urgent_response_product(wanted) and "DIRECT_PRODUCT_HTTP_STATUS_404" in str(exc):
+            raise RuntimeError(
+                "UR_GRANULE_OBJECT_EXPIRED_OR_NOT_AVAILABLE_IN_UR_BUCKET; "
+                "urgent-response products are normally retained for 30 days; "
+                "restore the exact raw granule from an independent archive if available"
+            ) from None
+        raise
     record["sizeBytes"] = remote_bytes or record.get("sizeBytes")
     return record, session, remote_bytes
 
