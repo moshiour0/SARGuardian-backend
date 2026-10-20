@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Download one exact NISAR granule using SARGuardian's pinned acquisition code.
+"""Download one exact NISAR granule through the official direct HTTPS path.
 
-Catalog queries, AOI construction and the authenticated ASF download call are
-reused from science-source/src/nisar_acquisition.py. This wrapper only adds
-single-product, disk-space, filename, checksum and provenance safeguards.
-It never deletes the source file.
+The pinned science module supplies the canonical AOI setup and authenticated
+ASF session. The direct HTTPS object layout is documented by the NISAR guide,
+so the known name/maturity from the committed baseline avoids catalog search.
+This wrapper adds single-product, disk-space, filename, HDF5, checksum and
+provenance safeguards. It never deletes the source file.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 
 def normal_name(value: str) -> str:
@@ -57,7 +58,7 @@ def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
 
 
 def trusted_asf_url(value: Any) -> bool:
-    """Validate that the existing source catalog returned an HTTPS ASF URL."""
+    """Validate an HTTPS URL against the trusted ASF data hosts."""
     if not isinstance(value, str) or not value:
         return False
     parsed = urlparse(value)
@@ -69,8 +70,8 @@ def trusted_asf_url(value: Any) -> bool:
     )
 
 
-def safe_catalog_error(exc: BaseException) -> str:
-    """Emit short catalog diagnostics without leaking URLs or credentials."""
+def safe_remote_error(exc: BaseException) -> str:
+    """Emit short network diagnostics without leaking URLs or credentials."""
     code = getattr(exc, "code", None)
     response = getattr(exc, "response", None)
     if code is None:
@@ -86,146 +87,72 @@ def safe_catalog_error(exc: BaseException) -> str:
     return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
 
 
-def _asf_exact_source_api(
-    acquisition: Any, wanted: str, product_type: str
-) -> tuple[dict[str, Any] | None, str]:
-    """Query the pinned module's ASF Search API for one exact granule.
-
-    The source module's broad AOI/date query currently returns HTTP 400/502 in
-    live runs. Its asf_search client fallback routed through CMR and returned
-    HTTP 500. This uses the SAME Search API endpoint and source AOI WKT, but
-    uses the documented granule_list form and deliberately omits maxResults:
-    ASF's API/client rejects maxResults with a non-wildcard granule_list.
-    """
-    params = {
-        # This is a baseline-pinned exact name, so avoid broad AOI/dataset
-        # catalog filters here. They have repeatedly triggered ASF's wrapped
-        # CMR 500 response even though exact granule_list is the documented
-        # form. The HDF5 raster still has to pass the source-AOI preflight.
-        "granule_list": wanted,
-        "output": "json",
-    }
-    url = f"{acquisition.ASF_API}?{urlencode(params)}"
-    try:
-        body = acquisition._get(url)
-    except Exception as exc:
-        raise RuntimeError(
-            f"ASF_EXACT_GRANULE_QUERY_FAILED {safe_catalog_error(exc)}"
-        ) from exc
-
-    if isinstance(body, dict):
-        rows = body.get("results", [])
-    elif isinstance(body, list):
-        rows = body
-    else:
-        rows = []
-    if not isinstance(rows, list):
-        raise TypeError("ASF_EXACT_GRANULE_RESPONSE_SCHEMA_INVALID")
-
-    exact = [
-        row for row in rows
-        if isinstance(row, dict)
-        and normal_name(str(row.get("granuleName", ""))) == wanted
-        and str(row.get("productType", product_type)).upper() == product_type
-    ]
-    if len(exact) != 1:
-        return None, f"asf_search_api_exact_match_count_{len(exact)}"
-    row = dict(exact[0])
-    row["granuleName"] = wanted
-    row["_sarguardian_discovery_backend"] = "source_asf_api_granule_list"
-    return row, "source_asf_api_granule_list"
-
-
-
-def find_exact_source_product(
-    acquisition: Any,
-    wanted: str,
-    product_type: str,
-    maturity: str,
-    *,
-    catalog_start: str = "2025-01-01",
-    catalog_end: str | None = None,
-) -> tuple[dict[str, Any], str, str]:
-    """Use the pinned source AOI query first, then its exact-granule ASF API form."""
-    end = catalog_end or datetime.now(timezone.utc).date().isoformat()
-    source_query_error: Exception | None = None
-    rows: list[Any] = []
-    try:
-        rows = acquisition.query_by_year(
-            catalog_start,
-            end,
-            platform="NISAR",
-            processingLevel=",".join(acquisition.INTERFEROMETRIC),
-        )
-    except Exception as exc:
-        source_query_error = exc
-        print(
-            f"SOURCE_AOI_QUERY_RETRYING_WITH_ASF_CLIENT TYPE={type(exc).__name__}",
-            file=sys.stderr,
-        )
-
-    exact_source = [
-        row for row in rows
-        if isinstance(row, dict)
-        and normal_name(str(row.get("granuleName", ""))) == wanted
-        and str(row.get("productType", product_type)).upper() == product_type
-    ]
-    if len(exact_source) == 1:
-        record = dict(exact_source[0])
-        record["_sarguardian_discovery_backend"] = "source_query_by_year"
-    else:
-        try:
-            record, backend = _asf_exact_source_api(acquisition, wanted, product_type)
-        except Exception as fallback_error:
-            source_status = (
-                safe_catalog_error(source_query_error)
-                if source_query_error is not None else
-                f"exact_match_count={len(exact_source)}"
-            )
-            raise RuntimeError(
-                f"SOURCE_QUERY_FAILED {source_status}; {safe_catalog_error(fallback_error)}"
-            ) from fallback_error
-        if record is None:
-            if source_query_error is not None:
-                raise RuntimeError(
-                    f"SOURCE_QUERY_FAILED {safe_catalog_error(source_query_error)}; "
-                    f"ASF_EXACT_QUERY_{backend}"
-                ) from source_query_error
-            raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact_source)}")
-        record["_sarguardian_discovery_backend"] = backend
-
-    reported_maturity = next(
-        (
-            str(record.get(key)).strip().upper()
-            for key in ("dataMaturity", "maturity", "productMaturity")
-            if record.get(key) not in (None, "")
-        ),
-        None,
+def direct_product_url(wanted: str, product_type: str, maturity: str) -> str:
+    """Build the documented NISAR Earthdata HTTPS path for an exact granule."""
+    collection = f"NISAR_L2_{product_type}_{maturity.upper()}_V1"
+    return (
+        "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/"
+        f"{collection}/{wanted}/{wanted}.h5"
     )
-    if reported_maturity and reported_maturity != maturity.upper():
-        raise ValueError("SOURCE_CATALOG_MATURITY_MISMATCH")
-    url = record.get("downloadUrl") or record.get("url")
+
+
+def probe_direct_product(
+    acquisition: Any, wanted: str, product_type: str, maturity: str
+) -> tuple[dict[str, Any], Any, int | None]:
+    """Verify the exact HTTPS object and read its size without catalog search.
+
+    This is for product names already supplied by the pinned SARGuardian
+    baseline. Its URL scheme is documented by ASF's NISAR data guide. The
+    raster AOI is still independently checked from the actual downloaded
+    HDF5 before any science processing or retention.
+    """
+    url = direct_product_url(wanted, product_type, maturity)
     if not trusted_asf_url(url):
-        raise ValueError("SOURCE_CATALOG_DID_NOT_RETURN_A_TRUSTED_ASF_HTTPS_URL")
-    record["downloadUrl"] = url
-    return record, catalog_start, end
+        raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
 
-
-def size_estimate_bytes(record: dict[str, Any]) -> int | None:
+    session = acquisition.build_session()
+    response = None
     try:
-        size_mb = float(record.get("size_mb", record.get("sizeMB")))
-        if size_mb > 0:
-            return int(size_mb * 1024 * 1024)
-    except (TypeError, ValueError, OverflowError):
-        pass
-    for key in ("sizeBytes", "size_bytes", "SizeInBytes"):
-        try:
-            size = int(float(record.get(key)))
-            if size > 0:
-                return size
-        except (TypeError, ValueError, OverflowError):
-            pass
-    return None
+        response = session.head(url, allow_redirects=True, timeout=60)
+        if response.status_code in {405, 501}:
+            response.close()
+            response = session.get(
+                url,
+                headers={"Range": "bytes=0-0"},
+                allow_redirects=True,
+                stream=True,
+                timeout=60,
+            )
+        status = int(response.status_code)
+        if status >= 400:
+            raise RuntimeError(
+                f"DIRECT_PRODUCT_HTTP_STATUS_{status} {response.reason or ''}".strip()
+            )
+        content_range = response.headers.get("Content-Range", "")
+        match = re.search(r"/(\d+)\s*$", content_range)
+        if match:
+            remote_bytes = int(match.group(1))
+        else:
+            raw_size = response.headers.get("Content-Length")
+            try:
+                remote_bytes = int(raw_size) if raw_size else 0
+            except (TypeError, ValueError, OverflowError):
+                remote_bytes = 0
+    finally:
+        if response is not None:
+            response.close()
+
+    record = {
+        "granuleName": wanted,
+        "productType": product_type,
+        "maturity": maturity.upper(),
+        "downloadUrl": url,
+        "sizeBytes": remote_bytes if remote_bytes > 0 else None,
+        "_sarguardian_discovery_backend": "direct_https_known_granule",
+    }
+    return record, session, remote_bytes if remote_bytes > 0 else None
+
+
 
 
 def main() -> int:
@@ -256,22 +183,26 @@ def main() -> int:
 
     try:
         acquisition, acquisition_sha256 = load_source_acquisition(args.science_root, args.aoi)
-        record, query_start, query_end = find_exact_source_product(
+        record, session, remote_content_length_bytes = probe_direct_product(
             acquisition, wanted, args.product_type, args.maturity
         )
     except Exception as exc:
-        # No alternate catalog/query is attempted. Report a safe, actionable
-        # failure and leave all local data untouched.
-        print(f"ERROR=SOURCE_AOI_CATALOG_LOOKUP_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
-        print("CATALOG_DIAGNOSTIC=" + safe_catalog_error(exc), file=sys.stderr)
+        print(f"ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
 
-    metadata_bytes = size_estimate_bytes(record)
-    expected_bytes = args.expected_source_bytes or metadata_bytes
-    if not expected_bytes or expected_bytes <= 0:
-        print("ERROR=SOURCE_SIZE_UNKNOWN_PROVIDE_EXPECTED_SOURCE_BYTES", file=sys.stderr)
+    # The pinned baseline run supplies a conservative family estimate; a real
+    # Content-Length from the exact HTTPS object wins when available.
+    family_estimate = 2_400_000_000 if args.product_type == "GUNW" else 1_000_000_000
+    expected_bytes = max(
+        args.expected_source_bytes or 0,
+        remote_content_length_bytes or 0,
+        family_estimate if remote_content_length_bytes is None and not args.expected_source_bytes else 0,
+    )
+    if expected_bytes <= 0:
+        print("ERROR=SOURCE_SIZE_ESTIMATE_UNAVAILABLE", file=sys.stderr)
         return 2
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -282,9 +213,8 @@ def main() -> int:
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
     print(f"AOI={args.aoi}")
-    print("DISCOVERY_BACKEND=" + str(record.get("_sarguardian_discovery_backend", "source_query_by_year")) )
-    print(f"DISCOVERY_START={query_start}")
-    print(f"DISCOVERY_END={query_end}")
+    print("DISCOVERY_BACKEND=direct_https_known_granule")
+    print(f"REMOTE_CONTENT_LENGTH_BYTES={remote_content_length_bytes or 'unknown'}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
     print(f"RUNNER_FREE_BYTES_BEFORE_DOWNLOAD={free_bytes}")
     print(f"REQUIRED_FREE_BYTES_WITH_SAFETY_MARGIN={required_free}")
@@ -292,36 +222,46 @@ def main() -> int:
         print("ERROR=INSUFFICIENT_RUNNER_DISK_SPACE", file=sys.stderr)
         return 2
 
+    staging_dir = args.out_dir / ".download-staging"
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(mode=0o700)
     try:
         import asf_search
-        # Same authenticated ASF download helper used by nisar_acquisition.py.
-        session = acquisition.build_session()
+        # Same authenticated ASF downloader used by nisar_acquisition.py.
         asf_search.download_url(
             url=record["downloadUrl"],
-            path=str(args.out_dir),
+            path=str(staging_dir),
             session=session,
         )
+        files = sorted([*staging_dir.glob("*.h5"), *staging_dir.glob("*.H5")])
+        if len(files) != 1:
+            raise RuntimeError(f"EXPECTED_ONE_HDF5_AFTER_DOWNLOAD_COUNT_{len(files)}")
+        staged_raw = files[0]
+        if normal_name(staged_raw.name) != wanted:
+            raise RuntimeError("DOWNLOADED_FILENAME_DOES_NOT_MATCH_REQUESTED_GRANULE")
+        import h5py
+        if not h5py.is_hdf5(staged_raw):
+            raise RuntimeError("DOWNLOADED_FILE_IS_NOT_A_VALID_HDF5_CONTAINER")
+        actual_size = staged_raw.stat().st_size
+        if actual_size <= 0 or actual_size > free_bytes:
+            raise RuntimeError("INVALID_DOWNLOADED_SOURCE_SIZE")
+        if remote_content_length_bytes is not None and actual_size != remote_content_length_bytes:
+            raise RuntimeError("DOWNLOADED_SIZE_DIFFERS_FROM_REMOTE_CONTENT_LENGTH")
+        raw = args.out_dir / staged_raw.name
+        if raw.exists():
+            raise RuntimeError("REFUSING_TO_OVERWRITE_EXISTING_RAW_PRODUCT")
+        shutil.move(str(staged_raw), str(raw))
     except Exception as exc:
+        shutil.rmtree(staging_dir, ignore_errors=True)
         print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         return 2
-
-    files = sorted([*args.out_dir.rglob("*.h5"), *args.out_dir.rglob("*.H5")])
-    if len(files) != 1:
-        print(f"ERROR=EXPECTED_ONE_HDF5_AFTER_DOWNLOAD COUNT={len(files)}", file=sys.stderr)
-        return 2
-    raw = files[0]
-    if normal_name(raw.name) != wanted:
-        print("ERROR=DOWNLOADED_FILENAME_DOES_NOT_MATCH_REQUESTED_GRANULE", file=sys.stderr)
-        return 2
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     actual_size = raw.stat().st_size
     free_after = shutil.disk_usage(args.out_dir).free
-    if actual_size <= 0 or actual_size > free_bytes:
-        print("ERROR=INVALID_DOWNLOADED_SOURCE_SIZE", file=sys.stderr)
-        return 2
-    if actual_size > expected_bytes * 1.20:
-        print("ERROR=ACTUAL_SIZE_EXCEEDS_METADATA_ESTIMATE", file=sys.stderr)
-        return 2
 
     receipt = {
         "schema_version": "sarguardian-single-granule-download/2.0",
@@ -330,10 +270,10 @@ def main() -> int:
         "maturity_requested": args.maturity,
         "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": record.get("_sarguardian_discovery_backend", "source_query_by_year"),
+        "discovery_backend": "direct_https_known_granule",
         "science_acquisition_sha256": acquisition_sha256,
-        "discovery_start": query_start,
-        "discovery_end": query_end,
+        "discovery_start": None,
+        "discovery_end": None,
         "granule_name": wanted,
         "source_filename": raw.name,
         "source_bytes": actual_size,
@@ -341,7 +281,8 @@ def main() -> int:
         "downloader_script": Path(__file__).name,
         "downloader_script_sha256": sha256_file(Path(__file__).resolve()),
         "asf_search_version": importlib.metadata.version("asf_search"),
-        "catalog_size_estimate_bytes": metadata_bytes,
+        "catalog_size_estimate_bytes": None,
+        "remote_content_length_bytes": remote_content_length_bytes,
         "expected_size_bytes": expected_bytes,
         "runner_free_bytes_after_download": free_after,
         "source_deleted": False,
