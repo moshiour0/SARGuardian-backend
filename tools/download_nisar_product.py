@@ -101,7 +101,8 @@ def _asf_exact_source_api(
         "dataset": "NISAR",
         "intersectsWith": acquisition.SEARCH_WKT,
         "granule_list": wanted,
-        "output": "jsonlite",
+        # ASF Search API supports JSON; jsonlite returns HTTP 400.
+        "output": "json",
     }
     url = f"{acquisition.ASF_API}?{urlencode(params)}"
     try:
