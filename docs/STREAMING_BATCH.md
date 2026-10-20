@@ -7,7 +7,10 @@ Langtang or Lhende polygons.
 
 ## Run it safely
 
-1. Open **Actions → SARGuardian Streaming Batch (source AOI) → Run workflow**.
+1. Live processing is manual by design: open **Actions → SARGuardian Streaming
+   Batch (source AOI) → Run workflow**. Ordinary code pushes run regression
+   tests only; they do not automatically start large downloads or consume Drive
+   storage.
 2. Choose the inclusive `start_date` and `end_date` inputs in `YYYY-MM-DD`
    format. The window is applied to each baseline granule's **secondary
    acquisition date** (the third timestamp in the NISAR granule name). The
@@ -17,9 +20,11 @@ Langtang or Lhende polygons.
 3. Before any raw download begins, a run-level Drive quota preflight estimates
    storage for the selected profile and fails closed if there is not enough
    available space. The current full-baseline estimate is roughly **63 GB**
-   after the safety margin and metadata allowance. Selecting a narrower
-   time window lowers the estimate. Per-product uploads still check quota and
-   verify remote file size and MD5 after upload.
+   (about **58.3 GiB**) after the safety margin and metadata allowance; the
+   two-product validation pilot requires about **3.9 GiB**. A failure log
+   reports required capacity without disclosing exact account usage. Selecting
+   a narrower time window lowers the estimate. Per-product uploads still check
+   quota and verify remote file size and MD5 after upload.
 4. Keep `validation-pilot` for the first real run. It picks one GUNW and one
    GOFF that fall inside your selected window. Both families must have at least
    one baseline product in that window. The retained products are checked and
