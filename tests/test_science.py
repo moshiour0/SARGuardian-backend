@@ -29,13 +29,21 @@ def create_job(client: TestClient, metadata: dict) -> dict:
     return response.json()
 
 
-def wait_for_terminal(client: TestClient, job_id: str) -> dict:
-    for _ in range(500):
-        job = client.get(f"/jobs/{job_id}").json()
-        if job["status"] in {"completed", "failed"}:
+def wait_for_terminal(client: TestClient, job_id: str, timeout_seconds: float = 15.0) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    last_status = "unknown"
+    while time.monotonic() < deadline:
+        response = client.get(f"/jobs/{job_id}")
+        assert response.status_code == 200, f"job lookup failed: HTTP {response.status_code}"
+        job = response.json()
+        last_status = job.get("status", "missing")
+        if last_status in {"completed", "failed"}:
             return job
-        time.sleep(0.01)
-    raise AssertionError("job did not reach a terminal state")
+        time.sleep(0.025)
+    raise AssertionError(
+        f"job {job_id} did not reach a terminal state within {timeout_seconds:.1f}s; "
+        f"last observed status={last_status}"
+    )
 
 
 def test_mock_job_completes_with_exact_result_package(tmp_path):
