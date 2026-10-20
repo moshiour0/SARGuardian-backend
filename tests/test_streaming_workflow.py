@@ -123,7 +123,7 @@ def test_failed_download_diagnostics_are_preserved_for_aggregation():
 
 def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\\n", 1)[1].split("\\n  process-one:", 1)[0]
+    manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
     preflight = manifest.index("- name: Fail fast when a selected urgent-response baseline product is unavailable")
     preserve = manifest.index("- name: Preserve run manifest for aggregation")
     assert preserve < preflight
