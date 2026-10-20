@@ -45,8 +45,13 @@ Langtang or Lhende polygons.
    one cleanup receipt for every product before reporting PASS.
 7. Open the `sarguardian-streaming-run-*` artifact and inspect
    `batch-equivalence-report.json`. The final Drive bundle is uploaded only
-   when the applicable product-level checks (and, for the full baseline, the
-   regenerated downstream results and all cleanup receipts) pass.
+    when the applicable product-level checks (and, for the full baseline, the
+   regenerated downstream results and all cleanup receipts) pass. The JSON
+   report's `retention_storage_accounting` section totals actual verified
+   remote file sizes by product (retained archive vs ancillary evidence), plus
+   unique remote files and net-new bytes. The final run ZIP/report are uploaded
+   afterward and are quota-checked/logged separately, so they are not folded
+   into the product-retention total.
 
 **Scope:** the selectable window filters the 33 products in the committed
 source-AOI baseline. It does not yet discover additional granules outside those
