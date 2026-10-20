@@ -4,8 +4,10 @@ import csv
 from argparse import Namespace
 from pathlib import Path
 
-import numpy as np
-import rasterio
+import pytest
+
+np = pytest.importorskip("numpy")
+rasterio = pytest.importorskip("rasterio")
 from rasterio.transform import from_origin
 
 from tools.verify_derived_product_outputs import validate
