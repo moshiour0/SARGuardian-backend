@@ -48,8 +48,8 @@ Langtang or Lhende polygons.
     when the applicable product-level checks (and, for the full baseline, the
    regenerated downstream results and all cleanup receipts) pass. The JSON
    report's `retention_storage_accounting` section totals actual verified
-   remote file sizes by product (retained archive vs ancillary evidence), plus
-   unique remote files and net-new bytes. The final run ZIP/report are uploaded
+   remote file sizes by product (archive bytes are zero under `derived-only`),
+   plus unique remote files and net-new bytes. The final run ZIP/report are uploaded
    afterward and are quota-checked/logged separately, so they are not folded
    into the product-retention total.
 
