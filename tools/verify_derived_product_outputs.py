@@ -212,8 +212,8 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
                                                   for e in errors),
         "export_validation": "PASS" if raster_records and not any(
             e["problem"].startswith(("required_export", "export_", "invalid_raster", "raster_", "gunw_export", "goff_export"))
-            or e["problem"] in {"raster_shape_differs_from_stats", "raster_displacement_band_has_no_valid_pixels",
-                                "goff_correlation_band_has_no_valid_pixels"}
+            or e["problem"] in {"raster_shape_differs_from_stats", "raster_valid_pixel_count_mismatch",
+                                "raster_displacement_band_has_no_valid_pixels", "goff_correlation_band_has_no_valid_pixels"}
             for e in errors) else "FAIL",
         "exports": raster_records,
         "warnings": warnings,
