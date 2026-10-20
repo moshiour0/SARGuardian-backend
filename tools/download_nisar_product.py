@@ -140,8 +140,8 @@ def _asf_search_fallback(
         try:
             results = asf_search.search(
                 dataset="NISAR",
+                shortName=[f"NISAR_L2_{product_type}_V1"],
                 intersectsWith=acquisition.SEARCH_WKT,
-                processingLevel=list(acquisition.INTERFEROMETRIC),
                 start=f"{lo.isoformat()}T00:00:00Z",
                 end=f"{hi.isoformat()}T23:59:59Z",
                 maxResults=2000,
