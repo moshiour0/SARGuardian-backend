@@ -314,7 +314,6 @@ def search_asf_exact_granule(
                 dataMaturity=maturity,
                 processingLevel=product_type,
                 granule_list=[wanted],
-                maxResults=10,
             )
             rows = list(results)
             match, count = exact_asf_match(rows, wanted)
