@@ -60,7 +60,7 @@ Drive uploader refuses to overwrite a same-name file with different content.
   baseline row order and compared against every expected row/value.
 - AOI-clipped `export_src` and `export_goff_src` GeoTIFFs, collected from each
   product artifact.
-- GOFF and GUNW summary time series built from the per-pair statistics.
+- GOFF and GUNW summary time series built from the per-pair AOI GeoTIFFs. The finite-pixel median is recomputed at full raster precision and every PR/UR granule is kept as a graph edge, matching the pinned `--dir` path; the rounded statistics CSV and its PR/UR deduplication helper are deliberately not used for this baseline replay.
 - Pre-event inverse-velocity check with the explicit 2026-08-26 event cutoff.
 - Candidate GOFF and GUNW local floors, summer common-reference table, and
   `bound_source.csv`.
@@ -71,8 +71,9 @@ Drive uploader refuses to overwrite a same-name file with different content.
   re-downloaded or kept on the aggregation runner.
 
 The report records each table comparison. Float comparisons use a small
-explicit tolerance because summary CSVs round values; file identity, row
-identity, required fields, export sets and missing/extra rows are checked too.
+explicit tolerance for the float32 AOI-raster representation and rounded CSV
+outputs; file identity, row identity, required fields, export sets and
+missing/extra rows are checked too.
 The output bundle is not marked PASS if any required table differs or any
 product artifact is missing.
 
