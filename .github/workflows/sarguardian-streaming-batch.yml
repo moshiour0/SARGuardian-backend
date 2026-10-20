@@ -154,6 +154,7 @@ jobs:
       GRANULE_NAME: ${{ matrix.granule_name }}
       PRODUCT_TYPE: ${{ matrix.product_type }}
       MATURITY: ${{ matrix.maturity }}
+      DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
       EXPECTED_SOURCE_BYTES: ${{ matrix.expected_source_bytes }}
       AOI_NAME: source
       SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
@@ -387,7 +388,7 @@ jobs:
           )
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
-            --granule-name "$GRANULE_NAME" --files "${files[@]}" \
+            --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" --files "${files[@]}" \
             --out "$CURATED_DIR/drive-retention-receipt.json"
           python - <<'PY'
           import json, os
@@ -407,6 +408,7 @@ jobs:
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" \
+            --version-tag "$DRIVE_VERSION_TAG" \
             --files "$CURATED_DIR/product-processing.json" "$CURATED_DIR/drive-retention-receipt.json" \
             --out "$CURATED_DIR/drive-metadata-upload-receipt.json"
           python - <<'PY'
