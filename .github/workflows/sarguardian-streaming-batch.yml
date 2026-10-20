@@ -348,7 +348,7 @@ jobs:
             --granule-name "$GRANULE_NAME" \
             --science-root "$PWD/science-source" --aoi "$AOI_NAME" \
             --expected-source-bytes "$EXPECTED_SOURCE_BYTES" \
-            --out-dir "$RAW_DIR" | tee "$log"
+            --out-dir "$RAW_DIR" 2>&1 | tee "$log"
           raw_path="$(sed -n 's/^RAW_PRODUCT_PATH=//p' "$log" | tail -n 1)"
           test -n "$raw_path" && test -f "$raw_path"
           echo "raw_path=$raw_path" >> "$GITHUB_OUTPUT"
