@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 
 def normal_name(value: str) -> str:
@@ -86,91 +86,53 @@ def safe_catalog_error(exc: BaseException) -> str:
     return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
 
 
-def _catalog_item_properties(item: Any) -> dict[str, Any]:
-    """Normalize source JSON records and supported ASFProduct results."""
-    if isinstance(item, dict):
-        return item
-    props = getattr(item, "properties", None)
-    return props if isinstance(props, dict) else {}
-
-
-def _catalog_item_name(item: Any) -> str:
-    props = _catalog_item_properties(item)
-    for key in ("granuleName", "sceneName", "fileName", "fileID", "name"):
-        value = props.get(key)
-        if value:
-            return normal_name(str(value))
-    return ""
-
-
-def _catalog_item_url(item: Any) -> str | None:
-    props = _catalog_item_properties(item)
-    for value in (props.get("downloadUrl"), props.get("url")):
-        if trusted_asf_url(value):
-            return value
-    get_urls = getattr(item, "get_urls", None)
-    if callable(get_urls):
-        try:
-            for value in get_urls() or []:
-                if trusted_asf_url(value) and _catalog_item_name(item) in Path(urlparse(value).path).name:
-                    return str(value)
-        except Exception:
-            pass
-    return None
-
-
-def _asf_search_fallback(
-    acquisition: Any, wanted: str, product_type: str, catalog_start: str, catalog_end: str
+def _asf_exact_source_api(
+    acquisition: Any, wanted: str, product_type: str
 ) -> tuple[dict[str, Any] | None, str]:
-    """Use the official ASF client with the same AOI/window/product filters.
+    """Query the pinned module's ASF Search API for one exact granule.
 
-    The pinned source project's legacy JSON query is tried first. When ASF
-    returns HTTP 400/502 through that path, this client-based equivalent is
-    used instead of hand-constructing another REST URL or querying CMR.
+    The source module's broad AOI/date query currently returns HTTP 400/502 in
+    live runs. Its asf_search client fallback routed through CMR and returned
+    HTTP 500. This uses the SAME Search API endpoint and source AOI WKT, but
+    uses the documented granule_list form and deliberately omits maxResults:
+    ASF's API/client rejects maxResults with a non-wildcard granule_list.
     """
-    import asf_search
+    params = {
+        "dataset": "NISAR",
+        "intersectsWith": acquisition.SEARCH_WKT,
+        "granule_list": wanted,
+        "output": "jsonlite",
+    }
+    url = f"{acquisition.ASF_API}?{urlencode(params)}"
+    try:
+        body = acquisition._get(url)
+    except Exception as exc:
+        raise RuntimeError(
+            f"ASF_EXACT_GRANULE_QUERY_FAILED {safe_catalog_error(exc)}"
+        ) from exc
 
-    first = datetime.strptime(catalog_start, "%Y-%m-%d").date()
-    last = datetime.strptime(catalog_end, "%Y-%m-%d").date()
-    found: dict[str, Any] = {}
-    year = first.year
-    while year <= last.year:
-        lo = max(first, datetime(year, 1, 1).date())
-        hi = min(last, datetime(year, 12, 31).date())
-        try:
-            results = asf_search.search(
-                dataset="NISAR",
-                shortName=[f"NISAR_L2_{product_type}_V1"],
-                intersectsWith=acquisition.SEARCH_WKT,
-                start=f"{lo.isoformat()}T00:00:00Z",
-                end=f"{hi.isoformat()}T23:59:59Z",
-                maxResults=2000,
-            )
-            items = list(results)
-        except Exception as exc:
-            raise RuntimeError(
-                f"ASF_SEARCH_CLIENT_QUERY_FAILED year={year} {safe_catalog_error(exc)}"
-            ) from exc
-        for item in items:
-            if _catalog_item_name(item) != wanted:
-                continue
-            props = _catalog_item_properties(item)
-            url = _catalog_item_url(item)
-            if not url:
-                continue
-            found[wanted] = {
-                "granuleName": wanted,
-                "productType": props.get("productType", product_type),
-                "downloadUrl": url,
-                "sizeMB": props.get("sizeMB", props.get("size_mb")),
-                "sizeBytes": props.get("sizeBytes", props.get("bytes")),
-                "dataMaturity": props.get("dataMaturity", props.get("maturity")),
-                "_sarguardian_discovery_backend": "asf_search.search",
-            }
-        year += 1
-    if len(found) == 1:
-        return next(iter(found.values())), "asf_search.search"
-    return None, "asf_search.search"
+    if isinstance(body, dict):
+        rows = body.get("results", [])
+    elif isinstance(body, list):
+        rows = body
+    else:
+        rows = []
+    if not isinstance(rows, list):
+        raise TypeError("ASF_EXACT_GRANULE_RESPONSE_SCHEMA_INVALID")
+
+    exact = [
+        row for row in rows
+        if isinstance(row, dict)
+        and normal_name(str(row.get("granuleName", ""))) == wanted
+        and str(row.get("productType", product_type)).upper() == product_type
+    ]
+    if len(exact) != 1:
+        return None, f"asf_search_api_exact_match_count_{len(exact)}"
+    row = dict(exact[0])
+    row["granuleName"] = wanted
+    row["_sarguardian_discovery_backend"] = "source_asf_api_granule_list"
+    return row, "source_asf_api_granule_list"
+
 
 
 def find_exact_source_product(
@@ -182,7 +144,7 @@ def find_exact_source_product(
     catalog_start: str = "2025-01-01",
     catalog_end: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
-    """Use the pinned source AOI query first, then ASF's supported Python client."""
+    """Use the pinned source AOI query first, then its exact-granule ASF API form."""
     end = catalog_end or datetime.now(timezone.utc).date().isoformat()
     source_query_error: Exception | None = None
     rows: list[Any] = []
@@ -211,9 +173,7 @@ def find_exact_source_product(
         record["_sarguardian_discovery_backend"] = "source_query_by_year"
     else:
         try:
-            record, backend = _asf_search_fallback(
-                acquisition, wanted, product_type, catalog_start, end
-            )
+            record, backend = _asf_exact_source_api(acquisition, wanted, product_type)
         except Exception as fallback_error:
             source_status = (
                 safe_catalog_error(source_query_error)
@@ -227,7 +187,7 @@ def find_exact_source_product(
             if source_query_error is not None:
                 raise RuntimeError(
                     f"SOURCE_QUERY_FAILED {safe_catalog_error(source_query_error)}; "
-                    "ASF_CLIENT_EXACT_MATCH_COUNT_0"
+                    f"ASF_EXACT_QUERY_{backend}"
                 ) from source_query_error
             raise LookupError(f"EXACT_SOURCE_AOI_GRANULE_MATCH_COUNT_{len(exact_source)}")
         record["_sarguardian_discovery_backend"] = backend
