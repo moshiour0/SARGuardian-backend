@@ -149,6 +149,26 @@ class Drive:
         return {'id': info['id'], 'name': path.name, 'bytes': size, 'md5': md5, 'sha256': sha, 'reused': False,
                 'webViewLink': info.get('webViewLink')}
 
+def granule_folder_names(product_type, maturity, granule_name, version_tag=None):
+    """Return a deterministic folder path; optional version tags preserve prior runs."""
+    if product_type not in {"GUNW", "GOFF"} or maturity not in {"PROVISIONAL", "BETA"}:
+        raise DriveError("GRANULE_UPLOAD_REQUIRES_PRODUCT_MATURITY_AND_NAME")
+    supplied = str(granule_name or "").strip()
+    granule_folder = Path(supplied).name
+    if granule_folder.lower().endswith(".h5"):
+        granule_folder = granule_folder[:-3]
+    if supplied != Path(supplied).name or "\\" in supplied:
+        raise DriveError("GRANULE_NAME_INVALID")
+    if not granule_folder.startswith("NISAR_L2_"):
+        raise DriveError("GRANULE_NAME_INVALID")
+    names = ["SARGuardian-DataArchive", product_type, maturity, granule_folder]
+    if version_tag:
+        if not __import__("re").fullmatch(r"[A-Za-z0-9_.-]{1,100}", version_tag):
+            raise DriveError("VERSION_TAG_INVALID")
+        names.extend(["Runs", version_tag])
+    return names
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', required=True, type=Path, help='folder containing curated archive/sidecars; raw product is excluded')
@@ -156,10 +176,13 @@ def main():
     p.add_argument('--maturity', choices=['PROVISIONAL', 'BETA'])
     p.add_argument('--granule-name')
     p.add_argument('--run-name', help='upload an aggregate run bundle under SARGuardian-DataArchive/Runs/<run-name>')
+    p.add_argument('--version-tag', help='isolate a granule upload under <granule>/Runs/<version-tag>; never overwrites prior runs')
     p.add_argument('--files', nargs='+', required=True, help='explicit local files to upload; raw source must NOT be included')
     p.add_argument('--out', required=True, type=Path)
     args = p.parse_args()
     if args.run_name:
+        if args.version_tag:
+            raise DriveError('RUN_UPLOAD_CANNOT_MIX_RUN_NAME_AND_VERSION_TAG')
         if args.product_type or args.maturity or args.granule_name:
             raise DriveError('RUN_UPLOAD_CANNOT_MIX_GRANULE_AND_RUN_IDENTIFIERS')
         if not __import__('re').fullmatch(r'[A-Za-z0-9_.-]{1,100}', args.run_name):
@@ -189,11 +212,11 @@ def main():
         folder_names = ['SARGuardian-DataArchive', 'Runs', args.run_name]
         granule_folder = None
     else:
+        folder_names = granule_folder_names(
+            args.product_type, args.maturity, args.granule_name, args.version_tag
+        )
         granule_folder = Path(args.granule_name.strip()).name
         if granule_folder.lower().endswith('.h5'): granule_folder = granule_folder[:-3]
-        if not granule_folder.startswith('NISAR_L2_') or '/' in granule_folder or '\\' in granule_folder:
-            raise DriveError('GRANULE_NAME_INVALID')
-        folder_names = ['SARGuardian-DataArchive', args.product_type, args.maturity, granule_folder]
     folder = parent
     for name in folder_names: folder = drive.ensure_folder(folder, name)
     # Query exact existing names before calculating projected new bytes. Conflicts abort without overwrite.
@@ -217,7 +240,7 @@ def main():
         print(f"DRIVE_FILE_VERIFIED name={path.name} bytes={size} reused={str(row['reused']).lower()}")
     receipt = {'schema_version':'sarguardian-drive-retention-receipt/1.0','created_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'upload_kind':'run_bundle' if args.run_name else 'single_granule',
-        'run_name':args.run_name, 'product_type':args.product_type, 'maturity':args.maturity,
+        'run_name':args.run_name, 'product_type':args.product_type, 'maturity':args.maturity, 'version_tag':args.version_tag,
         'granule_name':granule_folder, 'remote_folder_id':folder,'files':outputs,
         'uploaded_curated_bytes':sum(x['bytes'] for x in outputs),
         'raw_product_uploaded':False,'remote_verification':'PASS','raw_source_deleted':False}

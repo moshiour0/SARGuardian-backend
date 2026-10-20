@@ -70,6 +70,7 @@ jobs:
       GRANULE_NAME: ${{ inputs.granule_name }}
       PRODUCT_TYPE: ${{ inputs.product_type }}
       MATURITY: ${{ inputs.maturity }}
+      DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
       EXPECTED_SOURCE_BYTES: ${{ inputs.expected_source_bytes }}
       AOI_NAME: ${{ inputs.aoi }}
       INCLUDE_WRAPPED: ${{ inputs.include_wrapped }}
@@ -234,6 +235,7 @@ jobs:
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" \
+            --version-tag "$DRIVE_VERSION_TAG" \
             --files \
               "$ARCHIVE_PATH" \
               "$MANIFEST_PATH" \
@@ -246,6 +248,7 @@ jobs:
           python tools/drive_resumable_upload.py \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" \
+            --version-tag "$DRIVE_VERSION_TAG" \
             --files "$CURATED_DIR/drive-retention-receipt.json" \
             --out "$CURATED_DIR/drive-receipt-upload-receipt.json"
           echo "DRIVE_ARCHIVE_VERIFICATION=PASS"

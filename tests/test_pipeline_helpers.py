@@ -107,3 +107,22 @@ def test_product_grid_preflight_detects_intersection_before_archive_work(tmp_pat
         bad = tool._grid(f, datasets, engine, group, None, "GOFF_pixelOffsets")
     assert bad["intersects_aoi"] is False
     assert bad["grid_pixels_inside_aoi"] == 0
+
+
+def test_drive_granule_folder_versions_keep_prior_assets_and_validate_tag():
+    full_name = (
+        "NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_"
+        "20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5"
+    )
+    names = drive.granule_folder_names("GUNW", "PROVISIONAL", full_name, "39410309860-1")
+    assert names == [
+        "SARGuardian-DataArchive",
+        "GUNW",
+        "PROVISIONAL",
+        full_name[:-3],
+        "Runs",
+        "39410309860-1",
+    ]
+    assert drive.granule_folder_names("GUNW", "PROVISIONAL", full_name) == names[:4]
+    with pytest.raises(drive.DriveError, match="VERSION_TAG_INVALID"):
+        drive.granule_folder_names("GUNW", "PROVISIONAL", full_name, "../overwrite")
