@@ -179,3 +179,91 @@ def test_cleanup_evidence_fails_if_runner_archive_not_deleted(tmp_path):
     result = agg.validate_cleanup_evidence(manifest, artifact_root, cleanup_root, errors)
     assert result == {"status": "FAIL", "expected": 1, "verified": 0}
     assert errors[0]["problem"] == "cleanup_evidence_mismatch"
+
+
+
+def test_retention_storage_accounting_sums_actual_unique_drive_file_sizes(tmp_path):
+    import json
+
+    product_id = "GUNW-001"
+    granule = (
+        "NISAR_L2_PR_GUNW_006_048_D_074_007_2000_SH_"
+        "20251125T125813_20251125T125848_20251207T125814_20251207T125849_X05010_N_F_J_001.h5"
+    )
+    artifact_root = tmp_path / "products"
+    cleanup_root = tmp_path / "cleanup"
+    product_dir = artifact_root / f"sarguardian-granule-{product_id}"
+    cleanup_dir = cleanup_root / f"sarguardian-cleanup-{product_id}"
+    product_dir.mkdir(parents=True)
+    cleanup_dir.mkdir(parents=True)
+
+    def receipt(path, files):
+        path.write_text(json.dumps({
+            "remote_verification": "PASS",
+            "remote_folder_id": "drive-folder",
+            "files": files,
+        }), encoding="utf-8")
+
+    receipt(product_dir / "drive-retention-receipt.json", [
+        {"id": "archive-id", "name": f"{granule[:-3]}.science.h5", "bytes": 100, "reused": False},
+        {"id": "inventory-id", "name": "source-inventory.json", "bytes": 5, "reused": False},
+    ])
+    receipt(product_dir / "drive-metadata-upload-receipt.json", [
+        {"id": "processing-id", "name": "product-processing.json", "bytes": 10, "reused": False},
+        {"id": "receipt-id", "name": "drive-retention-receipt.json", "bytes": 50, "reused": False},
+    ])
+    receipt(cleanup_dir / "drive-cleanup-upload-receipt.json", [
+        {"id": "cleanup-id", "name": "local-cleanup-receipt.json", "bytes": 15, "reused": False},
+    ])
+    manifest = {
+        "products": [{"id": product_id, "granule_name": granule}],
+    }
+
+    errors = []
+    result = agg.summarize_retained_storage(manifest, artifact_root, cleanup_root, errors)
+
+    assert result["status"] == "PASS"
+    assert result["products_expected"] == result["products_accounted"] == 1
+    assert result["unique_remote_file_count"] == 5
+    assert result["actual_remote_retained_bytes"] == 180
+    assert result["actual_remote_retained_gib"] == round(180 / (1024 ** 3), 6)
+    assert result["net_new_remote_bytes_in_run"] == 180
+    assert result["by_product"][0]["retained_archive_bytes"] == 100
+    assert result["by_product"][0]["ancillary_retained_bytes"] == 80
+    assert result["run_level_bundle_included"] is False
+    assert "not raw source-size estimates" in result["accounting_basis"]
+    assert errors == []
+
+
+def test_retention_storage_accounting_fails_if_any_drive_receipt_is_missing(tmp_path):
+    import json
+
+    product_id = "GOFF-001"
+    granule = (
+        "NISAR_L2_PR_GOFF_006_048_D_074_007_2000_SH_"
+        "20251125T125813_20251125T125848_20251207T125814_20251207T125849_X05010_N_F_J_001.h5"
+    )
+    artifact_root = tmp_path / "products"
+    cleanup_root = tmp_path / "cleanup"
+    product_dir = artifact_root / f"sarguardian-granule-{product_id}"
+    cleanup_dir = cleanup_root / f"sarguardian-cleanup-{product_id}"
+    product_dir.mkdir(parents=True)
+    cleanup_dir.mkdir(parents=True)
+    (product_dir / "drive-retention-receipt.json").write_text(json.dumps({
+        "remote_verification": "PASS",
+        "remote_folder_id": "drive-folder",
+        "files": [{"id": "archive-id", "name": f"{granule[:-3]}.science.h5", "bytes": 100, "reused": False}],
+    }), encoding="utf-8")
+    manifest = {"products": [{"id": product_id, "granule_name": granule}]}
+
+    errors = []
+    result = agg.summarize_retained_storage(manifest, artifact_root, cleanup_root, errors)
+
+    assert result["status"] == "FAIL"
+    assert result["products_accounted"] == 0
+    assert result["actual_remote_retained_bytes"] == 0
+    assert len(errors) == 2
+    assert {error["receipt"] for error in errors} == {
+        "drive-metadata-upload-receipt.json",
+        "drive-cleanup-upload-receipt.json",
+    }

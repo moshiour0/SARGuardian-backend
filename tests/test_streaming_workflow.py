@@ -39,12 +39,19 @@ def test_product_run_diagnostics_are_explicitly_pre_cleanup():
     assert "if-no-files-found: error" in text
 
 
-def test_drive_quota_is_checked_before_any_product_download():
+def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
     text = WORKFLOW.read_text(encoding="utf-8")
     manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
-    assert "Preflight Drive quota before starting any product downloads" in manifest
-    assert "python tools/preflight_drive_quota.py" in manifest
-    assert manifest.index("preflight_drive_quota.py") < manifest.index("Preserve run manifest for aggregation")
+    process = text.split("  process-one:\n", 1)[1].split("\n  aggregate:", 1)[0]
+    assert "preflight_drive_quota.py" not in text
+    assert "expected_source_bytes" in manifest  # disk/download estimate only
+    assert "Create a full-lossless retained HDF5 copy" in process
+    assert "Upload retained archive and all per-product outputs to Drive with checksum verification" in process
+    uploader = (WORKFLOW.parents[2] / "tools" / "drive_resumable_upload.py").read_text(encoding="utf-8")
+    assert "CURATED_UPLOAD_ACTUAL_BYTES" in uploader
+    assert "DRIVE_NEW_BYTES_REQUIRED_ACTUAL" in uploader
+    assert "DRIVE_ACTUAL_OUTPUT_QUOTA_CHECK=PASS" in uploader
+    assert "DRIVE_QUOTA_INSUFFICIENT" in uploader
 
 
 def test_cleanup_receipt_is_uploaded_and_aggregator_requires_it():

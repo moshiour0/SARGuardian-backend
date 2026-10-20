@@ -231,8 +231,23 @@ def main():
             except (TypeError, ValueError): esize = -1
             if esize != size or e.get('md5Checksum', '').lower() != md5.lower(): raise DriveError(f'DRIVE_EXISTING_FILE_CONFLICT name={path.name}')
         else: missing += size
+    # Quota is based on the exact post-processing files in this upload allowlist,
+    # not source-file estimates from the acquisition manifest. This check runs
+    # after the retained archive and derived outputs have actually been created.
+    print(f"CURATED_UPLOAD_FILE_COUNT={len(records)}")
+    print(f"CURATED_UPLOAD_ACTUAL_BYTES={local_total}")
+    print(f"DRIVE_NEW_BYTES_REQUIRED_ACTUAL={missing}")
     if usage + missing > limit:
-        raise DriveError(f'DRIVE_QUOTA_INSUFFICIENT required_new_bytes={missing} remaining_bytes={limit-usage}')
+        raise DriveError(
+            "DRIVE_QUOTA_INSUFFICIENT "
+            f"curated_files={len(records)} actual_curated_bytes={local_total} "
+            f"required_new_bytes={missing} remaining_bytes={max(0, limit-usage)}"
+        )
+    print(
+        "DRIVE_ACTUAL_OUTPUT_QUOTA_CHECK=PASS "
+        f"FILE_COUNT={len(records)} ACTUAL_CURATED_BYTES={local_total} "
+        f"NEW_BYTES_REQUIRED={missing}"
+    )
     outputs = []
     for path, md5, sha, size, mime in records:
         row = drive.upload_resumable(folder, path, mime, md5, sha, size)
