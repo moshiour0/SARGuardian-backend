@@ -20,7 +20,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-NUMERIC_REL_TOL = 2e-4
+NUMERIC_REL_TOL = 1e-5
 NUMERIC_ABS_TOL = 1e-3
 IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL builds
 BASELINE_DOWNSTREAM = [
@@ -407,32 +407,128 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
 
 
 
+def run_time_series_from_exports(
+    science_root: Path, family: str, out_root: Path, report: dict[str, Any]
+) -> None:
+    """Reproduce the raw-directory inversion from per-product AOI TIFFs.
+
+    Do not call timeseries.pairs_from_stats here: that helper intentionally
+    resolves PR/UR duplicate acquisitions, while the pinned --dir baseline
+    treats each source granule as an edge. Each TIFF preserves the per-pixel
+    displacement that the original reader measured; its finite-pixel median
+    provides the per-pair input without loading any raw HDF5 file.
+    """
+    import re
+    import numpy as np
+    import rasterio
+    from datetime import datetime
+
+    src_dir = (science_root / "src").resolve()
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+    import timeseries
+
+    outputs = science_root / "outputs"
+    csv_path = outputs / f"{family.lower()}_stats_source.csv"
+    _, records = read_csv(csv_path)
+    pairs = []
+    export_root = outputs / ("export_src" if family == "GUNW" else "export_goff_src")
+    for row in records:
+        raw_name = Path((row.get("file") or "").strip()).name
+        if not raw_name:
+            raise ValueError(f"{family} stats row has no source filename")
+        if family == "GOFF" and "layer2" not in (row.get("layer") or ""):
+            continue
+        export_name = Path((row.get("export_file") or "").strip()).name
+        if not export_name:
+            raise ValueError(f"{family} stats row has no export_file: {raw_name}")
+        raster_path = export_root / export_name
+        if not raster_path.is_file():
+            raise FileNotFoundError(f"Missing required derived raster for time-series: {raster_path}")
+        with rasterio.open(raster_path) as ds:
+            if ds.count < 1:
+                raise ValueError(f"Time-series raster has no displacement band: {raster_path}")
+            disp = ds.read(1).astype(np.float64)
+            if ds.nodata is not None:
+                if isinstance(ds.nodata, float) and np.isnan(ds.nodata):
+                    disp[~np.isfinite(disp)] = np.nan
+                else:
+                    disp[disp == ds.nodata] = np.nan
+            valid = np.isfinite(disp)
+            if not valid.any():
+                raise ValueError(f"Time-series raster has no valid displacement pixels: {raster_path}")
+            value = float(np.median(disp[valid]))
+            count = int(valid.sum())
+            if family == "GUNW" and ds.count >= 2:
+                coh = ds.read(2).astype(np.float64)
+                coh_valid = np.isfinite(coh)
+                coherence = float(np.mean(coh[coh_valid])) if coh_valid.any() else None
+            elif family == "GOFF" and ds.count >= 3:
+                corr = ds.read(3).astype(np.float64)
+                corr_valid = np.isfinite(corr)
+                coherence = float(np.mean(corr[corr_valid])) if corr_valid.any() else None
+            else:
+                coherence = None
+        stamps = re.findall(r"_(\d{8})T\d{6}", raw_name)
+        match = re.search(rf"_{family}_\d+_(\d+)_([AD])_", raw_name)
+        if len(stamps) < 4 or not match:
+            raise ValueError(f"Cannot parse the pinned pair identity from {raw_name}")
+        pairs.append(timeseries.Pair(
+            path=int(match.group(1)),
+            direction=match.group(2),
+            ref=datetime.strptime(stamps[0], "%Y%m%d").date(),
+            sec=datetime.strptime(stamps[2], "%Y%m%d").date(),
+            value=value,
+            n_px=count,
+            coherence=coherence,
+            source=raw_name,
+        ))
+    if not pairs:
+        raise ValueError(f"No usable {family} pairs were reconstructed from the exports")
+    expected = 15 if family == "GUNW" else 18
+    if len(pairs) != expected:
+        raise ValueError(f"Expected {expected} {family} product rows from the pinned baseline; found {len(pairs)}")
+
+    timeseries.describe_network(pairs)
+    by_geom: dict[tuple[str, int], list[Any]] = {}
+    for pair in pairs:
+        by_geom.setdefault((pair.direction, pair.path), []).append(pair)
+    all_rows: list[dict[str, Any]] = []
+    for (direction, path), group in sorted(by_geom.items()):
+        label = f"{'ASC' if direction == 'A' else 'DESC'} path {path}"
+        for index, component in enumerate(timeseries.connected_components(group), 1):
+            inside = [p for p in group if p.ref in component and p.sec in component]
+            all_rows.extend(timeseries.report_series(
+                label, index, timeseries.invert_component(inside, component)
+            ))
+            timeseries.jackknife(label, index, inside, component)
+    if not all_rows:
+        raise ValueError(f"{family} export inversion returned no rows")
+    output = outputs / f"ts_{family.lower()}_source.csv"
+    write_csv(output, ["geometry", "component", "epoch", "days_from_start",
+                       "cumulative_mm", "error_mm"], all_rows)
+    report["commands"].append({
+        "name": f"{family} source-AOI time series from retained per-product TIFFs",
+        "exit_code": 0,
+        "product_count": len(pairs),
+        "source": "AOI-clipped displacement TIFFs (not raw HDF5 and not rounded stats medians)",
+        "output": f"outputs/{output.name}",
+    })
+
+
 def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -> None:
     """Recreate the documented source-AOI summary and bound chain from compact data."""
     outputs = science_root / "outputs"
-    commands: list[tuple[str, list[str]]] = [
-        ("GOFF summary time series", [
-            sys.executable, "src/timeseries.py", "--from-stats", "outputs/goff_stats_source.csv",
-            "--product", "GOFF", "--goff-layer", "layer2", "--aoi", "source", "--invert",
-            "--auto-ref", "--jackknife", "--csv", "outputs/ts_goff_source.csv",
-        ]),
-        ("GUNW summary time series", [
-            sys.executable, "src/timeseries.py", "--from-stats", "outputs/gunw_stats_source.csv",
-            "--product", "GUNW", "--aoi", "source", "--invert", "--auto-ref", "--jackknife",
-            "--csv", "outputs/ts_gunw_source.csv",
-        ]),
-    ]
-    for label, argv in commands:
-        done = subprocess.run(argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, check=False)
-        log_path = out_root / "logs" / (label.lower().replace(" ", "_") + ".log")
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(done.stdout, encoding="utf-8")
-        report["commands"].append({"name": label, "argv": argv[1:], "exit_code": done.returncode,
-                                   "log": str(log_path.relative_to(out_root))})
-        if done.returncode:
-            report["errors"].append({"problem": "downstream_command_failed", "name": label,
-                                     "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+    for family in ("GOFF", "GUNW"):
+        try:
+            run_time_series_from_exports(science_root, family, out_root, report)
+        except Exception as exc:
+            report["errors"].append({
+                "problem": "time_series_reconstruction_failed",
+                "family": family,
+                "type": type(exc).__name__,
+                "detail": str(exc)[:400],
+            })
             return
 
     # Keep the pre-event cutoff explicit to prevent the event and post-event
