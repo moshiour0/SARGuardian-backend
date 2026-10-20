@@ -230,6 +230,181 @@ def validate_cleanup_evidence(
     return {"status": status, "expected": expected, "verified": verified}
 
 
+def summarize_retained_storage(
+    manifest: dict[str, Any],
+    artifact_root: Path,
+    cleanup_artifact_root: Path,
+    errors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Sum unique remote files using post-processing Drive upload receipts.
+
+    Counts files actually accepted/verified by Drive, not raw-download estimates.
+    Product archive bytes and ancillary output bytes are reported separately.
+    Run-level ZIP/report files are uploaded later and are not part of this total.
+    """
+    by_product: list[dict[str, Any]] = []
+    unique_files: dict[str, dict[str, Any]] = {}
+    new_file_ids: set[str] = set()
+    accounted = 0
+    products = manifest.get("products", [])
+
+    for product in products:
+        pid = str(product.get("id", ""))
+        product_dir = artifact_root / f"sarguardian-granule-{pid}"
+        cleanup_dir = cleanup_artifact_root / f"sarguardian-cleanup-{pid}"
+        receipt_paths = [
+            product_dir / "drive-retention-receipt.json",
+            product_dir / "drive-metadata-upload-receipt.json",
+            cleanup_dir / "drive-cleanup-upload-receipt.json",
+        ]
+        product_files: dict[str, dict[str, Any]] = {}
+        folder_ids: set[str] = set()
+        product_error = False
+
+        for receipt_path in receipt_paths:
+            try:
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                errors.append({
+                    "problem": "retention_storage_receipt_missing_or_unreadable",
+                    "id": pid,
+                    "receipt": receipt_path.name,
+                    "type": type(exc).__name__,
+                    "detail": str(exc)[:240],
+                })
+                product_error = True
+                continue
+            if receipt.get("remote_verification") != "PASS":
+                errors.append({
+                    "problem": "retention_storage_receipt_not_verified",
+                    "id": pid,
+                    "receipt": receipt_path.name,
+                    "status": receipt.get("remote_verification"),
+                })
+                product_error = True
+                continue
+            folder_id = receipt.get("remote_folder_id")
+            if not isinstance(folder_id, str) or not folder_id:
+                errors.append({
+                    "problem": "retention_storage_folder_id_missing",
+                    "id": pid,
+                    "receipt": receipt_path.name,
+                })
+                product_error = True
+                continue
+            folder_ids.add(folder_id)
+            files = receipt.get("files")
+            if not isinstance(files, list):
+                errors.append({
+                    "problem": "retention_storage_file_list_invalid",
+                    "id": pid,
+                    "receipt": receipt_path.name,
+                })
+                product_error = True
+                continue
+
+            for item in files:
+                if not isinstance(item, dict):
+                    product_error = True
+                    errors.append({
+                        "problem": "retention_storage_file_record_invalid",
+                        "id": pid,
+                        "receipt": receipt_path.name,
+                    })
+                    continue
+                file_id = item.get("id")
+                name = item.get("name")
+                size = item.get("bytes")
+                reused = item.get("reused")
+                if (
+                    not isinstance(file_id, str) or not file_id
+                    or not isinstance(name, str) or not name
+                    or isinstance(size, bool) or not isinstance(size, int) or size < 0
+                    or not isinstance(reused, bool)
+                ):
+                    product_error = True
+                    errors.append({
+                        "problem": "retention_storage_file_record_invalid",
+                        "id": pid,
+                        "receipt": receipt_path.name,
+                        "name": name if isinstance(name, str) else None,
+                    })
+                    continue
+                record = {"id": file_id, "name": name, "bytes": size, "reused": reused}
+                previous = product_files.get(file_id)
+                if previous and (previous["name"] != name or previous["bytes"] != size):
+                    product_error = True
+                    errors.append({
+                        "problem": "retention_storage_duplicate_id_mismatch",
+                        "id": pid,
+                        "file_id": file_id,
+                    })
+                    continue
+                product_files[file_id] = record
+
+        if len(folder_ids) > 1:
+            product_error = True
+            errors.append({
+                "problem": "retention_storage_folder_mismatch",
+                "id": pid,
+                "folder_ids": sorted(folder_ids),
+            })
+        if product_error or len(receipt_paths) != 3:
+            continue
+
+        archive_rows = [x for x in product_files.values() if x["name"].endswith(".science.h5")]
+        if len(archive_rows) != 1:
+            errors.append({
+                "problem": "retention_storage_archive_count_invalid",
+                "id": pid,
+                "count": len(archive_rows),
+            })
+            continue
+
+        for file_id, row in product_files.items():
+            previous = unique_files.get(file_id)
+            if previous and (previous["name"] != row["name"] or previous["bytes"] != row["bytes"]):
+                errors.append({
+                    "problem": "retention_storage_global_duplicate_id_mismatch",
+                    "id": pid,
+                    "file_id": file_id,
+                })
+                continue
+            unique_files[file_id] = row
+            if not row["reused"]:
+                new_file_ids.add(file_id)
+
+        product_bytes = sum(row["bytes"] for row in product_files.values())
+        archive_bytes = archive_rows[0]["bytes"]
+        ancillary_bytes = product_bytes - archive_bytes
+        by_product.append({
+            "product_id": pid,
+            "granule_name": product.get("granule_name"),
+            "remote_retained_file_count": len(product_files),
+            "retained_archive_bytes": archive_bytes,
+            "ancillary_retained_bytes": ancillary_bytes,
+            "actual_remote_retained_bytes": product_bytes,
+        })
+        accounted += 1
+
+    total_bytes = sum(item["bytes"] for item in unique_files.values())
+    new_bytes = sum(unique_files[file_id]["bytes"] for file_id in new_file_ids)
+    expected = len(products)
+    return {
+        "status": "PASS" if accounted == expected and expected > 0 else "FAIL",
+        "accounting_basis": "verified Google Drive upload receipt file sizes after processing; not raw source-size estimates",
+        "products_expected": expected,
+        "products_accounted": accounted,
+        "unique_remote_file_count": len(unique_files),
+        "actual_remote_retained_bytes": total_bytes,
+        "actual_remote_retained_gib": round(total_bytes / (1024 ** 3), 6),
+        "net_new_remote_bytes_in_run": new_bytes,
+        "net_new_remote_gib_in_run": round(new_bytes / (1024 ** 3), 6),
+        "run_level_bundle_included": False,
+        "by_product": by_product,
+    }
+
+
 def aggregate_stats(
     manifest: dict[str, Any],
     artifact_root: Path,
@@ -764,6 +939,9 @@ def main() -> int:
     }
     aggregate_stats(manifest, artifact_root, science_root, out_root, report)
     report["cleanup_evidence"] = validate_cleanup_evidence(
+        manifest, artifact_root, cleanup_artifact_root, report["errors"]
+    )
+    report["retention_storage_accounting"] = summarize_retained_storage(
         manifest, artifact_root, cleanup_artifact_root, report["errors"]
     )
     report["products_validated"] = len({
