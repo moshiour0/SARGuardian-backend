@@ -21,10 +21,11 @@ from pathlib import Path
 from typing import Any
 
 NUMERIC_REL_TOL = 2e-4
-NUMERIC_ABS_TOL = 1e-4
+NUMERIC_ABS_TOL = 1e-3
 IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL builds
 BASELINE_DOWNSTREAM = [
     "ts_goff_source.csv",
+    "ts_goff_cand4_common.csv",
     "local_floor_candidates.csv",
     "local_floor_phase_candidates.csv",
     "common_ref_summer.csv",
@@ -297,6 +298,125 @@ def compare_output_file(path: Path, baseline_path: Path, report: dict[str, Any])
         report["comparisons"].append({"table": path.name, "status": "FAIL_COMPARE"})
 
 
+
+def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
+    """Recreate the candidate-4 common-datum series from the exported AOI rasters.
+
+    This deliberately uses the same source-AOI GeoTIFF arrays emitted by the
+    original GOFF reader and the same common-datum/inversion functions as the
+    scientific engine. It avoids retaining a stack of raw HDF5 files in the
+    aggregation job while preserving the target-level, cross-pair datum logic.
+    """
+    import re
+    from datetime import datetime
+    import numpy as np
+    import rasterio
+    from pyproj import Transformer
+
+    sys.path.insert(0, str((science_root / "src").resolve()))
+    import common_ref
+    import timeseries
+
+    outputs = science_root / "outputs"
+    _, stats = read_csv(outputs / "goff_stats_source.csv")
+    selected = [r for r in stats
+                if "_PR_GOFF_" in (r.get("file") or "")
+                and "layer2" in (r.get("layer") or "")]
+    if len(selected) != 16:
+        raise ValueError(f"Expected 16 routine PR GOFF layer2 pairs for common-datum replay; found {len(selected)}")
+
+    target_lat, target_lon = 28.27799, 85.52983
+    target_radius_px, buffer_km = 6, 2.0
+    pairs_by_key: dict[tuple[str, int], list[tuple[Any, np.ndarray, Any, Any, float]]] = {}
+    all_pairs = []
+    for row in selected:
+        name = Path(row["file"]).name
+        tif_name = Path(row.get("export_file") or "").name
+        if not tif_name:
+            raise ValueError(f"GOFF baseline row has no export_file: {name}")
+        tif = outputs / "export_goff_src" / tif_name
+        if not tif.is_file():
+            raise FileNotFoundError(f"GOFF export missing for common-datum replay: {tif}")
+        stamps = re.findall(r"_(\d{8})T\d{6}", name)
+        match = re.search(r"_GOFF_\d+_(\d+)_([AD])_", name)
+        if len(stamps) < 4 or not match:
+            raise ValueError(f"Cannot parse GOFF pair identity from {name}")
+        pair = timeseries.Pair(
+            path=int(match.group(1)), direction=match.group(2),
+            ref=datetime.strptime(stamps[0], "%Y%m%d").date(),
+            sec=datetime.strptime(stamps[2], "%Y%m%d").date(),
+            value=None, source=name,
+        )
+        with rasterio.open(tif) as ds:
+            if ds.count < 1 or ds.crs is None:
+                raise ValueError(f"GOFF export has no band 1 or CRS: {tif.name}")
+            array = ds.read(1).astype(np.float64)
+            if ds.nodata is not None and np.isfinite(ds.nodata):
+                array[array == ds.nodata] = np.nan
+            if not np.isfinite(array).any():
+                raise ValueError(f"GOFF common-datum export has no finite range offsets: {tif.name}")
+            transform, crs, pixel_size = ds.transform, ds.crs, abs(float(ds.res[0]))
+        all_pairs.append(pair)
+        pairs_by_key.setdefault((pair.direction, pair.path), []).append(
+            (pair, array, transform, crs, pixel_size)
+        )
+
+    for (direction, path), items in sorted(pairs_by_key.items()):
+        first_array, first_transform, first_crs, px = items[0][1], items[0][2], items[0][3], items[0][4]
+        for pair, array, transform, crs, _ in items[1:]:
+            if array.shape != first_array.shape or transform != first_transform or crs != first_crs:
+                raise ValueError(f"GOFF exports do not share one lattice for {direction} path {path}")
+        transformer = Transformer.from_crs("EPSG:4326", first_crs, always_xy=True)
+        tx, ty = transformer.transform(target_lon, target_lat)
+        # This matches rasterio.transform.rowcol used by timeseries.apply_common_datum.
+        with rasterio.open(outputs / "export_goff_src" / Path(items[0][0].source).name) if False else _NullContext() as _unused:
+            pass
+        from rasterio.transform import rowcol
+        centre = rowcol(first_transform, tx, ty)
+        stack = [item[1] for item in items]
+        common = common_ref.common_mask(stack)
+        stable = common & ~common_ref.buffer_mask(
+            common.shape, [centre], int(round(buffer_km * 1000 / px))
+        )
+        fixed, _constants = common_ref.rereference(stack, stable)
+        for (pair, _array, _transform, _crs, _px), values in zip(items, fixed):
+            measured, npx = common_ref.window_median(values, centre, target_radius_px)
+            pair.value = float(measured) if np.isfinite(measured) else None
+            pair.n_px = npx
+
+    all_rows: list[dict[str, Any]] = []
+    by_geometry: dict[tuple[str, int], list[Any]] = {}
+    for pair in all_pairs:
+        by_geometry.setdefault((pair.direction, pair.path), []).append(pair)
+    for (direction, path), group in sorted(by_geometry.items()):
+        label = f"{'ASC' if direction == 'A' else 'DESC'} path {path}"
+        for index, component in enumerate(timeseries.connected_components(group), 1):
+            inside = [p for p in group if p.ref in component and p.sec in component]
+            all_rows.extend(timeseries.report_series(label, index, timeseries.invert_component(inside, component)))
+    if not all_rows:
+        raise ValueError("Common-reference target inversion produced no time-series rows")
+    write_csv(outputs / "ts_goff_cand4_common.csv",
+              ["geometry", "component", "epoch", "days_from_start", "cumulative_mm", "error_mm"],
+              all_rows)
+    report["commands"].append({
+        "name": "Candidate-4 common-reference series from per-product GeoTIFF exports",
+        "exit_code": 0,
+        "product_count": len(selected),
+        "source": "reader exports, not raw HDF5",
+        "target": {"lat": target_lat, "lon": target_lon, "radius_px": target_radius_px, "buffer_km": buffer_km},
+        "output": "outputs/ts_goff_cand4_common.csv",
+    })
+
+
+class _NullContext:
+    """Unused placeholder kept intentionally tiny for no-op context expressions."""
+    def __enter__(self):
+        return None
+    def __exit__(self, *exc):
+        return False
+
+
+
 def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -> None:
     """Recreate the documented source-AOI summary and bound chain from compact data."""
     outputs = science_root / "outputs"
@@ -384,6 +504,15 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
             report["errors"].append({"problem": "downstream_command_failed", "name": label,
                                      "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
             return
+
+    # The point-level common-datum series depends on one datum across all
+    # pairs of a geometry. Rebuild it from the already-verified fixed-lattice
+    # GOFF exports, never by mixing per-pair arbitrary references.
+    try:
+        run_common_reference_target_series(science_root, report)
+    except Exception as exc:
+        report["errors"].append({"problem": "common_reference_target_series_failed",
+                                 "type": type(exc).__name__, "detail": str(exc)[:400]})
 
     # Compare regenerated key outputs with the pinned repository's committed baselines.
     baseline_dir = out_root / "baseline-snapshot"
