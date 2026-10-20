@@ -195,10 +195,12 @@ def test_transient_earthdata_login_connection_error_retries_and_recovers(monkeyp
     calls = []
     sleeps = []
 
+    from requests.exceptions import ConnectionError
+
     def login():
         calls.append(1)
         if len(calls) < 3:
-            raise download.ConnectionError("temporary network interruption")
+            raise ConnectionError("temporary network interruption")
         return True
 
     monkeypatch.setattr(download.time, "sleep", lambda seconds: sleeps.append(seconds))
