@@ -51,3 +51,17 @@ def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
     for workflow in (stream, live):
         assert "python tools/download_nisar_product.py" in workflow
         assert '--science-root "$PWD/science-source" --aoi "$AOI_NAME"' in workflow
+
+
+def test_granule_drive_uploads_are_scoped_to_a_unique_run_folder():
+    root = Path(__file__).resolve().parents[1]
+    uploader = (root / "tools" / "drive_resumable_upload.py").read_text(encoding="utf-8")
+    assert 'names.extend(["Runs", version_tag])' in uploader
+    for filename in (
+        "sarguardian-streaming-batch.yml",
+        "sarguardian-live-validation.yml",
+        "sarguardian-retention-pilot.yml",
+    ):
+        workflow = (root / ".github" / "workflows" / filename).read_text(encoding="utf-8")
+        assert "DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}" in workflow
+        assert '--version-tag "$DRIVE_VERSION_TAG"' in workflow
