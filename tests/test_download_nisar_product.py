@@ -63,6 +63,12 @@ def test_direct_url_uses_documented_collection_folder_and_exact_file_path():
     assert download.trusted_asf_url(expected)
 
 
+def test_direct_url_uses_requested_maturity_and_product_family():
+    other = download.direct_product_url(WANTED.replace("GUNW", "GOFF"), "GOFF", "BETA")
+    assert "/NISAR_L2_GOFF_BETA_V1/" in other
+    assert other.endswith(f"/{WANTED.replace('GUNW', 'GOFF')}.h5")
+
+
 def test_probe_direct_product_reads_exact_remote_content_length():
     url = download.direct_product_url(WANTED, "GUNW", "PROVISIONAL")
     response = FakeResponse(200, {"Content-Length": "123456789"})
@@ -118,18 +124,19 @@ def test_probe_direct_product_fails_closed_for_missing_direct_object():
     assert response.closed is True
 
 
-def test_catalog_url_must_be_https_and_from_asf():
+def test_trusted_asf_url_accepts_https_asf_hosts_only():
     assert download.trusted_asf_url("https://datapool.asf.alaska.edu/a.h5")
     assert download.trusted_asf_url("https://nisar.asf.earthdatacloud.nasa.gov/a.h5")
     assert not download.trusted_asf_url("http://datapool.asf.alaska.edu/a.h5")
     assert not download.trusted_asf_url("https://example.invalid/a.h5")
 
 
-def test_catalog_size_estimate_supports_asf_size_mb_and_byte_fields():
-    assert download.size_estimate_bytes({"sizeMB": 2}) == 2 * 1024 * 1024
-    assert download.size_estimate_bytes({"size_mb": 3}) == 3 * 1024 * 1024
-    assert download.size_estimate_bytes({"sizeBytes": "5678"}) == 5678
-    assert download.size_estimate_bytes({"sizeMB": -1}) is None
+def test_safe_remote_error_redacts_urls_and_secret_like_fields():
+    exc = RuntimeError("failed https://host.invalid/file.h5 token=secret-value")
+    text = download.safe_remote_error(exc)
+    assert "[URL]" in text
+    assert "secret-value" not in text
+    assert "[REDACTED]" in text
 
 
 def test_load_source_acquisition_sets_requested_aoi_and_records_module_hash(tmp_path):
