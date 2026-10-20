@@ -44,7 +44,7 @@ def test_product_run_diagnostics_are_explicitly_pre_cleanup():
 
 def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
+    manifest = text.split("  manifest:", 1)[1].split("  process-one:", 1)[0]
     process = text.split("  process-one:\n", 1)[1].split("\n  aggregate:", 1)[0]
     assert "preflight_drive_quota.py" not in text
     assert "expected_source_bytes" in manifest  # disk/download estimate only
