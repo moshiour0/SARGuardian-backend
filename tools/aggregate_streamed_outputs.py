@@ -447,16 +447,34 @@ def aggregate_stats(
                 ("maturity", product["maturity"]),
                 ("aoi", "source"),
                 ("science_commit", manifest["science_commit"]),
-                ("retention_profile", "full-lossless"),
+                ("retention_profile", retention_profile),
             ):
                 if meta.get(key) != want:
                     errors.append({"problem": "product_metadata_mismatch", "id": pid,
                                    "field": key, "expected": want, "actual": meta.get(key)})
             eq = meta.get("reader_equivalence_status")
-            if eq not in {"PASS", "PASS_NO_VALID_AOI_PIXELS"}:
-                errors.append({"problem": "reader_equivalence_not_pass", "id": pid, "actual": eq})
-            if not meta.get("drive_remote_verification") == "PASS":
-                errors.append({"problem": "remote_archive_not_verified", "id": pid})
+            if retention_profile == "full-lossless":
+                if eq not in {"PASS", "PASS_NO_VALID_AOI_PIXELS"}:
+                    errors.append({"problem": "reader_equivalence_not_pass", "id": pid, "actual": eq})
+                if not meta.get("retained_archive"):
+                    errors.append({"problem": "full_lossless_archive_path_missing", "id": pid})
+            else:
+                if meta.get("derived_output_validation_status") != "PASS":
+                    errors.append({"problem": "derived_output_validation_not_pass", "id": pid,
+                                   "actual": meta.get("derived_output_validation_status")})
+                validation_path = artifact_dir / "derived-output-validation.json"
+                try:
+                    validation_report = json.loads(validation_path.read_text(encoding="utf-8"))
+                    if validation_report.get("status") != "PASS":
+                        errors.append({"problem": "derived_output_validation_report_not_pass", "id": pid,
+                                       "actual": validation_report.get("status")})
+                except Exception as exc:
+                    errors.append({"problem": "derived_output_validation_report_missing", "id": pid,
+                                   "detail": str(exc)[:240]})
+                if meta.get("retained_archive") is not None:
+                    errors.append({"problem": "unexpected_archive_path_in_derived_only", "id": pid})
+            if meta.get("drive_remote_verification") != "PASS":
+                errors.append({"problem": "remote_outputs_not_verified", "id": pid})
             stats_rel = str(meta["stats_csv"])
             stats_path = safe_relative(artifact_dir, stats_rel)
             _, rows = read_csv(stats_path)
