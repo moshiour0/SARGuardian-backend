@@ -180,12 +180,27 @@ def get_run(repo: str, run_id: str, token: str) -> dict[str, Any]:
 def list_workflow_runs(repo: str, branch: str, token: str) -> list[dict[str, Any]]:
     # Include main-run checkpoints while testing this flow on a feature branch.
     # Candidate eligibility below still limits reuse to the current branch or main.
-    query = urllib.parse.urlencode({"event": "workflow_dispatch", "per_page": 50})
-    result = api_json(f"{API_ROOT}/repos/{repo}/actions/workflows/{WORKFLOW_ID}/runs?{query}", token)
-    runs = result.get("workflow_runs")
-    if not isinstance(runs, list):
-        raise ValueError("GITHUB_WORKFLOW_RUN_LIST_INVALID")
-    return [x for x in runs if isinstance(x, dict)]
+    # Paginate the bounded GitHub Actions run list so a compatible checkpoint is
+    # not silently missed once this workflow has more than one API page of runs.
+    all_runs: list[dict[str, Any]] = []
+    page_size = 100
+    max_pages = 10  # GitHub's Actions API exposes at most 1,000 runs per query.
+    for page in range(1, max_pages + 1):
+        query = urllib.parse.urlencode({
+            "event": "workflow_dispatch",
+            "per_page": page_size,
+            "page": page,
+        })
+        result = api_json(
+            f"{API_ROOT}/repos/{repo}/actions/workflows/{WORKFLOW_ID}/runs?{query}", token
+        )
+        runs = result.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise ValueError("GITHUB_WORKFLOW_RUN_LIST_INVALID")
+        all_runs.extend(x for x in runs if isinstance(x, dict))
+        if len(runs) < page_size:
+            break
+    return all_runs
 
 
 def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any] | None, bool]:
