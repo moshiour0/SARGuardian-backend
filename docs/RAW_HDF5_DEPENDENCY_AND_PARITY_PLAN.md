@@ -94,8 +94,8 @@ Storage accounting must be policy-aware: derived-only cleanup must require all d
 - [x] Cover retry, UR routing/expiry, probe-only, workflow gating, and aggregation diagnostics with regression tests.
 - [x] Update storage accounting and downstream parity, including both troposphere CSVs and candidate-4 floors.
 - [x] CI on commit `dc6571d063c692759403b6278dc19879d7356814`: 145 passed, 1 skipped in the backend suite; 44 passed in the retention suite; workflow YAML and Python syntax checks passed.
-- [ ] Run the two-product live validation pilot with `derived-only` retention; verify Drive receipts and cleanup gates before any full run.
-- [ ] Run all 33 only after the live pilot passes and every required source-ZIP downstream parity gate passes.
+- [x] Two-product live validation pilot passed (Run #39509946223); per-product baseline, remote-retention and cleanup gates passed.
+- [ ] Resume full baseline Run #39510497044 after retry/resume changes; require 33/33 product validation, all cleanup receipts and complete downstream parity before merge.
 
 
 ## 6. Run #39510497044: root cause and recovery
