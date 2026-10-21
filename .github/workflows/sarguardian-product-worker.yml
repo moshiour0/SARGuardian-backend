@@ -169,7 +169,7 @@ jobs:
           current_raw = Path(os.environ["RAW_PATH"])
           current_manifest = current_raw.parent / "download-manifest.json"
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("same_source=false\\n")
+              output.write("same_source=false\n")
 
           if not prior_manifest.is_file():
               if prior_retention.is_file() or prior_metadata.is_file():
@@ -192,7 +192,7 @@ jobs:
               print(f"RETRY_CURRENT_SOURCE_SHA256={new_sha}")
               raise SystemExit("ERROR=RETRY_SOURCE_BYTES_CHANGED")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write("same_source=true\\n")
+              output.write("same_source=true\n")
           print("RETRY_SOURCE_IDENTITY=PASS_SOURCE_SHA256_MATCH")
           PY
 
