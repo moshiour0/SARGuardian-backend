@@ -157,3 +157,12 @@ The workflow needs the same secrets as the existing retention pilot:
 - `GOOGLE_DRIVE_PARENT_FOLDER_ID`
 
 No credentials should be put into committed files or workflow inputs.
+
+
+## Resuming a failed full-baseline run
+
+To continue a run after a transient network/authentication failure, select the branch that contains the retry/resume changes and run the SARGuardian Streaming Batch (source AOI) workflow from Actions. Choose full-source-baseline, keep the same date range and retention mode, and enter the failed run's numeric ID in resume_from_run_id.
+
+The workflow downloads the prior manifest, product artifacts and cleanup receipts. It rejects reuse if the AOI, pinned science commit, dates, retention mode or ordered product identities differ. A checkpoint is reusable only when the derived-output baseline validation and remote-retention receipt pass, required local export/provenance files are present, and the cleanup receipt has been remotely verified. Every incomplete/ambiguous product is processed again.
+
+The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
