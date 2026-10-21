@@ -14,6 +14,7 @@ import io
 import json
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +22,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
+
+# GitHub Actions executes this file as `python tools/resolve_resume_run.py`.
+# In that mode Python puts tools/ (not the repository root) on sys.path, so
+# namespace-package imports such as `from tools.time_window ...` otherwise fail.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from tools.resume_streamed_run import validate_resume_compatibility
 from tools.time_window import filter_products_by_time_window
