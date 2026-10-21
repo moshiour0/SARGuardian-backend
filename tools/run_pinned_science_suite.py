@@ -118,7 +118,7 @@ def run_suite(
 ) -> dict[str, Any]:
     science_root = science_root.resolve()
     out_root.mkdir(parents=True, exist_ok=True)
-    log_root = out_root / "pinned-science-suite-logs"
+    log_root = out_root / "logs" / "pinned-science-suite"
     log_root.mkdir(parents=True, exist_ok=True)
     outputs_root = science_root / "outputs"
     outputs_root.mkdir(parents=True, exist_ok=True)
