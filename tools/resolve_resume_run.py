@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Resolve a safe SARGuardian full-baseline resume source.
 
-A blank resume_from_run_id means: for full-source-baseline runs only, find the
-newest completed failed/cancelled run from this same workflow whose manifest is
-compatible with this request and whose checkpoint artifacts still exist.
+A blank resume_from_run_id means: for full-source-baseline runs only, find a
+compatible failed/cancelled run with the greatest available granule/cleanup
+checkpoint coverage (the newest run wins ties). Checkpoint contents are still
+validated before reuse.
 Type "none" to force a cold run, or provide a numeric run ID to select it
 explicitly. Authentication tokens are never printed.
 """
@@ -304,7 +305,7 @@ def resolve(
     requested: str, *, run_profile: str, current_manifest: dict[str, Any] | None,
     repo: str, branch: str, current_run_id: str, workflow_path: str,
     token: str, runs_loader: Callable[[], list[dict[str, Any]]] | None = None,
-    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, bool]] | None = None,
+    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, int]] | None = None,
 ) -> tuple[str, str, int]:
     """Return (run_id, selection mode, candidate runs inspected)."""
     value = (requested or "").strip().lower()
