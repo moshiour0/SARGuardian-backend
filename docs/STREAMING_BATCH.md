@@ -181,4 +181,6 @@ To enable it:
 
 Earthdata Login's current user-token documentation says tokens are valid for 60 days and a user may have at most two valid tokens at a time. Rotate/update the secret before it expires. See the [official token documentation](https://urs.earthdata.nasa.gov/documentation/for_users/user_token) and the [ASFSession token-authentication reference](https://docs.asf.alaska.edu/asf_search/ASFSession/).
 
+The direct HDF5 transfer is also streamed using the authenticated ASF session with a 30-second connect timeout and 120-second read-idle timeout. Progress is logged every 128 MiB. A content-length mismatch or transient network interruption marks the attempt retryable; the incomplete staging file is removed before the workflow retries it. The full download step also has a 90-minute cap.
+
 The current resumed run #39520455676 was started before this token support was committed, so it does not have the new token-authentication code. Do not assume it is using the new secret; its active downloader step uses the older code from the run's pinned commit. A subsequent workflow attempt from the updated branch will use the optional token.
