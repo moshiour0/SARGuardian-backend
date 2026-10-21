@@ -36,7 +36,7 @@ def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
                     target = tmp_path / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
                     if target.suffix.lower() == ".csv":
-                        target.write_text("id,value\\n1,2\\n", encoding="utf-8")
+                        target.write_text("id,value\n1,2\n", encoding="utf-8")
                     elif target.suffix.lower() == ".geojson":
                         target.write_text(
                             '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null,"properties":{}}]}',
@@ -51,7 +51,7 @@ def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
             "result6_reported_point_probe": "NOT A SCAR, usable pixels",
         }
         output = evidence.get(name, "Caveats: pools are not tested" if name.startswith("result3_impoundment_") else f"PASS {name}")
-        return SimpleNamespace(returncode=0, stdout=output + "\\n")
+        return SimpleNamespace(returncode=0, stdout=output + "\n")
 
     return runner, calls, network_attempts
 
