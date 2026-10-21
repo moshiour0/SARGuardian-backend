@@ -12,7 +12,8 @@ from tools.run_pinned_science_suite import (
 
 
 def _fake_runner_factory(
-    tmp_path: Path, *, retry_name: str | None = None, dirty_after_run: bool = False
+    tmp_path: Path, *, retry_name: str | None = None,
+    zero_exit_retry_name: str | None = None, dirty_after_run: bool = False
 ):
     calls: list[list[str]] = []
     network_attempts: dict[str, int] = {}
@@ -33,10 +34,13 @@ def _fake_runner_factory(
             return SimpleNamespace(returncode=0, stdout="")
         name = next((x["name"] for x in command_plan() if x["argv"] == args), None)
         assert name is not None, args
-        if name == retry_name:
+        if name in {retry_name, zero_exit_retry_name}:
             network_attempts[name] = network_attempts.get(name, 0) + 1
             if network_attempts[name] == 1:
-                return SimpleNamespace(returncode=1, stdout="HTTP Error 503: service unavailable")
+                return SimpleNamespace(
+                    returncode=0 if name == zero_exit_retry_name else 1,
+                    stdout="HTTP Error 503: service unavailable",
+                )
         for item in command_plan():
             if item["name"] == name:
                 for rel in item["outputs"]:
@@ -123,3 +127,23 @@ def test_suite_fails_if_pinned_science_sources_change_during_execution(tmp_path)
         error.get("problem") == "PINNED_SCIENCE_SOURCE_TREE_CHANGED_DURING_RUN"
         for error in report["errors"]
     )
+
+def test_network_stage_retries_transient_http_error_even_if_script_exits_zero(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "outputs").mkdir()
+    runner, _, attempts = _fake_runner_factory(
+        tmp_path, zero_exit_retry_name="result3_impoundment_source"
+    )
+
+    report = run_suite(
+        tmp_path, tmp_path / "aggregate", runner=runner, sleeper=lambda _delay: None,
+        max_attempts=3, base_delay=0,
+    )
+
+    row = next(x for x in report["commands"] if x["name"] == "result3_impoundment_source")
+    assert row["status"] == "PASS"
+    assert len(row["attempts"]) == 2
+    assert row["attempts"][0]["returncode"] == 0
+    assert row["attempts"][0]["output_validation_errors"]
+    assert attempts["result3_impoundment_source"] == 2
+
