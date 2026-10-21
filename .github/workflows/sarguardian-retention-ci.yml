@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 85d8c654df304720ae8058347975201b5a1ee063
+          ref: 22bd6afaa4f326d4b0f354f5cdae46724755c6a4
           path: scientific_engine
 
       - name: Set up Python
@@ -151,6 +151,10 @@ jobs:
                 diag_fail=0
                 if ! python scientific_engine/tools/target49_gate_diagnostic.py "$raw" --aoi source --out "$OUTPUT/${stem}_source.json"; then diag_fail=1; failures=$((failures+1)); fi
                 if ! python scientific_engine/tools/target49_gate_diagnostic.py "$raw" --aoi langtang --out "$OUTPUT/${stem}_langtang.json"; then diag_fail=1; failures=$((failures+1)); fi
+                if [[ "$product" == "GUNW" ]]; then
+                  if ! python scientific_engine/tools/target49_gate_diagnostic.py "$raw" --aoi source --no-iono --out "$OUTPUT/${stem}_source_no_iono.json"; then diag_fail=1; failures=$((failures+1)); fi
+                  if ! python scientific_engine/tools/target49_gate_diagnostic.py "$raw" --aoi langtang --no-iono --out "$OUTPUT/${stem}_langtang_no_iono.json"; then diag_fail=1; failures=$((failures+1)); fi
+                fi
                 if [[ "$diag_fail" -eq 0 ]]; then success_products=$((success_products+1)); fi
                 python - "$OUTPUT/${stem}_download.json" "$granule" "$diag_fail" <<'PY'
           import json,sys
@@ -182,12 +186,14 @@ jobs:
             if [[ "$downloaded" -eq 1 ]]; then echo "RAW_HDF5_DELETED_AFTER_DIAGNOSTIC=$granule"; fi
             echo "::endgroup::"
           done <<'PRODUCTS'
-          GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+          GUNW|BETA|NISAR_L2_PR_GUNW_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
           GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
           GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
           GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
           GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
-          GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+          GOFF|BETA|NISAR_L2_PR_GOFF_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
           GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
           GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
           GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
@@ -200,15 +206,15 @@ jobs:
           from pathlib import Path
           out,attempts,successes,failures=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]),int(sys.argv[4])
           Path(out).write_text(json.dumps({
-           "status":"completed" if failures==0 and successes==10 else "completed_with_errors",
+           "status":"completed" if failures==0 and successes==12 else "completed_with_errors",
            "created_utc":datetime.now(timezone.utc).isoformat(),
-           "expected_products":10,"products_attempted":attempts,
+           "expected_products":12,"products_attempted":attempts,
            "products_with_both_diagnostics_passed":successes,"error_count":failures,
            "raw_hdf5_in_artifact":False
           },indent=2)+"\n")
           PY
           echo "TARGET49_RAW_DIAGNOSTICS expected=10 attempted=$attempts passed_both_AOIs=$success_products errors=$failures" | tee -a "$GITHUB_STEP_SUMMARY"
-          if [[ "$failures" -ne 0 || "$success_products" -ne 10 ]]; then exit 1; fi
+          if [[ "$failures" -ne 0 || "$success_products" -ne 12 ]]; then exit 1; fi
 
       - name: Upload only diagnostic outputs and source manifests
         if: always()
