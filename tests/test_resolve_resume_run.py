@@ -80,6 +80,30 @@ def test_auto_resume_picks_newest_compatible_failed_run_and_skips_invalid_candid
 
 
 
+def test_auto_resume_prefers_more_checkpoint_coverage_over_newer_partial_retry():
+    current = _manifest("999-1")
+    runs = [
+        _run("110", "2026-10-21T12:00:00Z"),  # latest retry completed only four products
+        _run("100", "2026-10-21T07:00:00Z"),  # older full attempt has 29 reusable checkpoints
+    ]
+
+    def load_manifest(run_id: str):
+        coverage = {"110": 4, "100": 29}[run_id]
+        return _manifest(f"{run_id}-1"), coverage
+
+    chosen, scanned = choose_compatible_failed_run(
+        runs,
+        current,
+        current_run_id="999",
+        branch="feat/e2e-pinned-science-pipeline",
+        workflow_path=".github/workflows/sarguardian-streaming-batch.yml",
+        manifest_loader=load_manifest,
+    )
+
+    assert chosen == "100"
+    assert scanned == 2
+
+
 def test_feature_branch_can_resume_compatible_main_checkpoint():
     current = _manifest("999-1")
     runs = [
