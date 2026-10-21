@@ -32,6 +32,10 @@ jobs:
     env:
       CHECKPOINT_RUN_ID: ${{ inputs.checkpoint_run_id }}
       PRODUCT_RUN_ID: ${{ inputs.product_run_id }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      RUN_ID_SAFE: SARGuardian-Reassemble-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout backend aggregation tools
         uses: actions/checkout@v4
@@ -187,6 +191,25 @@ jobs:
           echo "script_exit=$status" >> "$GITHUB_OUTPUT"
           echo "BATCH_EQUIVALENCE_STATUS=$report_status"
           exit "$status"
+
+      - name: Upload final replay bundle and report to Drive only after PASS
+        if: steps.aggregate_results.outputs.status == 'PASS'
+        env:
+          OUT_ROOT: ${{ runner.temp }}/sarguardian-reassemble/output
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$(find "$OUT_ROOT" -maxdepth 1 -name 'sarguardian-*-results.zip' -type f -print -quit)"
+          report="$OUT_ROOT/batch-equivalence-report.json"
+          test -s "$bundle" && test -s "$report"
+          python tools/drive_resumable_upload.py \
+            --root "$OUT_ROOT" --run-name "$RUN_ID_SAFE" \
+            --files "$bundle" "$report" --out "$OUT_ROOT/drive-run-upload-receipt.json"
+          python tools/drive_resumable_upload.py \
+            --root "$OUT_ROOT" --run-name "$RUN_ID_SAFE" \
+            --files "$OUT_ROOT/drive-run-upload-receipt.json" \
+            --out "$OUT_ROOT/drive-run-receipt-upload.json"
+          echo "FINAL_RUN_BUNDLE_DRIVE_VERIFICATION=PASS"
 
       - name: Publish replay report, bundle and diagnostics
         if: always()
