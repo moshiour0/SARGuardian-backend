@@ -184,7 +184,7 @@ def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
 
 def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 2
+    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 3
     downloader = (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
     assert 'os.environ.get("EARTHDATA_TOKEN", "").strip()' in downloader
     assert "auth_with_token(token)" in downloader

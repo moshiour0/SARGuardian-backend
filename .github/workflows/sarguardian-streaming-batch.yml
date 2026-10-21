@@ -285,7 +285,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check -r tools/requirements-retention.txt
+          python -m pip install --disable-pip-version-check --retries 5 --timeout 45 -r tools/requirements-retention.txt
 
       - name: Fail fast when a selected urgent-response baseline product is unavailable
         if: inputs.run_profile == 'full-source-baseline'
@@ -390,6 +390,7 @@ jobs:
       EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
       EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
       EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
       GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
@@ -422,8 +423,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check --no-cache-dir -r science-source/requirements.txt
-          python -m pip install --disable-pip-version-check --no-cache-dir -r tools/requirements-retention.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
 
       - name: Create isolated one-product scratch folders
         id: paths
@@ -999,8 +1000,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check --no-cache-dir -r science-source/requirements.txt
-          python -m pip install --disable-pip-version-check --no-cache-dir -r tools/requirements-retention.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
 
       - name: Download run manifest
         if: always()
