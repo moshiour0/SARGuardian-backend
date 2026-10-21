@@ -108,6 +108,10 @@ def row_key(row: dict[str, str], fields: list[str]) -> tuple[str, ...]:
     # Each scientific table has a different natural key. Prefer the most
     # specific one so candidate-level rows never collide on their input file.
     candidates = (
+        # Determinability sweeps identify an experiment by its input parameters,
+        # not by floating-point result columns whose last decimal can vary
+        # across supported numerical-library builds.
+        ("precursor_days", "revisit_days", "noise_mm", "creep_mm", "gate", "gate_mm_day"),
         ("file", "layer"),
         ("target_id", "file", "window_px", "reading"),
         ("target_id", "file", "window_px"),

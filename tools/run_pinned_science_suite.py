@@ -49,7 +49,7 @@ def command_plan() -> list[dict[str, Any]]:
         },
         {
             "name": "result1_detectability_legacy_fixed_gate",
-            "argv": [py, "src/detectability.py", "--sweep", "--precursor", "10", "40", "--gate", "fixed",
+            "argv": [py, "src/detectability.py", "--sweep", "--precursor", "5", "10", "20", "40", "--gate", "fixed",
                      "--csv", "outputs/detectability_fixed_gate.csv"],
             "outputs": ["outputs/detectability_fixed_gate.csv"], "network": False,
         },

@@ -50,6 +50,31 @@ def test_numeric_comparison_has_explicit_small_tolerance():
     assert agg.value_equal("file.tif", "file.tif", "export_file")
 
 
+def test_detectability_rows_use_experiment_parameters_and_tolerate_float_serialization_noise():
+    fields = [
+        "precursor_days", "revisit_days", "noise_mm", "creep_mm", "gate",
+        "gate_mm_day", "detection_rate", "abs_pred_error_median",
+    ]
+    baseline = [{
+        "precursor_days": "10.0", "revisit_days": "1", "noise_mm": "5.0",
+        "creep_mm": "300.0", "gate": "noise", "gate_mm_day": "21.213",
+        "detection_rate": "0.9775", "abs_pred_error_median": "0.7015650034458467",
+    }]
+    actual = [{
+        "precursor_days": "10.0", "revisit_days": "1", "noise_mm": "5.0",
+        "creep_mm": "300.0", "gate": "noise", "gate_mm_day": "21.213",
+        "detection_rate": "0.9775", "abs_pred_error_median": "0.7015650034458449",
+    }]
+    assert agg.row_key(baseline[0], fields) == agg.row_key(actual[0], fields)
+    errors = []
+    result = agg.compare_rows(baseline, actual, fields, label="detectability", errors=errors)
+    assert result["status"] == "PASS"
+    assert result["row_keys_missing"] == 0
+    assert result["row_keys_extra"] == 0
+    assert result["field_mismatches"] == 0
+    assert errors == []
+
+
 def test_compare_rows_detects_missing_extra_and_value_differences():
     fields = ["file", "median"]
     baseline = [{"file": "A.h5", "median": "1.0"}, {"file": "B.h5", "median": "2.0"}]

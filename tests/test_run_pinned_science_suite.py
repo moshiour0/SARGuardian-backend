@@ -75,6 +75,10 @@ def test_command_plan_uses_source_zip_entry_points_and_covers_results_1_2_3_6():
     assert "result3_impoundment_blatten" in names
     assert "result6_sentinel2_candidate_map" in names
     assert len([x for x in plan if x["name"].startswith("result3_impoundment_")]) == 4
+    fixed_gate = next(x for x in plan if x["name"] == "result1_detectability_legacy_fixed_gate")
+    precursor_idx = fixed_gate["argv"].index("--precursor")
+    assert fixed_gate["argv"][precursor_idx + 1:precursor_idx + 5] == ["5", "10", "20", "40"]
+    assert fixed_gate["argv"][fixed_gate["argv"].index("--gate") + 1] == "fixed"
     assert all(Path(entry["argv"][1]).as_posix().startswith("src/") for entry in plan)
     assert not any(".h5" in " ".join(entry["argv"]).lower() for entry in plan)
 
