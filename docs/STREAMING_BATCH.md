@@ -199,8 +199,7 @@ processes successfully using the updated branch. Its aggregation exposed a
 separate candidate-4 replay bug: the common-reference series selected only 16
 PR layer2 rasters even though the committed baseline includes 16 PR plus 2 UR
 rasters. The fix now preserves all 18 inputs and adds a regression test to
-prevent accidental UR-edge omission. A complete full-baseline PASS still
-requires a new live run after the fix and regression CI succeeds.
+prevent accidental UR-edge omission. The official artifact-only replay is complete and passed; see the dated result section below. This proves the retained-checkpoint aggregation path, not an independent end-to-end `resume_from_run_id` live rerun.
 
 
 ## Reassemble existing successful artifacts without another HDF5 download
@@ -214,3 +213,14 @@ When a product transfer and reader validation succeed but a downstream compariso
 These defaults reflect the currently verified runs; choose the IDs matching the evidence you want to combine. The workflow validates both manifests (AOI, source revision, date window, retention profile and exact ordered granule identities), merges the prior complete checkpoints with the newer successful product, then runs the same complete product, retention, cleanup and downstream parity gates. It does not call Earthdata or re-download source HDF5. It publishes a replay artifact even on comparison failure and uploads the final bundle/report to the run-scoped Google Drive folder only if every required gate passes.
 
 The baseline run's per-product artifacts expire after the configured retention period, so perform this replay while the source artifacts remain available. If the merged replay still fails, inspect `batch-equivalence-report.json`; only change the relevant downstream reconstruction where the report's row-key and field-mismatch evidence identifies a real discrepancy. Never relax a required baseline comparison just to force an overall PASS.
+
+## Official full-baseline artifact replay result (2026-10-21)
+
+The artifact-only reassembly workflow completed successfully in [run #39527193872](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39527193872), using checkpoints from run #39510497044 and the successfully processed replacement product from run #39524783921. The replay checked out backend aggregation commit `d9e67df7d800032c37d23f74df44c98e3ab655f7` and the pinned science source commit `ab547ecc82bcc4d6ccef545a59852536c2beacc6`.
+
+- `BATCH_EQUIVALENCE_STATUS=PASS`; 33/33 products validated; aggregation report has no errors.
+- All 12 committed downstream table comparisons passed with 0 missing keys, 0 extra keys and 0 field mismatches. This includes `outputs/ts_goff_cand4_common.csv` (20 rows), fixing the previous 26 field mismatches by using all 18 GOFF layer2 inputs (16 PR + 2 UR).
+- Cleanup evidence and actual product-retention accounting passed for 33/33 products. The report accounts for 297 unique remote files totaling 10,411,698 bytes (0.009697 GiB) for per-product retained outputs. This figure excludes the run-level bundle/report; the uploaded replay bundle, report and receipt total 2,469,359 bytes. No raw HDF5 was uploaded or re-downloaded during replay.
+- The report explicitly marks `ts_gunw_source.csv` as `GENERATED_NO_COMMITTED_BASELINE`; it is not counted among the 12 baseline comparisons. Because the source ZIP contains no historical TIFFs, this result does not claim pixel-by-pixel parity with original raster files. Trend logs also retain their `UNTESTED` / `NOT ROBUST` cautions; table parity does not independently validate geophysical interpretations.
+
+The artifact-only replay is now operationally proven for these retained artifacts. The separate full live `resume_from_run_id` path has not yet had an independent end-to-end run, so do not claim that exact recovery mode is fully proven until it is exercised.
