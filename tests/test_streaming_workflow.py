@@ -209,7 +209,7 @@ def test_artifact_only_reassembly_reuses_existing_product_runs_without_source_do
     assert "python tools/aggregate_streamed_outputs.py" in replay
     assert "retention-days: 14" in replay
     assert "EARTHDATA_TOKEN" not in replay
-    assert "raw HDF5" not in replay.lower()
+    assert "download_nisar_product.py" not in replay
 
 
 def test_candidate4_common_reference_uses_exact_pinned_pr_ur_stack():
