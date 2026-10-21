@@ -79,7 +79,7 @@ def test_drive_api_retries_transient_503_and_then_succeeds(monkeypatch):
     response = drive.request("GET", f"{drive_upload.API}/files")
 
     assert response.status_code == 200
-    assert len(session.request_calls) == 2
+    assert len(session.request_calls) == 3
     assert all(call[2]["headers"]["Authorization"] == "Bearer test-access-token"
                for call in session.request_calls)
 
@@ -160,9 +160,11 @@ def test_non_retryable_drive_http_400_fails_without_repeating(monkeypatch):
 def test_folder_creation_recovers_if_post_response_is_transiently_ambiguous(monkeypatch):
     monkeypatch.setattr(drive_upload.time, "sleep", lambda _seconds: None)
     session = FakeSession(request_responses=[
-        # First create attempt's response says 500.
+        # Initial lookup confirms the folder does not exist.
+        FakeResponse(200, payload={"files": []}),
+        # The server returns 500 during creation after possibly creating it.
         FakeResponse(500),
-        # The exact folder appears when the retry iteration re-queries.
+        # The retry iteration re-queries and discovers that it exists.
         FakeResponse(200, payload={"files": [{
             "id": "folder-created-before-500",
             "name": "SARGuardian-DataArchive",
