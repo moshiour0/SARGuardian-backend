@@ -53,6 +53,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.make.outputs.matrix }}
+      resume_run_id: ${{ steps.resume.outputs.run_id }}
+      resume_mode: ${{ steps.resume.outputs.mode }}
     steps:
       - name: Checkout backend repository tools
         uses: actions/checkout@v4
@@ -1044,20 +1046,20 @@ jobs:
           path: ${{ runner.temp }}/sarguardian-aggregation/current-cleanup-artifacts
 
       - name: Download prior per-granule checkpoints for resume
-        if: always() && steps.resume.outputs.run_id != ''
+        if: always() && needs.manifest.outputs.resume_run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
-          run-id: ${{ steps.resume.outputs.run_id }}
+          run-id: ${{ needs.manifest.outputs.resume_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-aggregation/resume-granule-artifacts
 
       - name: Download prior post-cleanup evidence for resume
-        if: always() && steps.resume.outputs.run_id != ''
+        if: always() && needs.manifest.outputs.resume_run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
-          run-id: ${{ steps.resume.outputs.run_id }}
+          run-id: ${{ needs.manifest.outputs.resume_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-aggregation/resume-cleanup-artifacts
 
