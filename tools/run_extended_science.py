@@ -156,6 +156,24 @@ def validate_and_extract_bundle(
     if reference_candidate.is_file():
         shutil.copy2(reference_candidate, extension_dir / "committed_scar_candidates_reference.csv")
 
+    # Include the compact, already-verified core results in the final science
+    # package so the extended result bundle is interpretable without extracting
+    # the full source bundle again. Large reader-exported TIFFs stay in the
+    # separate source-run artifact to avoid duplicating hundreds of MB.
+    inherited = extension_dir / "results_4_5_from_verified_baseline"
+    inherited.mkdir(parents=True, exist_ok=True)
+    for filename in (
+        "ts_goff_source.csv", "ts_gunw_source.csv",
+        "troposphere_gunw_source.csv", "troposphere_goff_source.csv",
+        "local_floor_candidates.csv", "local_floor_phase_candidates.csv",
+        "local_floor_cand4.csv", "local_floor_cand4_as_floors.csv",
+        "common_ref_summer.csv", "bound_source.csv",
+        "ts_goff_cand4_common.csv",
+    ):
+        source = science_root / "outputs" / filename
+        if source.is_file() and source.stat().st_size > 0:
+            shutil.copy2(source, inherited / filename)
+
     (package_root / "source-run-manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -467,13 +485,22 @@ def run_fresh_result_7(
     if (outputs / "bound_source.csv").is_file():
         shutil.copy2(outputs / "bound_source.csv", extension_dir / "bound_source_fresh.csv")
 
-    outcomes.append(_run_command(
-        "fresh candidate common-datum inverse-velocity gate",
-        [py, "src/inverse_velocity.py", "--ts", "outputs/ts_goff_cand4_common.csv",
-         "--floors", str(candidate_specific_as_floors), "--floors-layer", "layer2",
-         "--event-date", "2026-08-26"],
-        science_root, extension_dir, report,
-    ))
+    fresh_series = extension_dir / "ts_goff_fresh_candidate_common.csv"
+    if outcomes[3] and fresh_series.is_file() and fresh_series.stat().st_size > 0:
+        outcomes.append(_run_command(
+            "fresh candidate common-datum inverse-velocity gate",
+            [py, "src/inverse_velocity.py", "--ts", str(fresh_series),
+             "--floors", str(candidate_specific_as_floors), "--floors-layer", "layer2",
+             "--event-date", "2026-08-26"],
+            science_root, extension_dir, report,
+        ))
+    else:
+        report.setdefault("commands", []).append({
+            "name": "fresh candidate common-datum inverse-velocity gate",
+            "status": "SKIPPED", "exit_code": None,
+            "reason": "fresh common-datum candidate series was not successfully created; stale baseline series refused",
+        })
+        outcomes.append(False)
     report["stages"]["result_7_fresh_candidate_floors_and_final_bound"]["selected_candidate"] = {
         "id": selected["id"], "lat": lat, "lon": lon, "elev_m": float(selected["elev_m"]),
         "reading": selected["reading"],
