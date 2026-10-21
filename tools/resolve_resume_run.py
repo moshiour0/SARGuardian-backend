@@ -170,7 +170,9 @@ def get_run(repo: str, run_id: str, token: str) -> dict[str, Any]:
 
 
 def list_workflow_runs(repo: str, branch: str, token: str) -> list[dict[str, Any]]:
-    query = urllib.parse.urlencode({"branch": branch, "event": "workflow_dispatch", "per_page": 50})
+    # Include main-run checkpoints while testing this flow on a feature branch.
+    # Candidate eligibility below still limits reuse to the current branch or main.
+    query = urllib.parse.urlencode({"event": "workflow_dispatch", "per_page": 50})
     result = api_json(f"{API_ROOT}/repos/{repo}/actions/workflows/{WORKFLOW_ID}/runs?{query}", token)
     runs = result.get("workflow_runs")
     if not isinstance(runs, list):
@@ -219,12 +221,13 @@ def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any]
 def _eligible_failed_run(
     run: dict[str, Any], *, current_run_id: str, branch: str, workflow_path: str,
 ) -> bool:
+    allowed_branches = {branch, "main"}
     return (
         str(run.get("id", "")) != str(current_run_id)
         and run.get("status") == "completed"
         and run.get("conclusion") in {"failure", "cancelled", "timed_out"}
         and run.get("event") == "workflow_dispatch"
-        and run.get("head_branch") == branch
+        and run.get("head_branch") in allowed_branches
         and run.get("path") == workflow_path
     )
 
