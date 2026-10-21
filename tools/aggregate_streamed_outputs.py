@@ -313,6 +313,14 @@ def summarize_retained_storage(
     new_file_ids: set[str] = set()
     accounted = 0
     products = manifest.get("products", [])
+    resume_record = manifest.get("resume")
+    reused_checkpoint_ids = {
+        str(item) for item in (
+            resume_record.get("reused_product_ids", [])
+            if isinstance(resume_record, dict) and isinstance(resume_record.get("reused_product_ids", []), list)
+            else []
+        )
+    }
     retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
     expected_archive_count = 1 if retention_profile == "full-lossless" else 0
 
@@ -441,7 +449,11 @@ def summarize_retained_storage(
                 })
                 continue
             unique_files[file_id] = row
-            if not row["reused"]:
+            # The receipt's "reused" flag describes the upload attempt that
+            # originally created this checkpoint. On a later workflow run, a
+            # reused product's historical receipt must not inflate this run's
+            # net-new byte count.
+            if pid not in reused_checkpoint_ids and not row["reused"]:
                 new_file_ids.add(file_id)
 
         product_bytes = sum(row["bytes"] for row in product_files.values())
@@ -468,6 +480,10 @@ def summarize_retained_storage(
         "accounting_basis": "verified Google Drive upload receipt file sizes after processing; not raw source-size estimates",
         "products_expected": expected,
         "products_accounted": accounted,
+        "products_reused_from_checkpoint": sum(
+            str(product.get("id", "")) in reused_checkpoint_ids for product in products
+        ),
+        "new_bytes_excludes_reused_checkpoints": True,
         "unique_remote_file_count": len(unique_files),
         "actual_remote_retained_bytes": total_bytes,
         "actual_remote_retained_gib": round(total_bytes / (1024 ** 3), 6),
