@@ -546,8 +546,8 @@ jobs:
           print("PRODUCT_RUN_DIAGNOSTICS_WRITTEN=" + str(curated / "product-run-diagnostics.json"))
           PY
 
-      - name: Upload small per-granule evidence for final aggregation
-        if: always()
+      - name: Upload verified per-granule checkpoint for final aggregation
+        if: always() && (inputs.execution_label == 'initial' || steps.drive.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: sarguardian-granule-${{ inputs.product_id }}
@@ -567,7 +567,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Preserve retry diagnostics without replacing a prior checkpoint
+        if: always() && inputs.execution_label != 'initial' && steps.drive.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-retry-diagnostic-${{ inputs.product_id }}-${{ inputs.execution_label }}
+          path: ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/product-run-diagnostics.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Delete local raw/archive only after successful remote retention
+        id: cleanup
         if: success()
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
@@ -690,12 +700,23 @@ jobs:
           print("LOCAL_CLEANUP_RECEIPT_DRIVE_VERIFIED=PASS")
           PY
 
-      - name: Upload final post-cleanup evidence for aggregation
-        if: always()
+      - name: Upload verified post-cleanup checkpoint for aggregation
+        if: always() && (inputs.execution_label == 'initial' || steps.cleanup.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: sarguardian-cleanup-${{ inputs.product_id }}
           overwrite: true
+          path: |
+            ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/local-cleanup-receipt.json
+            ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/drive-cleanup-upload-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve retry cleanup diagnostics without replacing a prior checkpoint
+        if: always() && inputs.execution_label != 'initial' && steps.cleanup.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-retry-cleanup-diagnostic-${{ inputs.product_id }}-${{ inputs.execution_label }}
           path: |
             ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/local-cleanup-receipt.json
             ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/drive-cleanup-upload-receipt.json
