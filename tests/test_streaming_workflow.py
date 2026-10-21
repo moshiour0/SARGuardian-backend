@@ -1,6 +1,7 @@
 from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "sarguardian-streaming-batch.yml"
+PRODUCT_WORKER = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "sarguardian-product-worker.yml"
 
 
 def test_aggregate_job_checks_out_backend_before_science_repository():
@@ -25,7 +26,7 @@ def test_streaming_workflow_is_manual_to_avoid_unexpected_live_storage_use():
 
 
 def test_raw_deletion_is_only_after_verified_drive_upload():
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = PRODUCT_WORKER.read_text(encoding="utf-8")
     marker = "- name: Delete local raw/archive only after successful remote retention"
     section = text.split(marker, 1)[1].split("\n      - name:", 1)[0]
     assert "if: success()" in section
@@ -37,7 +38,7 @@ def test_raw_deletion_is_only_after_verified_drive_upload():
 
 
 def test_product_run_diagnostics_are_explicitly_pre_cleanup():
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = PRODUCT_WORKER.read_text(encoding="utf-8")
     assert "- name: Write a compact diagnostic receipt even when a product fails" in text
     assert "product-run-diagnostics.json" in text
     assert '"schema_version": "sarguardian-product-run-diagnostic/1.0"' in text
@@ -48,7 +49,7 @@ def test_product_run_diagnostics_are_explicitly_pre_cleanup():
 def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
     text = WORKFLOW.read_text(encoding="utf-8")
     manifest = text.split("  manifest:", 1)[1].split("  process-one:", 1)[0]
-    process = text.split("  process-one:\n", 1)[1].split("\n  aggregate:", 1)[0]
+    process = PRODUCT_WORKER.read_text(encoding="utf-8")
     assert "preflight_drive_quota.py" not in text
     assert "expected_source_bytes" in manifest  # disk/download estimate only
     assert "Create a full-lossless retained HDF5 copy" in process
@@ -65,10 +66,12 @@ def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
 
 def test_cleanup_receipt_is_uploaded_and_aggregator_requires_it():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert "LOCAL_CLEANUP_RECEIPT_GATE_FAILED" in text
-    assert "LOCAL_CLEANUP_RECEIPT_NOT_REMOTELY_VERIFIED" in text
-    assert "local-cleanup-receipt.json" in text
-    assert "drive-cleanup-upload-receipt.json" in text
+    product = PRODUCT_WORKER.read_text(encoding="utf-8")
+    combined = text + "\n" + product
+    assert "LOCAL_CLEANUP_RECEIPT_GATE_FAILED" in combined
+    assert "LOCAL_CLEANUP_RECEIPT_NOT_REMOTELY_VERIFIED" in combined
+    assert "local-cleanup-receipt.json" in combined
+    assert "drive-cleanup-upload-receipt.json" in combined
     assert 'pattern: sarguardian-cleanup-*' in text
     assert '--cleanup-artifact-root "$root/cleanup-artifacts"' in text
 
@@ -86,7 +89,8 @@ def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
     assert "timeout=(connect_timeout_seconds, read_timeout_seconds)" in downloader
     assert "query_by_year(" not in downloader
     assert "earthaccess" not in downloader.lower()
-    for workflow in (stream, live):
+    assert "uses: ./.github/workflows/sarguardian-product-worker.yml" in stream
+    for workflow in (PRODUCT_WORKER.read_text(encoding="utf-8"), live):
         assert "python tools/download_nisar_product.py" in workflow
         assert '--science-root "$PWD/science-source" --aoi "$AOI_NAME"' in workflow
 
@@ -96,7 +100,7 @@ def test_granule_drive_uploads_are_scoped_to_a_unique_run_folder():
     uploader = (root / "tools" / "drive_resumable_upload.py").read_text(encoding="utf-8")
     assert 'names.extend(["Runs", version_tag])' in uploader
     for filename in (
-        "sarguardian-streaming-batch.yml",
+        "sarguardian-product-worker.yml",
         "sarguardian-live-validation.yml",
         "sarguardian-retention-pilot.yml",
     ):
@@ -113,11 +117,11 @@ def test_inline_json_receipts_do_not_append_literal_backslash_n():
     assert r'json.dumps(record,indent=2)+"\\n"' not in text
 
 def test_failed_download_diagnostics_are_preserved_for_aggregation():
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = PRODUCT_WORKER.read_text(encoding="utf-8")
     diagnostic = text.split(
         "- name: Write a compact diagnostic receipt even when a product fails", 1
     )[1].split("\n      - name:", 1)[0]
-    assert "DOWNLOAD_LOG: ${{ runner.temp }}/sarguardian-download-${{ matrix.id }}.log" in diagnostic
+    assert "DOWNLOAD_LOG: ${{ runner.temp }}/sarguardian-download-${{ inputs.product_id }}.log" in diagnostic
     assert '"DIRECT_PRODUCT_DIAGNOSTIC="' in diagnostic
     assert '"download_diagnostics": download_diagnostics' in diagnostic
     assert '"download_error_code": download_error_code' in diagnostic
@@ -137,7 +141,7 @@ def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
     assert "full-baseline processing stopped before any product downloads" in manifest[preflight:]
 
 def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = PRODUCT_WORKER.read_text(encoding="utf-8")
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
     )[1].split("\n      - name:", 1)[0]
@@ -150,7 +154,7 @@ def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
 
 
 def test_download_step_retries_transient_earthdata_failures_with_bounded_backoff():
-    text = WORKFLOW.read_text(encoding="utf-8")
+    text = PRODUCT_WORKER.read_text(encoding="utf-8")
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
     )[1].split("\n      - name:", 1)[0]
@@ -191,7 +195,8 @@ def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
 
 def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 2
+    product = PRODUCT_WORKER.read_text(encoding="utf-8")
+    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") + product.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 2
     downloader = (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
     assert 'os.environ.get("EARTHDATA_TOKEN", "").strip()' in downloader
     assert "auth_with_token(token)" in downloader
