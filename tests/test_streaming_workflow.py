@@ -286,9 +286,19 @@ def test_failed_products_are_retried_and_receipts_gate_reassembly():
     assert "Assemble complete product checkpoints for aggregation" in aggregate
     assert "continue-on-error: true" in worker
     assert worker.count("overwrite: true") == 2
-    assert "metadata_retry_flags+=(--existing-files-are-new --replace-existing-retry-sidecars)" in worker
-    assert "cleanup_retry_flags+=(--existing-files-are-new --replace-existing-retry-sidecars)" in worker
+    assert "Download first-attempt evidence for retry identity checks" in worker
+    assert "RETRY_SOURCE_IDENTITY=PASS_SOURCE_SHA256_MATCH" in worker
+    assert "ERROR=RETRY_SOURCE_BYTES_CHANGED" in worker
     assert "retry_upload_flags+=(--existing-files-are-new)" in worker
+    assert "metadata_retry_flags+=(--existing-files-are-new)" in worker
+    assert "cleanup_retry_flags+=(--existing-files-are-new)" in worker
+    assert worker.count("retry_upload_flags+=(--replace-existing-retry-sidecars)") == 1
+    assert worker.count("metadata_retry_flags+=(--replace-existing-retry-sidecars)") == 1
+    assert worker.count("cleanup_retry_flags+=(--replace-existing-retry-sidecars)") == 1
+    assert "Preserve retry diagnostics without replacing a prior checkpoint" in worker
+    assert "Preserve retry cleanup diagnostics without replacing a prior checkpoint" in worker
+    assert "steps.drive.outcome != 'success'" in worker
+    assert "steps.cleanup.outcome != 'success'" in worker
     ci = (WORKFLOW.parent / "sarguardian-retention-ci.yml").read_text(encoding="utf-8")
     assert ".github/workflows/sarguardian-product-worker.yml" in ci
 
