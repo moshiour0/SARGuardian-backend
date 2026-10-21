@@ -124,13 +124,41 @@ pixel-for-pixel parity against absent TIFF files.
 The output bundle is not marked PASS if any required table differs or any
 product artifact is missing.
 
-Independent experiments such as detectability/revisit sweeps, terrain/dam
-rankings or map-only products that do not form this documented raw
-GUNW/GOFF → bound chain are not claimed to have been recalculated by this
-workflow; their committed versions remain in the pinned source repository.
-If a later project result depends on another raw HDF5 dataset, use the Drive
-full-lossless archive and add an equivalence-gated stage before enabling its
-source deletion.
+## Complete documented science suite
+
+For a full-source-baseline run, aggregation now also executes the supplementary
+Results 1, 2, 3 and 6 from the exact pinned `SARGuardian/src/` tree:
+
+- Result 1 regenerates the noise-gated and legacy fixed-gate detectability
+  sweeps, plus the pinned Blatten phase and offset-tracking comparisons.
+- Result 2 runs the SRTM-based track sensitivity/stencil tests and the explicit
+  north-face aspect hypothesis.
+- Result 3 regenerates the four terrain impoundment GeoJSONs (source, Langtang,
+  Lhende and Blatten).
+- Result 6 surveys the fixed Sentinel-2 scenes, re-generates the candidate map,
+  and probes the reported point. The point must be observed and the source
+  script must report the documented `NOT A SCAR` evidence; missing observations
+  cannot be represented as a negative detection.
+
+The existing raw-product steps and compact-output aggregation provide Results
+4, 5 and 7: reader-derived GOFF/GUNW exports, time-series/inverse-velocity
+checks, troposphere reports, candidate floors, common reference and final
+bounds. The supplementary runner checks out no alternate engine: it requires
+the exact `ab547ecc82bcc4d6ccef545a59852536c2beacc6` commit, checks that
+`src/` is clean, clears generated targets before each command, validates fresh
+CSV/GeoJSON outputs, and records exact arguments/logs. Network-dependent stages
+have bounded retries for transient errors; any required step that still fails
+keeps the batch result at FAIL. Terrain GeoJSON hashes are compared with the
+committed references for inspection, not treated as strict parity gates because
+the public elevation service may change independently.
+
+The final aggregation does not need the original raw HDF5 files: it uses the
+AOI-clipped GeoTIFFs created and validated during each product job. Any check
+that actually compares raw against a retained lossless HDF5 copy is performed
+in the product job before its cleanup gate. If a later science result depends on
+an HDF5 dataset that was not exported, select `full-lossless` and add its
+equivalence-gated computation before source deletion; do not silently
+approximate it from a different input.
 
 ## Drive layout
 
@@ -165,9 +193,13 @@ No credentials should be put into committed files or workflow inputs.
 
 ## Resuming a failed full-baseline run
 
-To continue a run after a transient network/authentication failure, select the branch that contains the retry/resume changes and run the SARGuardian Streaming Batch (source AOI) workflow from Actions. Choose full-source-baseline, keep the same date range and retention mode, and enter the failed run's numeric ID in resume_from_run_id.
+To continue a run after a transient network/authentication failure, run the workflow from the testing branch `feat/automatic-resume-selection` with `run_profile=full-source-baseline`. Keep the same date window and retention mode.
 
-The workflow downloads the prior manifest, product artifacts and cleanup receipts. It rejects reuse if the AOI, pinned science commit, dates, retention mode or ordered product identities differ. A checkpoint is reusable only when the derived-output baseline validation and remote-retention receipt pass, required local export/provenance files are present, and the cleanup receipt has been remotely verified. Every incomplete/ambiguous product is processed again.
+- Leave `resume_from_run_id` blank to discover the newest compatible failed/cancelled/timed-out manual run of this workflow on the current branch or `main`.
+- Enter a numeric run ID to choose a specific source run.
+- Enter `none` to disable automatic discovery and force a cold run.
+
+Discovery checks the original run manifest, pinned science commit, AOI, dates, retention mode and ordered product identities. A checkpoint is reusable only when its derived-output validation and remote-retention receipts pass, all required exports/provenance files are present, and the remotely verified cleanup receipt confirms source deletion. If a granule or cleanup artifact family is missing, resume planning continues with available evidence and processes any unverified product again.
 
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
 
