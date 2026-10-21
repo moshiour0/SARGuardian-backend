@@ -364,3 +364,59 @@ def test_authenticated_session_can_be_configured_for_more_than_two_attempts(monk
     assert download.build_authenticated_session_with_retry(acquisition, attempts=4) is session
     assert acquisition.calls == 4
     assert len(sleeps) == 3
+
+
+def test_pre_generated_earthdata_user_token_bypasses_login_token_endpoint(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("EARTHDATA_TOKEN", "pre-generated-user-token")
+    calls = []
+    expected_session = object()
+
+    class FakeASFSession:
+        def auth_with_token(self, token):
+            calls.append(token)
+            return expected_session
+
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(ASFSession=FakeASFSession),
+    )
+
+    class CredentialsMustNotBeUsed:
+        def build_session(self):
+            raise AssertionError("user token mode must not request a new token")
+
+    session = download.build_authenticated_session_with_retry(CredentialsMustNotBeUsed())
+
+    assert session is expected_session
+    assert calls == ["pre-generated-user-token"]
+    assert "EARTHDATA_AUTH_MODE=pre_generated_user_token" in capsys.readouterr().err
+
+
+def test_user_token_is_sufficient_without_username_password(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("EARTHDATA_TOKEN", "pre-generated-user-token")
+    monkeypatch.delenv("EARTHDATA_USERNAME", raising=False)
+    monkeypatch.delenv("EARTHDATA_PASSWORD", raising=False)
+    out_dir = tmp_path / "must-not-be-created-token"
+    record = {
+        "granuleName": WANTED,
+        "productType": "GUNW",
+        "maturity": "PROVISIONAL",
+        "downloadUrl": download.direct_product_url(WANTED, "GUNW", "PROVISIONAL"),
+        "_sarguardian_discovery_backend": "direct_https_known_granule",
+    }
+    monkeypatch.setattr(download, "load_source_acquisition", lambda *_args: (object(), "a" * 64))
+    monkeypatch.setattr(download, "probe_known_product", lambda *_args: (record, object(), 123456))
+    monkeypatch.setattr(
+        download.sys,
+        "argv",
+        [str(TOOL), "--product-type", "GUNW", "--maturity", "PROVISIONAL",
+         "--granule-name", WANTED, "--science-root", str(tmp_path),
+         "--out-dir", str(out_dir), "--probe-only"],
+    )
+
+    assert download.main() == 0
+    assert "PRODUCT_PREFLIGHT_STATUS=PASS" in capsys.readouterr().out
+    assert not out_dir.exists()
