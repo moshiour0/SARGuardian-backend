@@ -104,9 +104,13 @@ Drive uploader refuses to overwrite a same-name file with different content.
 - Candidate-4 local floors (`local_floor_cand4.csv` and
   `local_floor_cand4_as_floors.csv`) plus its common-datum inverse-velocity gate.
 - `ts_goff_cand4_common.csv`: this point-level common-datum time series is
-  reassembled from the fixed-lattice GOFF GeoTIFF exports, with the same
-  `common_mask`, target buffer, `rereference`, window median and time-series
-  inversion functions as the pinned science engine. The raw stack is not
+  reassembled from **all 18** fixed-lattice GOFF layer2 GeoTIFF exports (16 PR
+  plus 2 UR), with the same `common_mask`, target buffer, `rereference`,
+  window median and time-series inversion functions as the pinned science
+  engine. Do not drop the UR files merely because their acquisition dates
+  duplicate PR products: both the shared reference mask and least-squares
+  uncertainty depend on those edges. The workflow fails closed if the expected
+  16 PR + 2 UR source stack is incomplete. The raw HDF5 stack is not
   re-downloaded or kept on the aggregation runner.
 
 The report records each table comparison. Float comparisons use a small
@@ -184,3 +188,16 @@ Earthdata Login's current user-token documentation says tokens are valid for 60 
 The direct HDF5 transfer is also streamed using the authenticated ASF session with a 30-second connect timeout and 120-second read-idle timeout. Progress is logged every 128 MiB. A content-length mismatch or transient network interruption marks the attempt retryable; the incomplete staging file is removed before the workflow retries it. The full download step also has a 90-minute cap.
 
 The current resumed run #39520455676 was started before this token support was committed, so it does not have the new token-authentication code. Do not assume it is using the new secret; its active downloader step uses the older code from the run's pinned commit. A subsequent workflow attempt from the updated branch will use the optional token.
+
+
+## Candidate-4 replay correction
+
+Historical run #39520455676 was started before the token support was
+committed, so its downloader used the older username/password token-exchange
+path. The newer live run #39524783921 verified that GOFF-033 downloads and
+processes successfully using the updated branch. Its aggregation exposed a
+separate candidate-4 replay bug: the common-reference series selected only 16
+PR layer2 rasters even though the committed baseline includes 16 PR plus 2 UR
+rasters. The fix now preserves all 18 inputs and adds a regression test to
+prevent accidental UR-edge omission. A complete full-baseline PASS still
+requires a new live run after the fix and regression CI succeeds.
