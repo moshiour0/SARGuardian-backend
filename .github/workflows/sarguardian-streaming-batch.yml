@@ -1041,6 +1041,7 @@ jobs:
 
       - name: Download current-run per-granule artifacts
         if: always()
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
@@ -1048,6 +1049,7 @@ jobs:
 
       - name: Download current-run post-cleanup evidence
         if: always()
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
@@ -1055,6 +1057,7 @@ jobs:
 
       - name: Download prior per-granule checkpoints for resume
         if: always() && needs.manifest.outputs.resume_run_id != ''
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
@@ -1064,6 +1067,7 @@ jobs:
 
       - name: Download prior post-cleanup evidence for resume
         if: always() && needs.manifest.outputs.resume_run_id != ''
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
