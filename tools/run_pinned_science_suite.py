@@ -216,11 +216,12 @@ def run_suite(
         stdout_text = ""
         success = False
         limit = max_attempts if item["network"] else 1
-        # Remove generated targets so a failed command cannot accidentally
-        # pass validation by leaving a committed file at the same path.
-        for rel in item["outputs"]:
-            (science_root / rel).unlink(missing_ok=True)
         for attempt in range(1, limit + 1):
+            # Clear targets before every attempt. A previous partially failed
+            # network attempt must not leave a file that makes a later no-op
+            # success appear to have generated validated output.
+            for rel in item["outputs"]:
+                (science_root / rel).unlink(missing_ok=True)
             try:
                 done = runner(
                     item["argv"],
