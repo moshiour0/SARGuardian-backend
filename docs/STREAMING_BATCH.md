@@ -92,8 +92,13 @@ selected product—including valid checkpoints reused from a compatible resume
 source—before any reassembly starts. If a product is still incomplete after
 that retry, the final verification report is preserved and reassembly is
 blocked; inspect the per-product diagnostic and retry report rather than
-treating a partial set as success. The manifest is deterministic and the Drive
-uploader refuses to overwrite same-name content with different checksums.
+treating a partial set as success. The manifest is deterministic. The Drive
+uploader refuses to overwrite a same-name scientific/derived output with
+different checksums. On a bounded same-workflow-run retry, only the allowlisted
+attempt-dependent sidecar receipts (`product-processing.json`,
+`drive-retention-receipt.json`, and `local-cleanup-receipt.json`) may be
+replaced in the unique current-run folder; all replacements remain subject to
+remote size/MD5 verification.
 
 ## What is regenerated in full-source-baseline
 
@@ -178,9 +183,11 @@ Aggregate run-level output remains separate:
 
 Each folder contains checksummed receipts. Identical content is reused within
 the same run folder; a later run gets a new folder rather than overwriting a
-previous archive with the same filename. Filename/content conflicts and
-insufficient Drive quota still fail closed. This intentionally retains older
-archives; do not delete them merely to make space. Raw .h5 source files are
+previous archive with the same filename. Conflicting scientific/derived
+filenames and insufficient Drive quota still fail closed. Only the three
+allowlisted attempt-dependent sidecar receipts may be refreshed inside the
+same workflow run's unique version folder during its bounded retry. This
+intentionally retains older archives; do not delete them merely to make space. Raw .h5 source files are
 excluded from uploads; only explicitly named `*.science.h5` retained archives
 are accepted by the upload helper.
 
@@ -247,7 +254,13 @@ products with a missing or invalid granule/cleanup receipt pair are added to
 the retry-only matrix. The original downloader retains its four-attempt
 bounded retry for transient download failures; if the whole product job still
 fails or its output receipt is incomplete, that product gets one additional
-full-worker attempt.
+full-worker attempt. A retry reuses the same run-scoped Drive folder: matching
+scientific outputs are reused and counted once as retained by this run, while
+a changed same-name science output remains a hard conflict. Because receipt
+timestamps and same-run reuse evidence can differ between attempts, only the
+three allowlisted metadata/cleanup receipts may be replaced on retry; the
+replacement is recorded and final receipts still verify remote file IDs, sizes
+and MD5 checksums.
 
 The `preassembly-verify` job then checks every product in the complete manifest,
 not only the products processed in the latest matrix. In full-baseline mode it
