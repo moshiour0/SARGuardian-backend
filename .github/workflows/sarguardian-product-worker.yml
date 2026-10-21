@@ -494,7 +494,6 @@ jobs:
             ${{ runner.temp }}/sarguardian-stream/${{ inputs.product_id }}/curated/derived/**
           if-no-files-found: error
           retention-days: 14
-          overwrite: true
 
       - name: Delete local raw/archive only after successful remote retention
         if: success()
