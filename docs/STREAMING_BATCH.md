@@ -17,20 +17,19 @@ Langtang or Lhende polygons.
    default `2025-01-01` through `2026-12-31` covers the currently pinned
    products. The `source` AOI is fixed by the scientific project; there is no
    AOI input and its polygon is not changed.
-3. Drive quota is checked **after each product has been processed**, using the
-   exact bytes of the files we will retain and upload: the full-lossless
-   `*.science.h5` archive, manifests and evidence, plus derived GeoTIFF/CSV
-   outputs. The raw source HDF5 is never in the upload allowlist. The uploader
-   calculates actual file sizes and the bytes genuinely new in Drive, checks
-   available quota before uploading those files, then verifies each remote
-   file's size and MD5. We do not block the run using a full-run storage guess
-   derived from the raw-download estimates. The final ZIP/report/receipts also
-   get the same actual-size check when they are created.
+3. Choose `retention_profile=derived-only` by default to save Drive space. It
+   uploads the validated CSV/GeoTIFF products, source inventory, source SHA-256,
+   preflight and validation receipts without creating or retaining a
+   `*.science.h5` archive. Choose `full-lossless` only when future unrestricted
+   HDF5 reprocessing is worth retaining a near-source-size archive. Quota is
+   checked against actual files and each remote file's size/MD5 is verified.
+   Final ZIP/report/receipts are checked separately; no raw-download-size guess
+   is used as the retained-output estimate.
 4. Keep `validation-pilot` for the first real run. It picks one GUNW and one
-   GOFF that fall inside your selected window. Both families must have at least
-   one baseline product in that window. The retained products are checked and
-   uploaded to Drive, and the single-reader CSV rows are compared with the
-   committed baseline.
+   GOFF within the selected window. Each reader's complete product row is
+   compared against the pinned `gunw_stats_source.csv` or
+   `goff_stats_source.csv` baseline before deletion, and every required TIFF
+   must be present/readable with valid grid, CRS, band layout and source identity.
 5. After the pilot passes, choose `full-source-baseline` to process every
    committed baseline product inside the selected window. A window containing
    all **15 GUNW + 18 GOFF = 33** pinned products uses the full-baseline
@@ -38,18 +37,19 @@ Langtang or Lhende polygons.
    `time-window-selection`: it validates selected product rows and exports but
    intentionally does not claim a full-network time-series/bound equivalence
    comparison. `max-parallel: 1` keeps raw HDF5 processing sequential.
-6. After remote retention succeeds, the workflow deletes only the temporary
-   runner copies of the raw HDF5 and retained local archive. It writes a
-   `local-cleanup-receipt.json`, uploads and checksum-verifies that receipt in
-   the same versioned Drive folder, and the final aggregation gate validates
-   one cleanup receipt for every product before reporting PASS.
+6. Each product's cleanup gate checks the baseline-validation report and remote
+   receipt, requires all expected CSV/GeoTIFF outputs to appear in the verified
+   Drive receipt, and checks that the archive presence matches the selected
+   retention profile. Only then may the temporary raw HDF5 (and, in
+   `full-lossless` mode, the temporary local archive) be deleted. The uploaded
+   cleanup receipt records the policy and deletion evidence.
 7. Open the `sarguardian-streaming-run-*` artifact and inspect
    `batch-equivalence-report.json`. The final Drive bundle is uploaded only
     when the applicable product-level checks (and, for the full baseline, the
    regenerated downstream results and all cleanup receipts) pass. The JSON
    report's `retention_storage_accounting` section totals actual verified
-   remote file sizes by product (retained archive vs ancillary evidence), plus
-   unique remote files and net-new bytes. The final run ZIP/report are uploaded
+   remote file sizes by product (archive bytes are zero under `derived-only`),
+   plus unique remote files and net-new bytes. The final run ZIP/report are uploaded
    afterward and are quota-checked/logged separately, so they are not folded
    into the product-retention total.
 
@@ -65,25 +65,24 @@ For each granule the workflow does the following:
 1. Load the pinned `science-source/src/nisar_acquisition.py` and set its canonical `source` AOI. Because the baseline already supplies the exact granule name and maturity, form the documented NISAR direct HTTPS path `https://nisar.asf.earthdatacloud.nasa.gov/NISAR/{NISAR_L2_TYPE_MATURITY_V1}/{GRANULE}/{GRANULE}.h5`; probe its HTTP status and size, then download through the same authenticated `build_session()` and `asf_search.download_url()` used by the source project. This avoids the ASF catalog endpoint, which returned wrapped CMR HTTP 500/502 errors on live runs. The separate raster AOI preflight still verifies that the downloaded HDF5 grid intersects the original source polygon before science processing or Drive retention.
 2. Run the AOI-grid preflight for `source`.
 3. Inventory every source dataset/attribute.
-4. Create a `full-lossless` HDF5 retained copy; do not use `engine-ready` for
-   this full-baseline workflow.
-5. Run the actual pinned SARGuardian reader equivalence test on raw versus
-   retained HDF5. A `PASS_NO_VALID_AOI_PIXELS` means the two readers agree but
-   the product supplies no valid science pixels in the AOI; it is not treated
-   as a valid measurement.
-6. Run one original single-product reader with the same source-AOI settings as
-   the batch reader; save the per-product CSV and AOI-clipped GeoTIFF exports.
-7. Upload the full-lossless archive, exports, CSV, inventory, preflight,
-   reader-equivalence report, download manifest and processing metadata into
-   the granule-specific Drive folder. The uploader verifies remote size and
-   MD5; the full original source SHA-256 is retained in provenance.
-8. Delete the runner's raw and archive copies only after verified remote upload,
-   and after the small evidence artifact has been written. The original raw
-   HDF5 itself is not uploaded; its full-lossless HDF5 dataset tree is preserved
-   in Drive for future readers and analysis. This archive has the same source
-   dataset paths/values/attributes needed by the scientific reader but is not
-   promised to be byte-identical to the source container; source SHA-256 proves
-   which original file was processed.
+4. By default, run in `derived-only`: do not create an HDF5 archive. An
+   optional `full-lossless` archive is built only when that retention profile is
+   selected.
+5. Run the original per-product GUNW/GOFF reader, exporting each baseline
+   GeoTIFF and its statistics CSV. Verify the single-reader row against the
+   pinned source-ZIP row **before deletion**, then validate export readability,
+   grid/CRS/bands, dimensions and valid-pixel consistency. If `full-lossless`
+   was selected, also compare raw and archived reads with the science engine.
+6. Upload outputs, source inventory/attributes, source SHA-256, AOI preflight,
+   validation report and download manifest into the granule-specific Drive
+   folder. `full-lossless` adds the archive, archive manifest and reader
+   equivalence report. Remote byte-size/MD5 checks and manifest-specific file
+   checks must pass.
+7. Delete runner-local raw HDF5 only after every required derived output is
+   uploaded and verified. Delete the temporary archive as well if one was made.
+   Store and verify the cleanup receipt. In `derived-only`, arbitrary future
+   raw-dataset queries such as a new product-native LOS geometry analysis are
+   not preserved unless a compact equivalent was explicitly exported.
 
 A failed upload or failed verification never reaches the explicit `rm` step.
 GitHub-hosted runners are disposable; if a run fails before retention succeeds,
@@ -98,18 +97,30 @@ Drive uploader refuses to overwrite a same-name file with different content.
   product artifact.
 - GOFF and GUNW summary time series built from the per-pair AOI GeoTIFFs. The finite-pixel median is recomputed at full raster precision and every PR/UR granule is kept as a graph edge, matching the pinned `--dir` path; the rounded statistics CSV and its PR/UR deduplication helper are deliberately not used for this baseline replay.
 - Pre-event inverse-velocity check with the explicit 2026-08-26 event cutoff.
+- Both `troposphere_gunw_source.csv` and `troposphere_goff_source.csv`, using
+  the committed options (GOFF filtered to `layer2`).
 - Candidate GOFF and GUNW local floors, summer common-reference table, and
   `bound_source.csv`.
+- Candidate-4 local floors (`local_floor_cand4.csv` and
+  `local_floor_cand4_as_floors.csv`) plus its common-datum inverse-velocity gate.
 - `ts_goff_cand4_common.csv`: this point-level common-datum time series is
-  reassembled from the fixed-lattice GOFF GeoTIFF exports, with the same
-  `common_mask`, target buffer, `rereference`, window median and time-series
-  inversion functions as the pinned science engine. The raw stack is not
+  reassembled from **all 18** fixed-lattice GOFF layer2 GeoTIFF exports (16 PR
+  plus 2 UR), with the same `common_mask`, target buffer, `rereference`,
+  window median and time-series inversion functions as the pinned science
+  engine. Do not drop the UR files merely because their acquisition dates
+  duplicate PR products: both the shared reference mask and least-squares
+  uncertainty depend on those edges. The workflow fails closed if the expected
+  16 PR + 2 UR source stack is incomplete. The raw HDF5 stack is not
   re-downloaded or kept on the aggregation runner.
 
 The report records each table comparison. Float comparisons use a small
 explicit tolerance for the float32 AOI-raster representation and rounded CSV
 outputs; file identity, row identity, required fields, export sets and
-missing/extra rows are checked too.
+missing/extra rows are checked too. The supplied source ZIP has no
+`ts_gunw_source.csv` baseline, so that table is labeled generated/unbaselined
+rather than claimed as a parity PASS. GeoTIFFs are not in the ZIP; the workflow
+validates raster structure and product statistics, but cannot claim historical
+pixel-for-pixel parity against absent TIFF files.
 The output bundle is not marked PASS if any required table differs or any
 product artifact is missing.
 
@@ -150,3 +161,66 @@ The workflow needs the same secrets as the existing retention pilot:
 - `GOOGLE_DRIVE_PARENT_FOLDER_ID`
 
 No credentials should be put into committed files or workflow inputs.
+
+
+## Resuming a failed full-baseline run
+
+To continue a run after a transient network/authentication failure, select the branch that contains the retry/resume changes and run the SARGuardian Streaming Batch (source AOI) workflow from Actions. Choose full-source-baseline, keep the same date range and retention mode, and enter the failed run's numeric ID in resume_from_run_id.
+
+The workflow downloads the prior manifest, product artifacts and cleanup receipts. It rejects reuse if the AOI, pinned science commit, dates, retention mode or ordered product identities differ. A checkpoint is reusable only when the derived-output baseline validation and remote-retention receipt pass, required local export/provenance files are present, and the cleanup receipt has been remotely verified. Every incomplete/ambiguous product is processed again.
+
+The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
+
+
+## Optional Earthdata user-token authentication
+
+The downloader supports an optional `EARTHDATA_TOKEN` repository Actions secret. When set, it builds an ASF session with `ASFSession.auth_with_token()` instead of requesting a new login token for each session through `urs.earthdata.nasa.gov/api/users/find_or_create_token`. If ASF rejects the user token with HTTP 401/403, the downloader retries once using the existing `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` credentials, if present. If the token endpoint/network itself is temporarily unreachable, a valid pre-generated user token avoids that particular dependency; it cannot prevent an unrelated outage on the ASF data host.
+
+To enable it:
+
+1. Sign in to [Earthdata Login](https://urs.earthdata.nasa.gov/), open your profile's **User Tokens / Generate Token** page, and create a user token.
+2. In this GitHub repository, open **Settings → Secrets and variables → Actions → New repository secret**.
+3. Set the secret name to `EARTHDATA_TOKEN` and paste the token only into its secret value. Do not commit it, put it in workflow inputs, or paste it into logs/issues/chat.
+4. Leave `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` configured as a fallback. The workflow never prints the token value.
+
+Earthdata Login's current user-token documentation says tokens are valid for 60 days and a user may have at most two valid tokens at a time. Rotate/update the secret before it expires. See the [official token documentation](https://urs.earthdata.nasa.gov/documentation/for_users/user_token) and the [ASFSession token-authentication reference](https://docs.asf.alaska.edu/asf_search/ASFSession/).
+
+The direct HDF5 transfer is also streamed using the authenticated ASF session with a 30-second connect timeout and 120-second read-idle timeout. Progress is logged every 128 MiB. A content-length mismatch or transient network interruption marks the attempt retryable; the incomplete staging file is removed before the workflow retries it. The full download step also has a 90-minute cap.
+
+The current resumed run #39520455676 was started before this token support was committed, so it does not have the new token-authentication code. Do not assume it is using the new secret; its active downloader step uses the older code from the run's pinned commit. A subsequent workflow attempt from the updated branch will use the optional token.
+
+
+## Candidate-4 replay correction
+
+Historical run #39520455676 was started before the token support was
+committed, so its downloader used the older username/password token-exchange
+path. The newer live run #39524783921 verified that GOFF-033 downloads and
+processes successfully using the updated branch. Its aggregation exposed a
+separate candidate-4 replay bug: the common-reference series selected only 16
+PR layer2 rasters even though the committed baseline includes 16 PR plus 2 UR
+rasters. The fix now preserves all 18 inputs and adds a regression test to
+prevent accidental UR-edge omission. The official artifact-only replay is complete and passed; see the dated result section below. This proves the retained-checkpoint aggregation path, not an independent end-to-end `resume_from_run_id` live rerun.
+
+
+## Reassemble existing successful artifacts without another HDF5 download
+
+When a product transfer and reader validation succeed but a downstream comparison fails, use
+**Actions → SARGuardian Reassemble Existing Product Artifacts → Run workflow** on
+`work/raw-hdf5-derived-only-parity`. This manual-only workflow takes two run IDs:
+- `checkpoint_run_id=39510497044`: the original run containing the 32 complete product checkpoints.
+- `product_run_id=39524783921`: the newer run containing the successful GOFF-033 product and cleanup evidence.
+
+These defaults reflect the currently verified runs; choose the IDs matching the evidence you want to combine. The workflow validates both manifests (AOI, source revision, date window, retention profile and exact ordered granule identities), merges the prior complete checkpoints with the newer successful product, then runs the same complete product, retention, cleanup and downstream parity gates. It does not call Earthdata or re-download source HDF5. It publishes a replay artifact even on comparison failure and uploads the final bundle/report to the run-scoped Google Drive folder only if every required gate passes.
+
+The baseline run's per-product artifacts expire after the configured retention period, so perform this replay while the source artifacts remain available. If the merged replay still fails, inspect `batch-equivalence-report.json`; only change the relevant downstream reconstruction where the report's row-key and field-mismatch evidence identifies a real discrepancy. Never relax a required baseline comparison just to force an overall PASS.
+
+## Official full-baseline artifact replay result (2026-10-21)
+
+The artifact-only reassembly workflow completed successfully in [run #39527193872](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39527193872), using checkpoints from run #39510497044 and the successfully processed replacement product from run #39524783921. The replay checked out backend aggregation commit `d9e67df7d800032c37d23f74df44c98e3ab655f7` and the pinned science source commit `ab547ecc82bcc4d6ccef545a59852536c2beacc6`.
+
+- `BATCH_EQUIVALENCE_STATUS=PASS`; 33/33 products validated; aggregation report has no errors.
+- All 12 committed downstream table comparisons passed with 0 missing keys, 0 extra keys and 0 field mismatches. This includes `outputs/ts_goff_cand4_common.csv` (20 rows), fixing the previous 26 field mismatches by using all 18 GOFF layer2 inputs (16 PR + 2 UR).
+- Cleanup evidence and actual product-retention accounting passed for 33/33 products. The report accounts for 297 unique remote files totaling 10,411,698 bytes (0.009697 GiB) for per-product retained outputs. This figure excludes the run-level bundle/report; the uploaded replay bundle, report and receipt total 2,469,359 bytes. No raw HDF5 was uploaded or re-downloaded during replay.
+- The report explicitly marks `ts_gunw_source.csv` as `GENERATED_NO_COMMITTED_BASELINE`; it is not counted among the 12 baseline comparisons. Because the source ZIP contains no historical TIFFs, this result does not claim pixel-by-pixel parity with original raster files. Trend logs also retain their `UNTESTED` / `NOT ROBUST` cautions; table parity does not independently validate geophysical interpretations.
+
+The artifact-only replay is now operationally proven for these retained artifacts. The separate full live `resume_from_run_id` path has not yet had an independent end-to-end run, so do not claim that exact recovery mode is fully proven until it is exercised.

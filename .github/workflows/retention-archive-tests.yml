@@ -82,6 +82,7 @@ jobs:
               Path(".github/workflows/sarguardian-retention-pilot.yml"),
               Path(".github/workflows/sarguardian-live-validation.yml"),
               Path(".github/workflows/sarguardian-streaming-batch.yml"),
+              Path(".github/workflows/sarguardian-reassemble-existing.yml"),
               Path(".github/workflows/retention-archive-tests.yml"),
           ):
               with path.open(encoding="utf-8") as stream:

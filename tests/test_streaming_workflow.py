@@ -26,8 +26,11 @@ def test_raw_deletion_is_only_after_verified_drive_upload():
     marker = "- name: Delete local raw/archive only after successful remote retention"
     section = text.split(marker, 1)[1].split("\n      - name:", 1)[0]
     assert "if: success()" in section
-    assert "DRIVE_ARCHIVE_NOT_REMOTELY_VERIFIED" in text
+    assert "DRIVE_OUTPUTS_NOT_REMOTELY_VERIFIED" in text
+    assert "FULL_LOSSLESS_ARCHIVE_NOT_FOUND_IN_DRIVE_RECEIPT" in text
     assert "REFUSING_RAW_DELETION_WITHOUT_REMOTE_VERIFICATION" in section
+    assert "REFUSING_RAW_DELETION_WITHOUT_DERIVED_BASELINE_VALIDATION" in section
+    assert "REMOTE_REQUIRED_DERIVED_OUTPUT_MISSING" in section
 
 
 def test_product_run_diagnostics_are_explicitly_pre_cleanup():
@@ -41,12 +44,15 @@ def test_product_run_diagnostics_are_explicitly_pre_cleanup():
 
 def test_quota_uses_actual_processed_upload_files_not_raw_estimates():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
+    manifest = text.split("  manifest:", 1)[1].split("  process-one:", 1)[0]
     process = text.split("  process-one:\n", 1)[1].split("\n  aggregate:", 1)[0]
     assert "preflight_drive_quota.py" not in text
     assert "expected_source_bytes" in manifest  # disk/download estimate only
     assert "Create a full-lossless retained HDF5 copy" in process
-    assert "Upload retained archive and all per-product outputs to Drive with checksum verification" in process
+    assert "Upload validated per-product outputs to Drive with checksum verification" in process
+    assert "default: derived-only" in text
+    assert "if: env.RETENTION_PROFILE == 'full-lossless'" in process
+    assert "derived-output-validation.json" in process
     uploader = (WORKFLOW.parents[2] / "tools" / "drive_resumable_upload.py").read_text(encoding="utf-8")
     assert "CURATED_UPLOAD_ACTUAL_BYTES" in uploader
     assert "DRIVE_NEW_BYTES_REQUIRED_ACTUAL" in uploader
@@ -73,7 +79,8 @@ def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
     assert "def direct_product_url(" in downloader
     assert "def probe_direct_product(" in downloader
     assert "acquisition.build_session()" in downloader
-    assert "asf_search.download_url" in downloader
+    assert "download_exact_product_with_timeout(" in downloader
+    assert "timeout=(connect_timeout_seconds, read_timeout_seconds)" in downloader
     assert "query_by_year(" not in downloader
     assert "earthaccess" not in downloader.lower()
     for workflow in (stream, live):
@@ -93,3 +100,121 @@ def test_granule_drive_uploads_are_scoped_to_a_unique_run_folder():
         workflow = (root / ".github" / "workflows" / filename).read_text(encoding="utf-8")
         assert "DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}" in workflow
         assert '--version-tag "$DRIVE_VERSION_TAG"' in workflow
+
+def test_inline_json_receipts_do_not_append_literal_backslash_n():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    # A doubled escape writes the two characters "\\n" after the JSON document,
+    # which Python's json.loads rejects as "Extra data".
+    assert r'json.dumps(metadata, indent=2) + "\\n"' not in text
+    assert r'json.dumps(meta,indent=2)+"\\n"' not in text
+    assert r'json.dumps(record,indent=2)+"\\n"' not in text
+
+def test_failed_download_diagnostics_are_preserved_for_aggregation():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    diagnostic = text.split(
+        "- name: Write a compact diagnostic receipt even when a product fails", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert "DOWNLOAD_LOG: ${{ runner.temp }}/sarguardian-download-${{ matrix.id }}.log" in diagnostic
+    assert '"DIRECT_PRODUCT_DIAGNOSTIC="' in diagnostic
+    assert '"download_diagnostics": download_diagnostics' in diagnostic
+    assert '"download_error_code": download_error_code' in diagnostic
+    aggregator = (WORKFLOW.parents[2] / "tools" / "aggregate_streamed_outputs.py").read_text(encoding="utf-8")
+    assert "read_product_diagnostic_context(artifact_dir)" in aggregator
+    assert '"download_error_code": record.get("download_error_code")' in aggregator
+
+def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    manifest = text.split("  manifest:\n", 1)[1].split("\n  process-one:", 1)[0]
+    preflight = manifest.index("- name: Fail fast when a selected urgent-response baseline product is unavailable")
+    preserve = manifest.index("- name: Preserve run manifest for aggregation")
+    assert preserve < preflight
+    assert "if: inputs.run_profile == 'full-source-baseline'" in manifest[preflight - 250:preflight + 150]
+    assert "--probe-only" in manifest[preflight:]
+    assert "ERROR=UR_BASELINE_SOURCE_UNAVAILABLE" in manifest[preflight:]
+    assert "full-baseline processing stopped before any product downloads" in manifest[preflight:]
+
+def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    download = text.split(
+        "- name: Download exactly one raw NISAR granule", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert '--out-dir "$RAW_DIR" 2>&1 | tee "$attempt_log"' in download
+    assert "max_attempts=4" in download
+    assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
+    assert "timeout-minutes: 90" in download
+    assert 'ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED' in (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
+
+
+
+def test_download_step_retries_transient_earthdata_failures_with_bounded_backoff():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    download = text.split(
+        "- name: Download exactly one raw NISAR granule", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert "max_attempts=4" in download
+    assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
+    assert "DOWNLOAD_RETRY_SCHEDULED" in download
+    assert "timeout-minutes: 90" in download
+
+
+def test_urgent_response_preflight_also_retries_transient_authentication_failures():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    preflight = text.split(
+        "- name: Fail fast when a selected urgent-response baseline product is unavailable", 1
+    )[1].split("\n\n  process-one:", 1)[0]
+    assert "DOWNLOAD_FAILURE_RETRYABLE=" in preflight
+    assert "max_attempts = 4" in preflight
+    assert "UR_PREFLIGHT_RETRY" in preflight
+    assert "time.sleep(delay)" in preflight
+
+
+def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "resume_from_run_id:" in text
+    assert "permissions:\n  contents: read\n  actions: read" in text
+    assert "Download previous run manifest for safe resume" in text
+    assert "Download previous per-product checkpoints for safe resume" in text
+    assert "RESUME_PRODUCTS_REUSED=" in text
+    assert 'manifest["products_to_process"] = matrix_products' in text
+    assert "Download prior per-granule checkpoints for resume" in text
+    assert "Assemble complete product checkpoints for aggregation" in text
+    assert "python tools/resume_streamed_run.py merge" in text
+    assert "retention-days: 14" in text
+
+
+def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 2
+    downloader = (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("EARTHDATA_TOKEN", "").strip()' in downloader
+    assert "auth_with_token(token)" in downloader
+    assert "EARTHDATA_AUTH_MODE=pre_generated_user_token" in downloader
+    assert "EARTHDATA_AUTH_MODE=username_password_token_exchange" in downloader
+
+
+
+def test_artifact_only_reassembly_reuses_existing_product_runs_without_source_downloads():
+    root = Path(__file__).resolve().parents[1]
+    replay = (root / ".github" / "workflows" / "sarguardian-reassemble-existing.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in replay
+    assert "default: '39510497044'" in replay
+    assert "default: '39524783921'" in replay
+    assert "permissions:\n  contents: read\n  actions: read" in replay
+    assert "validate_resume_compatibility(product, base)" in replay
+    assert "REASSEMBLY_MANIFEST_COMPATIBILITY=PASS PRODUCTS=" in replay
+    assert "pattern: sarguardian-granule-*" in replay
+    assert "pattern: sarguardian-cleanup-*" in replay
+    assert "Merge verified checkpoints without re-downloading source data" in replay
+    assert "python tools/resume_streamed_run.py merge" in replay
+    assert "python tools/aggregate_streamed_outputs.py" in replay
+    assert "retention-days: 14" in replay
+    assert "EARTHDATA_TOKEN" not in replay
+    assert "download_nisar_product.py" not in replay
+
+
+def test_candidate4_common_reference_uses_exact_pinned_pr_ur_stack():
+    root = Path(__file__).resolve().parents[1]
+    aggregator = (root / "tools" / "aggregate_streamed_outputs.py").read_text(encoding="utf-8")
+    assert "select_candidate4_common_reference_rows(stats)" in aggregator
+    assert '"product_families": {"PR": 16, "UR": 2}' in aggregator
+    assert "Expected all 18 candidate-4 GOFF layer2 source products" in aggregator

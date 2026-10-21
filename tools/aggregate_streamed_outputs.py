@@ -26,11 +26,45 @@ IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL b
 BASELINE_DOWNSTREAM = [
     "ts_goff_source.csv",
     "ts_goff_cand4_common.csv",
+    "troposphere_gunw_source.csv",
+    "troposphere_goff_source.csv",
     "local_floor_candidates.csv",
     "local_floor_phase_candidates.csv",
+    "local_floor_cand4.csv",
+    "local_floor_cand4_as_floors.csv",
     "common_ref_summer.csv",
     "bound_source.csv",
 ]
+
+
+def read_product_diagnostic_context(artifact_dir: Path) -> dict[str, Any]:
+    """Expose the relevant sanitized per-product diagnostics when primary metadata is absent."""
+    path = artifact_dir / "product-run-diagnostics.json"
+    if not path.is_file():
+        return {"diagnostics_artifact_present": False}
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "diagnostics_artifact_present": True,
+            "diagnostics_parse_error": f"{type(exc).__name__}: {str(exc)[:180]}",
+        }
+    if not isinstance(record, dict):
+        return {
+            "diagnostics_artifact_present": True,
+            "diagnostics_parse_error": "diagnostics JSON root is not an object",
+        }
+    outcomes = record.get("step_outcomes")
+    lines = record.get("download_diagnostics")
+    return {
+        "diagnostics_artifact_present": True,
+        "diagnostic_step_outcomes": outcomes if isinstance(outcomes, dict) else {},
+        "download_error_code": record.get("download_error_code"),
+        "download_diagnostics": lines[:16] if isinstance(lines, list) else [],
+        "download_manifest_created": record.get("download_manifest_created"),
+        "drive_receipt_created": record.get("drive_receipt_created"),
+        "raw_hdf5_present_at_diagnostic_time": record.get("raw_hdf5_present_at_diagnostic_time"),
+    }
 
 
 def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -160,8 +194,9 @@ def validate_cleanup_evidence(
     cleanup_artifact_root: Path,
     errors: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Require evidence that raw runner copies were deleted after remote retention."""
+    """Require policy-aware proof that derived outputs were retained before raw cleanup."""
     expected = len(manifest.get("products", []))
+    profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
     verified = 0
     for product in manifest.get("products", []):
         pid = str(product.get("id", ""))
@@ -182,10 +217,10 @@ def validate_cleanup_evidence(
             })
             continue
 
-        retained_path = Path(str(meta.get("retained_archive", ""))).name
-        uploaded_receipts = drive_receipt.get("files", [])
+        schema = receipt.get("schema_version")
         checks = {
-            "schema_version": (receipt.get("schema_version"), "sarguardian-local-cleanup-receipt/1.0"),
+            "schema_version": (schema in {"sarguardian-local-cleanup-receipt/1.0",
+                                          "sarguardian-local-cleanup-receipt/1.1"}, True),
             "product_id": (receipt.get("product_id"), pid),
             "product_type": (receipt.get("product_type"), product.get("product_type")),
             "maturity": (receipt.get("maturity"), product.get("maturity")),
@@ -195,27 +230,37 @@ def validate_cleanup_evidence(
             "remote_retention_verification": (receipt.get("remote_retention_verification"), "PASS"),
             "remote_retention_folder_id": (receipt.get("remote_retention_folder_id"), meta.get("drive_remote_folder_id")),
             "source_file_sha256": (receipt.get("source_file_sha256"), meta.get("source_file_sha256")),
-            "retained_archive_name": (receipt.get("retained_archive_name"), retained_path),
-            "retained_archive_sha256": (receipt.get("retained_archive_sha256"), meta.get("retained_archive_sha256")),
             "runner_raw_hdf5_deleted": (receipt.get("runner_raw_hdf5_deleted"), True),
             "runner_archive_deleted": (receipt.get("runner_archive_deleted"), True),
-            "cleanup_scope": (
-                receipt.get("cleanup_scope"),
-                "temporary GitHub Actions runner only; remote full-lossless Drive archive remains retained",
-            ),
+            "retention_profile": (receipt.get("retention_profile", "full-lossless" if schema == "sarguardian-local-cleanup-receipt/1.0" else None), profile),
         }
         mismatches = [
             {"field": field, "expected": want, "actual": actual}
             for field, (actual, want) in checks.items()
             if actual != want
         ]
+        retained_name = receipt.get("retained_archive_name")
+        retained_sha = receipt.get("retained_archive_sha256")
+        meta_archive = Path(str(meta.get("retained_archive") or "")).name if meta.get("retained_archive") else None
+        if profile == "full-lossless":
+            if not meta_archive or retained_name != meta_archive:
+                mismatches.append({"field": "retained_archive_name", "expected": meta_archive, "actual": retained_name})
+            if not meta.get("retained_archive_sha256") or retained_sha != meta.get("retained_archive_sha256"):
+                mismatches.append({"field": "retained_archive_sha256", "expected": meta.get("retained_archive_sha256"), "actual": retained_sha})
+        else:
+            if retained_name is not None or retained_sha is not None or meta.get("retained_archive") is not None:
+                mismatches.append({"field": "derived_only_must_not_retain_archive",
+                                   "expected": None, "actual": {"name": retained_name, "sha256": retained_sha,
+                                                                "metadata_path": meta.get("retained_archive")}})
+
+        uploaded_receipts = drive_receipt.get("files", []) if isinstance(drive_receipt, dict) else []
         if drive_receipt.get("remote_verification") != "PASS":
             mismatches.append({
                 "field": "cleanup_receipt_remote_verification",
                 "expected": "PASS",
                 "actual": drive_receipt.get("remote_verification"),
             })
-        if not any(row.get("name") == "local-cleanup-receipt.json" for row in uploaded_receipts):
+        if not any(row.get("name") == "local-cleanup-receipt.json" for row in uploaded_receipts if isinstance(row, dict)):
             mismatches.append({
                 "field": "cleanup_receipt_uploaded_to_drive",
                 "expected": True,
@@ -247,6 +292,8 @@ def summarize_retained_storage(
     new_file_ids: set[str] = set()
     accounted = 0
     products = manifest.get("products", [])
+    retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
+    expected_archive_count = 1 if retention_profile == "full-lossless" else 0
 
     for product in products:
         pid = str(product.get("id", ""))
@@ -353,10 +400,12 @@ def summarize_retained_storage(
             continue
 
         archive_rows = [x for x in product_files.values() if x["name"].endswith(".science.h5")]
-        if len(archive_rows) != 1:
+        if len(archive_rows) != expected_archive_count:
             errors.append({
                 "problem": "retention_storage_archive_count_invalid",
                 "id": pid,
+                "retention_profile": retention_profile,
+                "expected": expected_archive_count,
                 "count": len(archive_rows),
             })
             continue
@@ -375,11 +424,13 @@ def summarize_retained_storage(
                 new_file_ids.add(file_id)
 
         product_bytes = sum(row["bytes"] for row in product_files.values())
-        archive_bytes = archive_rows[0]["bytes"]
+        archive_bytes = archive_rows[0]["bytes"] if archive_rows else 0
         ancillary_bytes = product_bytes - archive_bytes
         by_product.append({
             "product_id": pid,
             "granule_name": product.get("granule_name"),
+            "retention_profile": retention_profile,
+            "retained_archive": bool(archive_rows),
             "remote_retained_file_count": len(product_files),
             "retained_archive_bytes": archive_bytes,
             "ancillary_retained_bytes": ancillary_bytes,
@@ -392,6 +443,7 @@ def summarize_retained_storage(
     expected = len(products)
     return {
         "status": "PASS" if accounted == expected and expected > 0 else "FAIL",
+        "retention_profile": retention_profile,
         "accounting_basis": "verified Google Drive upload receipt file sizes after processing; not raw source-size estimates",
         "products_expected": expected,
         "products_accounted": accounted,
@@ -422,6 +474,9 @@ def aggregate_stats(
         stats_name = f"{family.lower()}_stats_source.csv"
         baseline_fields[family], baseline_rows[family] = read_csv(outputs / stats_name)
 
+    retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
+    if retention_profile not in {"derived-only", "full-lossless"}:
+        errors.append({"problem": "invalid_retention_profile", "actual": retention_profile})
     seen_ids: set[str] = set()
     for product in manifest["products"]:
         pid = str(product["id"])
@@ -440,16 +495,34 @@ def aggregate_stats(
                 ("maturity", product["maturity"]),
                 ("aoi", "source"),
                 ("science_commit", manifest["science_commit"]),
-                ("retention_profile", "full-lossless"),
+                ("retention_profile", retention_profile),
             ):
                 if meta.get(key) != want:
                     errors.append({"problem": "product_metadata_mismatch", "id": pid,
                                    "field": key, "expected": want, "actual": meta.get(key)})
             eq = meta.get("reader_equivalence_status")
-            if eq not in {"PASS", "PASS_NO_VALID_AOI_PIXELS"}:
-                errors.append({"problem": "reader_equivalence_not_pass", "id": pid, "actual": eq})
-            if not meta.get("drive_remote_verification") == "PASS":
-                errors.append({"problem": "remote_archive_not_verified", "id": pid})
+            if retention_profile == "full-lossless":
+                if eq not in {"PASS", "PASS_NO_VALID_AOI_PIXELS"}:
+                    errors.append({"problem": "reader_equivalence_not_pass", "id": pid, "actual": eq})
+                if not meta.get("retained_archive"):
+                    errors.append({"problem": "full_lossless_archive_path_missing", "id": pid})
+            else:
+                if meta.get("derived_output_validation_status") != "PASS":
+                    errors.append({"problem": "derived_output_validation_not_pass", "id": pid,
+                                   "actual": meta.get("derived_output_validation_status")})
+                validation_path = artifact_dir / "derived-output-validation.json"
+                try:
+                    validation_report = json.loads(validation_path.read_text(encoding="utf-8"))
+                    if validation_report.get("status") != "PASS":
+                        errors.append({"problem": "derived_output_validation_report_not_pass", "id": pid,
+                                       "actual": validation_report.get("status")})
+                except Exception as exc:
+                    errors.append({"problem": "derived_output_validation_report_missing", "id": pid,
+                                   "detail": str(exc)[:240]})
+                if meta.get("retained_archive") is not None:
+                    errors.append({"problem": "unexpected_archive_path_in_derived_only", "id": pid})
+            if meta.get("drive_remote_verification") != "PASS":
+                errors.append({"problem": "remote_outputs_not_verified", "id": pid})
             stats_rel = str(meta["stats_csv"])
             stats_path = safe_relative(artifact_dir, stats_rel)
             _, rows = read_csv(stats_path)
@@ -467,8 +540,13 @@ def aggregate_stats(
             rows_by_type[meta["product_type"]].extend(rows)
             product_meta[pid] = (meta, artifact_dir)
         except Exception as exc:
-            errors.append({"problem": "product_artifact_read_failed", "id": pid,
-                           "type": type(exc).__name__, "detail": str(exc)[:240]})
+            errors.append({
+                "problem": "product_artifact_read_failed",
+                "id": pid,
+                "type": type(exc).__name__,
+                "detail": str(exc)[:240],
+                **read_product_diagnostic_context(artifact_dir),
+            })
 
     # Write canonical aggregate CSVs in the original batch baseline order.
     # Full profile must reproduce every row; pilot profile compares its subset only.
@@ -527,7 +605,12 @@ def aggregate_stats(
 
 def compare_output_file(path: Path, baseline_path: Path, report: dict[str, Any]) -> None:
     if not baseline_path.is_file():
-        report["comparisons"].append({"table": str(path.name), "status": "SKIP_NO_COMMITTED_BASELINE"})
+        report["errors"].append({
+            "problem": "required_committed_baseline_missing",
+            "file": path.name,
+            "baseline_path": str(baseline_path),
+        })
+        report["comparisons"].append({"table": str(path.name), "status": "FAIL_REQUIRED_BASELINE_MISSING"})
         return
     try:
         fields, actual = read_csv(path)
@@ -550,13 +633,42 @@ def compare_output_file(path: Path, baseline_path: Path, report: dict[str, Any])
 
 
 
-def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
-    """Recreate the candidate-4 common-datum series from the exported AOI rasters.
+def select_candidate4_common_reference_rows(
+    stats: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Select the exact pinned candidate-4 source stack, preserving PR/UR duplicate edges."""
+    selected = [
+        row for row in stats
+        if "layer2" in (row.get("layer") or "")
+        and ("_PR_GOFF_" in (row.get("file") or "")
+             or "_UR_GOFF_" in (row.get("file") or ""))
+    ]
+    pr_count = sum("_PR_GOFF_" in (row.get("file") or "") for row in selected)
+    ur_count = sum("_UR_GOFF_" in (row.get("file") or "") for row in selected)
+    identities = [Path(row.get("file") or "").name for row in selected]
+    if len(selected) != 18 or pr_count != 16 or ur_count != 2:
+        raise ValueError(
+            "Expected all 18 candidate-4 GOFF layer2 source products "
+            f"(16 PR + 2 UR); found total={len(selected)} PR={pr_count} UR={ur_count}"
+        )
+    if len(set(identities)) != 18 or any(not name for name in identities):
+        raise ValueError("Candidate-4 GOFF layer2 source product identities are missing or duplicated")
+    return selected
 
-    This deliberately uses the same source-AOI GeoTIFF arrays emitted by the
-    original GOFF reader and the same common-datum/inversion functions as the
-    scientific engine. It avoids retaining a stack of raw HDF5 files in the
-    aggregation job while preserving the target-level, cross-pair datum logic.
+
+def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
+    """Recreate the candidate-4 common-datum series from all 18 GOFF layer2 exports.
+
+    The committed candidate-4 baseline was built with every GOFF layer2 source
+    product, including both PR and UR representations of the two late duplicate
+    acquisition pairs. Those duplicate-date edges must not be deduplicated:
+    their rasters participate in the cross-pair common mask and provide the
+    residual degrees of freedom used by the reported uncertainty. Excluding UR
+    rows changes the datum mask for every pair, not just the late time-series
+    epochs, and silently changes cumulative displacement and error estimates.
+
+    Read the small, validated AOI GeoTIFFs rather than retaining/re-downloading
+    the raw HDF5 stack.
     """
     import re
     from datetime import datetime
@@ -570,11 +682,7 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
 
     outputs = science_root / "outputs"
     _, stats = read_csv(outputs / "goff_stats_source.csv")
-    selected = [r for r in stats
-                if "_PR_GOFF_" in (r.get("file") or "")
-                and "layer2" in (r.get("layer") or "")]
-    if len(selected) != 16:
-        raise ValueError(f"Expected 16 routine PR GOFF layer2 pairs for common-datum replay; found {len(selected)}")
+    selected = select_candidate4_common_reference_rows(stats)
 
     target_lat, target_lon = 28.27799, 85.52983
     target_radius_px, buffer_km = 6, 2.0
@@ -651,7 +759,8 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
         "name": "Candidate-4 common-reference series from per-product GeoTIFF exports",
         "exit_code": 0,
         "product_count": len(selected),
-        "source": "reader exports, not raw HDF5",
+        "product_families": {"PR": 16, "UR": 2},
+        "source": "all 18 validated GOFF layer2 reader exports, including PR and UR duplicate-date edges; not raw HDF5",
         "target": {"lat": target_lat, "lon": target_lon, "radius_px": target_radius_px, "buffer_km": buffer_km},
         "output": "outputs/ts_goff_cand4_common.csv",
     })
@@ -804,6 +913,32 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
         report["errors"].append({"problem": "event_cutoff_diagnostic_missing",
                                  "log_tail": done.stdout[-1200:]})
 
+    # Rebuild both troposphere reports from the retained, reader-exported rasters.
+    troposphere_commands = [
+        [sys.executable, "src/troposphere.py", "--dir", "outputs/export_src",
+         "--aoi", "source", "--report-only", "--csv", "outputs/troposphere_gunw_source.csv"],
+        [sys.executable, "src/troposphere.py", "--dir", "outputs/export_goff_src",
+         "--aoi", "source", "--match", "layer2", "--report-only",
+         "--csv", "outputs/troposphere_goff_source.csv"],
+    ]
+    for label, argv in zip(("GUNW troposphere report", "GOFF troposphere report"), troposphere_commands):
+        done = subprocess.run(argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, check=False)
+        log_path = out_root / "logs" / (label.lower().replace(" ", "_") + ".log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(done.stdout, encoding="utf-8")
+        report["commands"].append({"name": label, "argv": argv[1:], "exit_code": done.returncode,
+                                   "log": str(log_path.relative_to(out_root)),
+                                   "source": "reader-exported GeoTIFFs, not raw HDF5"})
+        if done.returncode:
+            report["errors"].append({"problem": "downstream_command_failed", "name": label,
+                                     "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+            return
+        if not (science_root / argv[-1]).is_file():
+            report["errors"].append({"problem": "downstream_output_missing", "name": label,
+                                     "expected_output": argv[-1]})
+            return
+
     # These are the exact input dates/exclusions documented for Result 7.
     local_floor_commands = [
         [
@@ -850,6 +985,65 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
     except Exception as exc:
         report["errors"].append({"problem": "common_reference_target_series_failed",
                                  "type": type(exc).__name__, "detail": str(exc)[:400]})
+
+    # Candidate-4 floor tables are required by the source project's final detector gate.
+    candidate4_floor_cmd = [
+        sys.executable, "src/local_floor.py", "--dir", "outputs/export_goff_src",
+        "--match", "layer2", "--lat", "28.27799", "--lon", "85.52983",
+        "--radius", "6", "--exclude", "_UR_", "20260828", "20260831",
+        "--csv", "outputs/local_floor_cand4.csv",
+        "--as-floors", "outputs/local_floor_cand4_as_floors.csv",
+    ]
+    done = subprocess.run(candidate4_floor_cmd, cwd=science_root, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    log_path = out_root / "logs" / "candidate4_local_floors.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(done.stdout, encoding="utf-8")
+    report["commands"].append({
+        "name": "Candidate-4 floors for common-datum time series",
+        "argv": candidate4_floor_cmd[1:],
+        "exit_code": done.returncode,
+        "log": str(log_path.relative_to(out_root)),
+        "source": "GOFF layer2 reader-exported GeoTIFFs, not raw HDF5",
+    })
+    if done.returncode:
+        report["errors"].append({"problem": "downstream_command_failed", "name": "candidate4_local_floors",
+                                 "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+        return
+    if not (science_root / "outputs/local_floor_cand4.csv").is_file() or not (
+        science_root / "outputs/local_floor_cand4_as_floors.csv"
+    ).is_file():
+        report["errors"].append({"problem": "candidate4_floor_outputs_missing"})
+        return
+
+    candidate4_velocity_cmd = [
+        sys.executable, "src/inverse_velocity.py", "--ts", "outputs/ts_goff_cand4_common.csv",
+        "--floors", "outputs/local_floor_cand4_as_floors.csv", "--floors-layer", "layer2",
+        "--event-date", "2026-08-26",
+    ]
+    done = subprocess.run(candidate4_velocity_cmd, cwd=science_root, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    log_path = out_root / "logs" / "candidate4_inverse_velocity.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(done.stdout, encoding="utf-8")
+    report["commands"].append({
+        "name": "Candidate-4 common-datum inverse-velocity gate",
+        "argv": candidate4_velocity_cmd[1:],
+        "exit_code": done.returncode,
+        "log": str(log_path.relative_to(out_root)),
+    })
+    if done.returncode:
+        report["errors"].append({"problem": "downstream_command_failed", "name": "candidate4_inverse_velocity",
+                                 "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
+        return
+
+    # The science ZIP contains no committed ts_gunw_source.csv; report it as
+    # generated but unbaselined, never as a parity PASS.
+    report["unbaselined_outputs"] = [{
+        "file": "ts_gunw_source.csv",
+        "status": "GENERATED_NO_COMMITTED_BASELINE",
+        "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline.",
+    }]
 
     # Compare regenerated key outputs with the pinned repository's committed baselines.
     baseline_dir = out_root / "baseline-snapshot"
@@ -934,8 +1128,13 @@ def main() -> int:
         "comparisons": [],
         "commands": [],
         "errors": [],
-        "archive_policy": "full-lossless",
-        "raw_delete_policy": "a raw runner copy is removed only after the full-lossless archive, all derived files, and remote checksums have passed; the remote full-lossless HDF5 and provenance are retained",
+        "retention_profile": str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless"))),
+        "archive_policy": str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless"))),
+        "raw_delete_policy": (
+            "raw runner copy is removed only after the full-lossless archive, reader equivalence, all derived files, and remote checksums pass; the remote archive remains retained"
+            if manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")) == "full-lossless" else
+            "raw runner copy is removed only after the complete derived-output baseline gate, all declared outputs, source inventory and remote checksums pass; no HDF5 archive is retained"
+        ),
     }
     aggregate_stats(manifest, artifact_root, science_root, out_root, report)
     report["cleanup_evidence"] = validate_cleanup_evidence(

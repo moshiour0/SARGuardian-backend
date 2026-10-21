@@ -18,6 +18,8 @@ import os
 import re
 import shutil
 import sys
+import time
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,78 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def download_exact_product_with_timeout(
+    session: Any,
+    url: str,
+    out_path: Path,
+    expected_bytes: int | None,
+    *,
+    connect_timeout_seconds: int = 30,
+    read_timeout_seconds: int = 120,
+    progress_interval_bytes: int = 128 * 1024 * 1024,
+) -> int:
+    """Stream one authenticated ASF object with bounded idle waits and progress logs."""
+    if not trusted_asf_url(url):
+        raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
+    response = session.get(
+        url,
+        allow_redirects=True,
+        stream=True,
+        timeout=(connect_timeout_seconds, read_timeout_seconds),
+    )
+    try:
+        response.raise_for_status()
+        header_length = response.headers.get("Content-Length")
+        try:
+            header_bytes = int(header_length) if header_length else None
+        except (TypeError, ValueError, OverflowError):
+            header_bytes = None
+        if (
+            expected_bytes and header_bytes
+            and header_bytes != expected_bytes
+        ):
+            raise RuntimeError(
+                f"DOWNLOAD_CONTENT_LENGTH_MISMATCH expected={expected_bytes} "
+                f"response_header={header_bytes}"
+            )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        downloaded = 0
+        next_progress = progress_interval_bytes
+        try:
+            with out_path.open("wb") as target:
+                for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                    if not chunk:
+                        continue
+                    target.write(chunk)
+                    downloaded += len(chunk)
+                    if downloaded >= next_progress:
+                        print(
+                            f"DOWNLOAD_PROGRESS_BYTES={downloaded} "
+                            f"EXPECTED_BYTES={expected_bytes or header_bytes or 'unknown'}",
+                            flush=True,
+                        )
+                        while next_progress <= downloaded:
+                            next_progress += progress_interval_bytes
+        except requests.exceptions.RequestException:
+            out_path.unlink(missing_ok=True)
+            raise
+
+        if downloaded <= 0:
+            out_path.unlink(missing_ok=True)
+            raise RuntimeError("DOWNLOAD_EMPTY_RESPONSE_BODY")
+        expected = expected_bytes or header_bytes
+        if expected and downloaded != expected:
+            out_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"DOWNLOAD_CONTENT_LENGTH_MISMATCH expected={expected} actual={downloaded}"
+            )
+        print(f"DOWNLOAD_COMPLETE_BYTES={downloaded}", flush=True)
+        return downloaded
+    finally:
+        response.close()
 
 
 def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
@@ -87,8 +161,21 @@ def safe_remote_error(exc: BaseException) -> str:
     return f"status={code or 'unknown'} detail={detail or type(exc).__name__}"
 
 
+def is_retryable_remote_failure(exc: BaseException) -> bool:
+    """Classify only transient HTTP/network failures for automated whole-step retry."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is not None:
+        return int(status) in {408, 425, 429, 500, 502, 503, 504}
+    if re.search(r"\b(?:HTTP_STATUS_)(?:408|425|429|500|502|503|504)\b", str(exc)):
+        return True
+    if "DOWNLOAD_CONTENT_LENGTH_MISMATCH" in str(exc):
+        return True
+    return isinstance(exc, requests.exceptions.RequestException)
+
+
 def direct_product_url(wanted: str, product_type: str, maturity: str) -> str:
-    """Build the documented NISAR Earthdata HTTPS path for an exact granule."""
+    """Build the documented NISAR Earthdata HTTPS path for a production granule."""
     collection = f"NISAR_L2_{product_type}_{maturity.upper()}_V1"
     return (
         "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/"
@@ -96,63 +183,272 @@ def direct_product_url(wanted: str, product_type: str, maturity: str) -> str:
     )
 
 
-def probe_direct_product(
-    acquisition: Any, wanted: str, product_type: str, maturity: str
-) -> tuple[dict[str, Any], Any, int | None]:
-    """Verify the exact HTTPS object and read its size without catalog search.
+def is_urgent_response_product(wanted: str) -> bool:
+    """UR products live in a separate bucket; do not use the production URL layout."""
+    return bool(re.search(r"_UR_(?:GUNW|GOFF)_", wanted))
 
-    This is for product names already supplied by the pinned SARGuardian
-    baseline. Its URL scheme is documented by ASF's NISAR data guide. The
-    raster AOI is still independently checked from the actual downloaded
-    HDF5 before any science processing or retention.
-    """
+
+def _sleep_before_retry(stage: str, attempt: int, detail: str) -> None:
+    delay = min(2 ** attempt, 30)
+    print(
+        f"NETWORK_RETRY stage={stage} attempt={attempt} "
+        f"sleep_seconds={delay} {safe_remote_error(RuntimeError(detail))}",
+        file=sys.stderr,
+    )
+    time.sleep(delay)
+
+
+def build_authenticated_session_with_retry(
+    acquisition: Any, attempts: int = 2, *, force_credentials: bool = False
+) -> Any:
+    """Prefer a pre-generated Earthdata user token; otherwise retry credential exchange."""
+    token = os.environ.get("EARTHDATA_TOKEN", "").strip()
+    if token and not force_credentials:
+        import asf_search
+
+        print("EARTHDATA_AUTH_MODE=pre_generated_user_token", file=sys.stderr)
+        # ASFSession applies the token as a Bearer credential. This avoids calling
+        # /api/users/find_or_create_token for each newly constructed session.
+        return asf_search.ASFSession().auth_with_token(token)
+
+    print("EARTHDATA_AUTH_MODE=username_password_token_exchange", file=sys.stderr)
+    for attempt in range(1, attempts + 1):
+        try:
+            return acquisition.build_session()
+        except requests.exceptions.RequestException as exc:
+            if attempt >= attempts:
+                raise
+            _sleep_before_retry("earthdata_authentication", attempt, str(exc))
+    raise RuntimeError("EARTHDATA_AUTHENTICATION_RETRIES_EXHAUSTED")
+
+
+def probe_url_content_length(session: Any, url: str, attempts: int = 3) -> int | None:
+    """Probe an exact HTTPS object with bounded retries for transient network/HTTP errors."""
+    if not trusted_asf_url(url):
+        raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
+
+    for attempt in range(1, attempts + 1):
+        response = None
+        try:
+            response = session.head(url, allow_redirects=True, timeout=60)
+            if response.status_code in {405, 501}:
+                response.close()
+                response = session.get(
+                    url,
+                    headers={"Range": "bytes=0-0"},
+                    allow_redirects=True,
+                    stream=True,
+                    timeout=60,
+                )
+            status = int(response.status_code)
+            if status in {429, 500, 502, 503, 504} and attempt < attempts:
+                reason = response.reason or f"HTTP_{status}"
+                response.close()
+                response = None
+                _sleep_before_retry("https_product_probe", attempt, reason)
+                continue
+            if status >= 400:
+                raise RuntimeError(
+                    f"DIRECT_PRODUCT_HTTP_STATUS_{status} {response.reason or ''}".strip()
+                )
+            content_range = response.headers.get("Content-Range", "")
+            match = re.search(r"/(\d+)\s*$", content_range)
+            if match:
+                remote_bytes = int(match.group(1))
+            else:
+                raw_size = response.headers.get("Content-Length")
+                try:
+                    remote_bytes = int(raw_size) if raw_size else 0
+                except (TypeError, ValueError, OverflowError):
+                    remote_bytes = 0
+            return remote_bytes if remote_bytes > 0 else None
+        except requests.exceptions.RequestException as exc:
+            if attempt >= attempts:
+                raise
+            _sleep_before_retry("https_product_probe", attempt, str(exc))
+        finally:
+            if response is not None:
+                response.close()
+    raise RuntimeError("DIRECT_PRODUCT_PROBE_RETRIES_EXHAUSTED")
+
+
+def probe_direct_product(
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
+) -> tuple[dict[str, Any], Any, int | None]:
+    """Verify the exact production HTTPS object and read its size."""
     url = direct_product_url(wanted, product_type, maturity)
     if not trusted_asf_url(url):
         raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
 
-    session = acquisition.build_session()
-    response = None
-    try:
-        response = session.head(url, allow_redirects=True, timeout=60)
-        if response.status_code in {405, 501}:
-            response.close()
-            response = session.get(
-                url,
-                headers={"Range": "bytes=0-0"},
-                allow_redirects=True,
-                stream=True,
-                timeout=60,
-            )
-        status = int(response.status_code)
-        if status >= 400:
-            raise RuntimeError(
-                f"DIRECT_PRODUCT_HTTP_STATUS_{status} {response.reason or ''}".strip()
-            )
-        content_range = response.headers.get("Content-Range", "")
-        match = re.search(r"/(\d+)\s*$", content_range)
-        if match:
-            remote_bytes = int(match.group(1))
-        else:
-            raw_size = response.headers.get("Content-Length")
-            try:
-                remote_bytes = int(raw_size) if raw_size else 0
-            except (TypeError, ValueError, OverflowError):
-                remote_bytes = 0
-    finally:
-        if response is not None:
-            response.close()
-
+    session = build_authenticated_session_with_retry(acquisition, force_credentials=force_credentials)
+    remote_bytes = probe_url_content_length(session, url)
     record = {
         "granuleName": wanted,
         "productType": product_type,
         "maturity": maturity.upper(),
         "downloadUrl": url,
-        "sizeBytes": remote_bytes if remote_bytes > 0 else None,
+        "sizeBytes": remote_bytes,
         "_sarguardian_discovery_backend": "direct_https_known_granule",
     }
-    return record, session, remote_bytes if remote_bytes > 0 else None
+    return record, session, remote_bytes
 
 
+def _catalog_record_for_exact_granule(
+    wanted: str, product_type: str, maturity: str, attempts: int = 3
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve the exact granule from ASF catalog metadata and its published access URL.
+
+    This fallback is required for UR products (separate storage bucket) and for
+    production URLs that no longer match the published object location.
+    """
+    import asf_search
+
+    results = None
+    for attempt in range(1, attempts + 1):
+        try:
+            results = asf_search.search(dataset="NISAR", granule_list=[wanted])
+            break
+        except requests.exceptions.RequestException as exc:
+            if attempt >= attempts:
+                raise RuntimeError(
+                    "ASF_CATALOG_SEARCH_FAILED " + safe_remote_error(exc)
+                ) from None
+            _sleep_before_retry("asf_catalog_search", attempt, str(exc))
+    if results is None:
+        raise RuntimeError("ASF_CATALOG_SEARCH_FAILED_NO_RESULT")
+
+    def value_matches(value: Any) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        text = value.strip()
+        parsed = urlparse(text)
+        if parsed.scheme:
+            text = Path(parsed.path).name
+        return normal_name(text) == wanted
+
+    exact_match = None
+    exact_url = None
+    for product in results:
+        props = getattr(product, "properties", {}) or {}
+        if not isinstance(props, dict):
+            props = {}
+        urls: list[str] = []
+        try:
+            urls = [u for u in product.get_urls() if isinstance(u, str)]
+        except Exception:
+            urls = []
+        props_url = props.get("url")
+        if isinstance(props_url, str):
+            urls.append(props_url)
+        urls = list(dict.fromkeys(urls))
+        exact_urls = [
+            u for u in urls
+            if value_matches(u) and trusted_asf_url(u)
+        ]
+        identity_values = [
+            props.get(key)
+            for key in (
+                "fileName", "granuleName", "sceneName", "productName",
+                "producerGranuleId", "producerGranuleID", "granule_ur",
+                "fileID", "name",
+            )
+        ]
+        identity_ok = any(value_matches(v) for v in identity_values)
+        if not identity_ok and not exact_urls:
+            continue
+        if not exact_urls:
+            continue
+        exact_match = product
+        exact_url = exact_urls[0]
+        break
+
+    if exact_match is None or exact_url is None:
+        if is_urgent_response_product(wanted):
+            raise RuntimeError(
+                "UR_GRANULE_NOT_FOUND_IN_ASF_CATALOG; urgent-response products use "
+                "a separate bucket and are normally retained for 30 days; an archived "
+                "source copy is required if ASF has expired this granule"
+            )
+        raise RuntimeError("ASF_CATALOG_EXACT_GRANULE_NOT_FOUND")
+
+    props = getattr(exact_match, "properties", {}) or {}
+    if not isinstance(props, dict):
+        props = {}
+    discovered_maturity = str(
+        props.get("dataMaturity") or props.get("maturity") or maturity
+    ).upper()
+    record = {
+        "granuleName": wanted,
+        "productType": product_type,
+        "maturity": discovered_maturity,
+        "downloadUrl": exact_url,
+        "sizeBytes": props.get("bytes") or props.get("sizeBytes"),
+        "_sarguardian_discovery_backend": "asf_catalog_exact_granule",
+    }
+    return record, props
+
+
+def probe_catalog_product(
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
+) -> tuple[dict[str, Any], Any, int | None]:
+    """Resolve an exact ASF catalog URL (including UR bucket routing), then verify it."""
+    record, _props = _catalog_record_for_exact_granule(
+        wanted, product_type, maturity
+    )
+    session = build_authenticated_session_with_retry(acquisition, force_credentials=force_credentials)
+    try:
+        remote_bytes = probe_url_content_length(session, record["downloadUrl"])
+    except RuntimeError as exc:
+        if is_urgent_response_product(wanted) and "DIRECT_PRODUCT_HTTP_STATUS_404" in str(exc):
+            raise RuntimeError(
+                "UR_GRANULE_OBJECT_EXPIRED_OR_NOT_AVAILABLE_IN_UR_BUCKET; "
+                "urgent-response products are normally retained for 30 days; "
+                "restore the exact raw granule from an independent archive if available"
+            ) from None
+        raise
+    record["sizeBytes"] = remote_bytes or record.get("sizeBytes")
+    return record, session, remote_bytes
+
+
+def probe_known_product(
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
+) -> tuple[dict[str, Any], Any, int | None]:
+    """Use exact product routing, falling back from rejected user tokens when credentials exist."""
+    try:
+        if is_urgent_response_product(wanted):
+            print("DISCOVERY_FALLBACK=ASF_CATALOG_URGENT_RESPONSE", file=sys.stderr)
+            return probe_catalog_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
+        try:
+            return probe_direct_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
+        except RuntimeError as exc:
+            if "DIRECT_PRODUCT_HTTP_STATUS_404" not in str(exc):
+                raise
+            print(
+                "DIRECT_PRODUCT_HTTP_404=retrying exact ASF catalog URL resolution",
+                file=sys.stderr,
+            )
+            return probe_catalog_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
+    except RuntimeError as exc:
+        token = os.environ.get("EARTHDATA_TOKEN", "").strip()
+        has_credentials = bool(os.environ.get("EARTHDATA_USERNAME")) and bool(os.environ.get("EARTHDATA_PASSWORD"))
+        auth_rejected = any(
+            f"DIRECT_PRODUCT_HTTP_STATUS_{status}" in str(exc) for status in (401, 403)
+        )
+        if token and has_credentials and not force_credentials and auth_rejected:
+            print(
+                "EARTHDATA_USER_TOKEN_REJECTED=retrying_once_with_username_password_session",
+                file=sys.stderr,
+            )
+            return probe_known_product(
+                acquisition, wanted, product_type, maturity, force_credentials=True
+            )
+        raise
 
 
 def main() -> int:
@@ -165,6 +461,11 @@ def main() -> int:
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--expected-source-bytes", type=int, default=0)
     parser.add_argument("--disk-safety-factor", type=float, default=2.2)
+    parser.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="Resolve the exact authenticated product URL and verify availability without downloading or writing source data",
+    )
     args = parser.parse_args()
 
     supplied_name = args.granule_name.strip()
@@ -177,21 +478,33 @@ def main() -> int:
     if f"_{args.product_type}_" not in wanted:
         print("ERROR=GRANULE_NAME_PRODUCT_TYPE_MISMATCH", file=sys.stderr)
         return 2
-    if not os.environ.get("EARTHDATA_USERNAME") or not os.environ.get("EARTHDATA_PASSWORD"):
-        print("ERROR=EARTHDATA_CREDENTIALS_MISSING", file=sys.stderr)
+    has_user_token = bool(os.environ.get("EARTHDATA_TOKEN", "").strip())
+    has_credentials = bool(os.environ.get("EARTHDATA_USERNAME")) and bool(os.environ.get("EARTHDATA_PASSWORD"))
+    if not has_user_token and not has_credentials:
+        print("ERROR=EARTHDATA_CREDENTIALS_MISSING_OR_EARTHDATA_TOKEN_MISSING", file=sys.stderr)
         return 2
 
     try:
         acquisition, acquisition_sha256 = load_source_acquisition(args.science_root, args.aoi)
-        record, session, remote_content_length_bytes = probe_direct_product(
+        record, session, remote_content_length_bytes = probe_known_product(
             acquisition, wanted, args.product_type, args.maturity
         )
     except Exception as exc:
         print(f"ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DOWNLOAD_FAILURE_RETRYABLE=" + ("yes" if is_retryable_remote_failure(exc) else "no"), file=sys.stderr)
         print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         print("SOURCE_ACQUISITION_MODULE=src/nisar_acquisition.py", file=sys.stderr)
         print(f"AOI={args.aoi}", file=sys.stderr)
         return 2
+
+    if args.probe_only:
+        print(f"PRODUCT_TYPE={args.product_type}")
+        print(f"MATURITY={args.maturity}")
+        print(f"AOI={args.aoi}")
+        print(f"DISCOVERY_BACKEND={record['_sarguardian_discovery_backend']}")
+        print(f"REMOTE_CONTENT_LENGTH_BYTES={remote_content_length_bytes or 'unknown'}")
+        print("PRODUCT_PREFLIGHT_STATUS=PASS")
+        return 0
 
     # The pinned baseline run supplies a conservative family estimate; a real
     # Content-Length from the exact HTTPS object wins when available.
@@ -213,7 +526,7 @@ def main() -> int:
     print(f"MATURITY={args.maturity}")
     print(f"COLLECTION={collection}")
     print(f"AOI={args.aoi}")
-    print("DISCOVERY_BACKEND=direct_https_known_granule")
+    print(f"DISCOVERY_BACKEND={record['_sarguardian_discovery_backend']}")
     print(f"REMOTE_CONTENT_LENGTH_BYTES={remote_content_length_bytes or 'unknown'}")
     print(f"EXPECTED_SOURCE_BYTES={expected_bytes}")
     print(f"RUNNER_FREE_BYTES_BEFORE_DOWNLOAD={free_bytes}")
@@ -227,12 +540,12 @@ def main() -> int:
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(mode=0o700)
     try:
-        import asf_search
-        # Same authenticated ASF downloader used by nisar_acquisition.py.
-        asf_search.download_url(
-            url=record["downloadUrl"],
-            path=str(staging_dir),
-            session=session,
+        staged_raw = staging_dir / f"{wanted}.h5"
+        download_exact_product_with_timeout(
+            session,
+            record["downloadUrl"],
+            staged_raw,
+            remote_content_length_bytes,
         )
         files = sorted([*staging_dir.glob("*.h5"), *staging_dir.glob("*.H5")])
         if len(files) != 1:
@@ -255,6 +568,7 @@ def main() -> int:
     except Exception as exc:
         shutil.rmtree(staging_dir, ignore_errors=True)
         print(f"ERROR=SOURCE_ASF_DOWNLOAD_FAILED TYPE={type(exc).__name__}", file=sys.stderr)
+        print("DOWNLOAD_FAILURE_RETRYABLE=" + ("yes" if is_retryable_remote_failure(exc) else "no"), file=sys.stderr)
         print("DIRECT_PRODUCT_DIAGNOSTIC=" + safe_remote_error(exc), file=sys.stderr)
         return 2
     finally:
@@ -270,7 +584,7 @@ def main() -> int:
         "maturity_requested": args.maturity,
         "aoi": args.aoi,
         "collection_short_name": collection,
-        "discovery_backend": "direct_https_known_granule",
+        "discovery_backend": record["_sarguardian_discovery_backend"],
         "science_acquisition_sha256": acquisition_sha256,
         "discovery_start": None,
         "discovery_end": None,
