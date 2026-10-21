@@ -269,4 +269,21 @@ def test_optional_checkpoint_downloads_do_not_abort_resume_aggregation():
         section = text.split(f"- name: {name}", 1)[1].split("\n      - name:", 1)[0]
         assert "continue-on-error: true" in section, name
 
+def test_failed_products_are_retried_and_receipts_gate_reassembly():
+    stream = WORKFLOW.read_text(encoding="utf-8")
+    worker = PRODUCT_WORKER.read_text(encoding="utf-8")
+    assert "uses: ./.github/workflows/sarguardian-product-worker.yml" in stream
+    assert "retry-plan:" in stream
+    assert "retry-products:" in stream
+    assert "preassembly-verify:" in stream
+    assert "python tools/product_retry_gate.py plan-retries" in stream
+    assert "python tools/product_retry_gate.py verify" in stream
+    assert "PRODUCTS_SELECTED_FOR_RETRY=" in (
+        (Path(__file__).resolve().parents[1] / "tools" / "product_retry_gate.py").read_text(encoding="utf-8")
+    )
+    aggregate = stream.split("  aggregate:\n", 1)[1]
+    assert "needs.preassembly-verify.result == 'success'" in aggregate
+    assert "Assemble complete product checkpoints for aggregation" in aggregate
+    assert "continue-on-error: true" in worker
+    assert worker.count("overwrite: true") == 2
 
