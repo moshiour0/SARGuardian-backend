@@ -34,6 +34,18 @@ BASELINE_DOWNSTREAM = [
     "local_floor_cand4_as_floors.csv",
     "common_ref_summer.csv",
     "bound_source.csv",
+    # Deterministic model outputs and the optical candidate classification are
+    # recalculated from the unchanged pinned source scripts and compared.
+    "detectability.csv",
+    "detectability_fixed_gate.csv",
+    "scar_candidates_source.csv",
+]
+
+AUXILIARY_JSON_REFERENCES = [
+    "dam_sites_source.geojson",
+    "dam_sites_langtang.geojson",
+    "dam_sites_lhende.geojson",
+    "dam_sites_blatten.geojson",
 ]
 
 
@@ -877,8 +889,38 @@ def run_time_series_from_exports(
 
 
 def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -> None:
-    """Recreate the documented source-AOI summary and bound chain from compact data."""
+    """Run the pinned supplemental science suite and rebuild Results 4, 5 and 7."""
     outputs = science_root / "outputs"
+
+    # Results 1, 2, 3 and 6 are independent documented experiments. Run the
+    # exact entry points from the pinned SARGuardian source tree, not rewritten
+    # formulas or alternate implementations. These checks happen after product
+    # jobs have read/validated raw HDF5 and passed their cleanup gates; their
+    # inputs are committed reference data plus public terrain/optical services.
+    from tools.run_pinned_science_suite import run_suite
+    suite = run_suite(science_root, out_root)
+    report["pinned_science_suite"] = {
+        "status": suite.get("status"),
+        "pinned_science_commit_expected": suite.get("pinned_science_commit_expected"),
+        "pinned_science_commit_actual": suite.get("pinned_science_commit_actual"),
+        "raw_hdf5_used": suite.get("raw_hdf5_used_by_supplementary_suite"),
+        "source_scripts_modified": suite.get("source_scripts_modified"),
+        "reference_checks": suite.get("reference_checks", []),
+        "report_log": "logs/pinned-science-suite/pinned-science-suite.json",
+    }
+    for command in suite.get("commands", []):
+        report["commands"].append({
+            "name": command.get("name"),
+            "exit_code": 0 if command.get("status") == "PASS" else 2,
+            "status": command.get("status"),
+            "argv": command.get("argv"),
+            "log": command.get("log"),
+            "source": "unchanged entry point from pinned SARGuardian/src/",
+        })
+    if suite.get("status") != "PASS":
+        report["errors"].extend(suite.get("errors", []))
+        return
+
     for family in ("GOFF", "GUNW"):
         try:
             run_time_series_from_exports(science_root, family, out_root, report)
@@ -1111,6 +1153,12 @@ def main() -> int:
     baseline_dir = out_root / "baseline-snapshot"
     baseline_dir.mkdir(parents=True, exist_ok=True)
     for filename in BASELINE_DOWNSTREAM:
+        src = outputs / filename
+        if src.exists():
+            shutil.copy2(src, baseline_dir / filename)
+    # Preserve baseline terrain outputs before network-backed commands replace
+    # working copies; resulting hash differences are diagnostic only.
+    for filename in AUXILIARY_JSON_REFERENCES:
         src = outputs / filename
         if src.exists():
             shutil.copy2(src, baseline_dir / filename)
