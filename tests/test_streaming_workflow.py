@@ -18,6 +18,9 @@ def test_streaming_workflow_is_manual_to_avoid_unexpected_live_storage_use():
     assert "workflow_dispatch:" in triggers
     assert "\n  push:" not in triggers
     assert "inputs.run_profile || 'validation-pilot'" in text
+    assert "SAFE default is a 2-product pilot" in text
+    assert "does not execute the full 33-product end-to-end science suite" in text
+    assert "RUN_PROFILE_SELECTED=$RUN_PROFILE" in text
     assert "max-parallel: 1" in text
 
 
