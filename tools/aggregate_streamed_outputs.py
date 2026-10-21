@@ -656,7 +656,14 @@ def select_candidate4_common_reference_rows(
     return selected
 
 
-def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
+def run_common_reference_target_series(
+    science_root: Path,
+    report: dict[str, Any],
+    *,
+    target_lat: float = 28.27799,
+    target_lon: float = 85.52983,
+    target_label: str = "Candidate-4",
+) -> None:
     """Recreate the candidate-4 common-datum series from all 18 GOFF layer2 exports.
 
     The committed candidate-4 baseline was built with every GOFF layer2 source
@@ -684,7 +691,6 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
     _, stats = read_csv(outputs / "goff_stats_source.csv")
     selected = select_candidate4_common_reference_rows(stats)
 
-    target_lat, target_lon = 28.27799, 85.52983
     target_radius_px, buffer_km = 6, 2.0
     pairs_by_key: dict[tuple[str, int], list[tuple[Any, np.ndarray, Any, Any, float]]] = {}
     all_pairs = []
@@ -756,7 +762,7 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
               ["geometry", "component", "epoch", "days_from_start", "cumulative_mm", "error_mm"],
               all_rows)
     report["commands"].append({
-        "name": "Candidate-4 common-reference series from per-product GeoTIFF exports",
+        "name": f"{target_label} common-reference series from per-product GeoTIFF exports",
         "exit_code": 0,
         "product_count": len(selected),
         "product_families": {"PR": 16, "UR": 2},
