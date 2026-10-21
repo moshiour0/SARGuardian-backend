@@ -299,7 +299,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$PREFLIGHT_OUT_DIR"
           python - <<'PY'
-          import json, os, subprocess, sys
+          import json, os, subprocess, sys, time
           from pathlib import Path
 
           manifest_path = Path(os.environ["MANIFEST_PATH"])
@@ -318,6 +318,7 @@ jobs:
               "REMOTE_CONTENT_LENGTH_BYTES=", "DISCOVERY_FALLBACK=",
               "DIRECT_PRODUCT_HTTP_404=", "NETWORK_RETRY=", "ERROR=",
               "DIRECT_PRODUCT_DIAGNOSTIC=", "SOURCE_ACQUISITION_MODULE=",
+              "DOWNLOAD_FAILURE_RETRYABLE=",
           )
           for product in urgent:
               product_id = str(product["id"])
@@ -332,13 +333,30 @@ jobs:
                   "--out-dir", str(Path(os.environ["PREFLIGHT_OUT_DIR"]) / product_id),
                   "--probe-only",
               ]
-              result = subprocess.run(command, capture_output=True, text=True, env=os.environ.copy())
-              for channel in (result.stdout, result.stderr):
-                  for raw in channel.splitlines():
+              max_attempts = 4
+              result = None
+              for attempt in range(1, max_attempts + 1):
+                  result = subprocess.run(command, capture_output=True, text=True, env=os.environ.copy())
+                  combined_output = result.stdout + "\n" + result.stderr
+                  for raw in combined_output.splitlines():
                       line = raw.strip()
                       if line.startswith(visible_prefixes):
                           print(line[:500])
-              if result.returncode != 0:
+                  if result.returncode == 0:
+                      break
+                  retryable = any(
+                      line.strip() == "DOWNLOAD_FAILURE_RETRYABLE=yes"
+                      for line in combined_output.splitlines()
+                  )
+                  if not retryable or attempt >= max_attempts:
+                      break
+                  delay = min(15 * (2 ** (attempt - 1)), 120)
+                  print(
+                      f"UR_PREFLIGHT_RETRY id={product_id} "
+                      f"next_attempt={attempt + 1}/{max_attempts} sleep_seconds={delay}"
+                  )
+                  time.sleep(delay)
+              if result is None or result.returncode != 0:
                   print(
                       f"ERROR=UR_BASELINE_SOURCE_UNAVAILABLE id={product_id}; "
                       "full-baseline processing stopped before any product downloads"
