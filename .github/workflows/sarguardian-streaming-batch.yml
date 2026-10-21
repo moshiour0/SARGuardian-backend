@@ -585,7 +585,7 @@ jobs:
   aggregate:
     name: Reassemble outputs and compare with the committed batch baseline
     needs: [manifest, process-one, retry-plan, retry-products, preassembly-verify]
-    if: always() && needs.manifest.result == 'success' && needs.retry-plan.result == 'success' && (needs.retry-products.result == 'success' || needs.retry-products.result == 'skipped') && needs.preassembly-verify.result == 'success'
+    if: always() && needs.manifest.result == 'success' && needs.retry-plan.result == 'success' && needs.preassembly-verify.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
