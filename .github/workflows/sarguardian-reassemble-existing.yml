@@ -37,8 +37,10 @@ jobs:
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-Reassemble-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Checkout backend aggregation tools
+      - name: Checkout validated backend aggregation tools
         uses: actions/checkout@v4
+        with:
+          ref: d9e67df7d800032c37d23f74df44c98e3ab655f7
 
       - name: Checkout pinned science baseline
         uses: actions/checkout@v4
