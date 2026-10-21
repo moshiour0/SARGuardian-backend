@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tools/resolve_resume_run.py \\
+          python tools/resolve_resume_run.py \
             --science-root science-source \\
             --run-profile "$RUN_PROFILE" \\
             --start-date "$WINDOW_START" \\
