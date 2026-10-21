@@ -125,7 +125,17 @@ def _sleep_before_retry(stage: str, attempt: int, detail: str) -> None:
 
 
 def build_authenticated_session_with_retry(acquisition: Any, attempts: int = 2) -> Any:
-    """Retry transient Earthdata token/session setup failures, but never hide auth errors."""
+    """Prefer a pre-generated Earthdata user token; otherwise retry credential exchange."""
+    token = os.environ.get("EARTHDATA_TOKEN", "").strip()
+    if token:
+        import asf_search
+
+        print("EARTHDATA_AUTH_MODE=pre_generated_user_token", file=sys.stderr)
+        # ASFSession applies the token as a Bearer credential. This avoids calling
+        # /api/users/find_or_create_token for each newly constructed session.
+        return asf_search.ASFSession().auth_with_token(token)
+
+    print("EARTHDATA_AUTH_MODE=username_password_token_exchange", file=sys.stderr)
     for attempt in range(1, attempts + 1):
         try:
             return acquisition.build_session()
@@ -370,8 +380,10 @@ def main() -> int:
     if f"_{args.product_type}_" not in wanted:
         print("ERROR=GRANULE_NAME_PRODUCT_TYPE_MISMATCH", file=sys.stderr)
         return 2
-    if not os.environ.get("EARTHDATA_USERNAME") or not os.environ.get("EARTHDATA_PASSWORD"):
-        print("ERROR=EARTHDATA_CREDENTIALS_MISSING", file=sys.stderr)
+    has_user_token = bool(os.environ.get("EARTHDATA_TOKEN", "").strip())
+    has_credentials = bool(os.environ.get("EARTHDATA_USERNAME")) and bool(os.environ.get("EARTHDATA_PASSWORD"))
+    if not has_user_token and not has_credentials:
+        print("ERROR=EARTHDATA_CREDENTIALS_OR_TOKEN_MISSING", file=sys.stderr)
         return 2
 
     try:
