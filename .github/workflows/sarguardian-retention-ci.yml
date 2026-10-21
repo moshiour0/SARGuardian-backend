@@ -47,3 +47,24 @@ jobs:
             .github/workflows/sarguardian-reassemble-existing.yml \
             .github/workflows/sarguardian-live-validation.yml \
             .github/workflows/sarguardian-retention-ci.yml
+
+  pinned-science-regression:
+    name: Test the exact pinned SARGuardian science engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pinned science repository
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: ab547ecc82bcc4d6ccef545a59852536c2beacc6
+          path: science-source
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install the science engine's pinned dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+      - name: Run the full pinned scientific test suite
+        working-directory: science-source
+        run: python -m pytest tests/ -q
