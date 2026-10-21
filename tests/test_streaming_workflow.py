@@ -137,6 +137,45 @@ def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
     )[1].split("\n      - name:", 1)[0]
-    assert '--out-dir "$RAW_DIR" 2>&1 | tee "$log"' in download
+    assert '--out-dir "$RAW_DIR" 2>&1 | tee "$attempt_log"' in download
+    assert "max_attempts=4" in download
+    assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
+    assert "timeout-minutes: 90" in download
     assert 'ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED' in (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
 
+
+
+def test_download_step_retries_transient_earthdata_failures_with_bounded_backoff():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    download = text.split(
+        "- name: Download exactly one raw NISAR granule", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert "max_attempts=4" in download
+    assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
+    assert "DOWNLOAD_RETRY_SCHEDULED" in download
+    assert "timeout-minutes: 90" in download
+
+
+def test_urgent_response_preflight_also_retries_transient_authentication_failures():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    preflight = text.split(
+        "- name: Fail fast when a selected urgent-response baseline product is unavailable", 1
+    )[1].split("\n\n  process-one:", 1)[0]
+    assert "DOWNLOAD_FAILURE_RETRYABLE=" in preflight
+    assert "max_attempts = 4" in preflight
+    assert "UR_PREFLIGHT_RETRY" in preflight
+    assert "time.sleep(delay)" in preflight
+
+
+def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "resume_from_run_id:" in text
+    assert "permissions:\n  contents: read\n  actions: read" in text
+    assert "Download previous run manifest for safe resume" in text
+    assert "Download previous per-product checkpoints for safe resume" in text
+    assert "RESUME_PRODUCTS_REUSED=" in text
+    assert '"products_to_process": matrix_products' in text
+    assert "Download prior per-granule checkpoints for resume" in text
+    assert "Assemble complete product checkpoints for aggregation" in text
+    assert "python tools/resume_streamed_run.py merge" in text
+    assert "retention-days: 14" in text
