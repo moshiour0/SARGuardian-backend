@@ -46,7 +46,7 @@ jobs:
             .github/workflows/sarguardian-streaming-batch.yml \
             .github/workflows/sarguardian-reassemble-existing.yml \
             .github/workflows/sarguardian-live-validation.yml \
-            .github/workflows/sarguardian-retention-ci.yml \\
+            .github/workflows/sarguardian-retention-ci.yml \
             .github/workflows/target4-9-raw-investigation.yml
 
   pinned-science-regression:
@@ -124,7 +124,7 @@ Path(sys.argv[1]).write_text(json.dumps({
  "created_utc":datetime.now(timezone.utc).isoformat(),
  "raw_hdf5_downloaded":False,
  "required_secrets":["EARTHDATA_TOKEN or both EARTHDATA_USERNAME and EARTHDATA_PASSWORD"]
-},indent=2)+"\\n")
+},indent=2)+"\n")
 PY
             echo "BLOCKED: Earthdata credentials are absent in this repo Actions environment." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 2
@@ -163,7 +163,7 @@ d["diagnostic_granule_name"]=sys.argv[2]
 d["source_and_langtang_diagnostics_passed"]=(sys.argv[3]=="0")
 d["raw_hdf5_kept_in_artifact"]=False
 d["raw_hdf5_removed_from_runner_after_diagnostic"]=True
-p.write_text(json.dumps(d,indent=2,sort_keys=True)+"\\n")
+p.write_text(json.dumps(d,indent=2,sort_keys=True)+"\n")
 PY
               fi
             else
@@ -176,7 +176,7 @@ Path(sys.argv[1]).write_text(json.dumps({
  "status":"download_failed","created_utc":datetime.now(timezone.utc).isoformat(),
  "product_type":sys.argv[2],"maturity":sys.argv[3],"granule":sys.argv[4],
  "raw_hdf5_downloaded":False,"detail":"See redacted downloader log for cause."
-},indent=2)+"\\n")
+},indent=2)+"\n")
 PY
             fi
 
@@ -208,7 +208,7 @@ Path(out).write_text(json.dumps({
  "expected_products":10,"products_attempted":attempts,
  "products_with_both_diagnostics_passed":successes,"error_count":failures,
  "raw_hdf5_in_artifact":False
-},indent=2)+"\\n")
+},indent=2)+"\n")
 PY
           echo "TARGET49_RAW_DIAGNOSTICS expected=10 attempted=$attempts passed_both_AOIs=$success_products errors=$failures" | tee -a "$GITHUB_STEP_SUMMARY"
           if [[ "$failures" -ne 0 || "$success_products" -ne 10 ]]; then exit 1; fi
