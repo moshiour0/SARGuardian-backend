@@ -35,9 +35,23 @@ def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
                 for rel in item["outputs"]:
                     target = tmp_path / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text("generated\n", encoding="utf-8")
+                    if target.suffix.lower() == ".csv":
+                        target.write_text("id,value\\n1,2\\n", encoding="utf-8")
+                    elif target.suffix.lower() == ".geojson":
+                        target.write_text(
+                            '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null,"properties":{}}]}',
+                            encoding="utf-8",
+                        )
                 break
-        return SimpleNamespace(returncode=0, stdout=f"PASS {name}\n")
+        evidence = {
+            "result2_track_sensitivity_and_dem_stencil_sweep": "SENSITIVITY ACROSS DEM STENCIL WIDTHS",
+            "result2_north_face_aspect_hypothesis": "[OVERRIDE] aspect",
+            "result6_sentinel2_scene_survey": "4 Sentinel-2 L2A scenes over the source zone",
+            "result6_sentinel2_candidate_map": "DETACHMENT-like",
+            "result6_reported_point_probe": "NOT A SCAR, usable pixels",
+        }
+        output = evidence.get(name, "Caveats: pools are not tested" if name.startswith("result3_impoundment_") else f"PASS {name}")
+        return SimpleNamespace(returncode=0, stdout=output + "\\n")
 
     return runner, calls, network_attempts
 
