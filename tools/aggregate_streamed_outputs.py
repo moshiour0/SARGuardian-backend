@@ -633,13 +633,42 @@ def compare_output_file(path: Path, baseline_path: Path, report: dict[str, Any])
 
 
 
-def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
-    """Recreate the candidate-4 common-datum series from the exported AOI rasters.
+def select_candidate4_common_reference_rows(
+    stats: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Select the exact pinned candidate-4 source stack, preserving PR/UR duplicate edges."""
+    selected = [
+        row for row in stats
+        if "layer2" in (row.get("layer") or "")
+        and ("_PR_GOFF_" in (row.get("file") or "")
+             or "_UR_GOFF_" in (row.get("file") or ""))
+    ]
+    pr_count = sum("_PR_GOFF_" in (row.get("file") or "") for row in selected)
+    ur_count = sum("_UR_GOFF_" in (row.get("file") or "") for row in selected)
+    identities = [Path(row.get("file") or "").name for row in selected]
+    if len(selected) != 18 or pr_count != 16 or ur_count != 2:
+        raise ValueError(
+            "Expected all 18 candidate-4 GOFF layer2 source products "
+            f"(16 PR + 2 UR); found total={len(selected)} PR={pr_count} UR={ur_count}"
+        )
+    if len(set(identities)) != 18 or any(not name for name in identities):
+        raise ValueError("Candidate-4 GOFF layer2 source product identities are missing or duplicated")
+    return selected
 
-    This deliberately uses the same source-AOI GeoTIFF arrays emitted by the
-    original GOFF reader and the same common-datum/inversion functions as the
-    scientific engine. It avoids retaining a stack of raw HDF5 files in the
-    aggregation job while preserving the target-level, cross-pair datum logic.
+
+def run_common_reference_target_series(science_root: Path, report: dict[str, Any]) -> None:
+    """Recreate the candidate-4 common-datum series from all 18 GOFF layer2 exports.
+
+    The committed candidate-4 baseline was built with every GOFF layer2 source
+    product, including both PR and UR representations of the two late duplicate
+    acquisition pairs. Those duplicate-date edges must not be deduplicated:
+    their rasters participate in the cross-pair common mask and provide the
+    residual degrees of freedom used by the reported uncertainty. Excluding UR
+    rows changes the datum mask for every pair, not just the late time-series
+    epochs, and silently changes cumulative displacement and error estimates.
+
+    Read the small, validated AOI GeoTIFFs rather than retaining/re-downloading
+    the raw HDF5 stack.
     """
     import re
     from datetime import datetime
@@ -653,11 +682,7 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
 
     outputs = science_root / "outputs"
     _, stats = read_csv(outputs / "goff_stats_source.csv")
-    selected = [r for r in stats
-                if "_PR_GOFF_" in (r.get("file") or "")
-                and "layer2" in (r.get("layer") or "")]
-    if len(selected) != 16:
-        raise ValueError(f"Expected 16 routine PR GOFF layer2 pairs for common-datum replay; found {len(selected)}")
+    selected = select_candidate4_common_reference_rows(stats)
 
     target_lat, target_lon = 28.27799, 85.52983
     target_radius_px, buffer_km = 6, 2.0
@@ -734,7 +759,8 @@ def run_common_reference_target_series(science_root: Path, report: dict[str, Any
         "name": "Candidate-4 common-reference series from per-product GeoTIFF exports",
         "exit_code": 0,
         "product_count": len(selected),
-        "source": "reader exports, not raw HDF5",
+        "product_families": {"PR": 16, "UR": 2},
+        "source": "all 18 validated GOFF layer2 reader exports, including PR and UR duplicate-date edges; not raw HDF5",
         "target": {"lat": target_lat, "lon": target_lon, "radius_px": target_radius_px, "buffer_km": buffer_km},
         "output": "outputs/ts_goff_cand4_common.csv",
     })
