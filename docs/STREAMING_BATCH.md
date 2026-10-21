@@ -201,3 +201,16 @@ PR layer2 rasters even though the committed baseline includes 16 PR plus 2 UR
 rasters. The fix now preserves all 18 inputs and adds a regression test to
 prevent accidental UR-edge omission. A complete full-baseline PASS still
 requires a new live run after the fix and regression CI succeeds.
+
+
+## Reassemble existing successful artifacts without another HDF5 download
+
+When a product transfer and reader validation succeed but a downstream comparison fails, use
+**Actions → SARGuardian Reassemble Existing Product Artifacts → Run workflow** on
+`work/raw-hdf5-derived-only-parity`. This manual-only workflow takes two run IDs:
+- `checkpoint_run_id=39510497044`: the original run containing the 32 complete product checkpoints.
+- `product_run_id=39524783921`: the newer run containing the successful GOFF-033 product and cleanup evidence.
+
+These defaults reflect the currently verified runs; choose the IDs matching the evidence you want to combine. The workflow validates both manifests (AOI, source revision, date window, retention profile and exact ordered granule identities), merges the prior complete checkpoints with the newer successful product, then runs the same complete product, retention, cleanup and downstream parity gates. It does not call Earthdata or re-download source HDF5. It publishes a replay artifact even on comparison failure and uploads the final bundle/report to the run-scoped Google Drive folder only if every required gate passes.
+
+The baseline run's per-product artifacts expire after the configured retention period, so perform this replay while the source artifacts remain available. If the merged replay still fails, inspect `batch-equivalence-report.json`; only change the relevant downstream reconstruction where the report's row-key and field-mismatch evidence identifies a real discrepancy. Never relax a required baseline comparison just to force an overall PASS.
