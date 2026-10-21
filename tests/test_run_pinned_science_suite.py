@@ -22,6 +22,8 @@ def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
             return SimpleNamespace(returncode=0, stdout=PINNED_SCIENCE_COMMIT + "\n")
         if args[:4] == ["git", "-C", str(tmp_path.resolve()), "diff"]:
             return SimpleNamespace(returncode=0, stdout="")
+        if args[:4] == ["git", "-C", str(tmp_path.resolve()), "status"]:
+            return SimpleNamespace(returncode=0, stdout="")
         name = next((x["name"] for x in command_plan() if x["argv"] == args), None)
         assert name is not None, args
         if name == retry_name:
