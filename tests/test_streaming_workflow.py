@@ -171,6 +171,10 @@ def test_urgent_response_preflight_also_retries_transient_authentication_failure
 def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "resume_from_run_id:" in text
+    assert "Resolve a compatible run for automatic resume" in text
+    assert "python tools/resolve_resume_run.py" in text
+    assert "blank auto-detects the latest compatible failed full run" in text
+    assert "continue-on-error: true" in text
     assert "permissions:\n  contents: read\n  actions: read" in text
     assert "Download previous run manifest for safe resume" in text
     assert "Download previous per-product checkpoints for safe resume" in text
@@ -191,6 +195,21 @@ def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs()
     assert "EARTHDATA_AUTH_MODE=pre_generated_user_token" in downloader
     assert "EARTHDATA_AUTH_MODE=username_password_token_exchange" in downloader
 
+
+
+def test_full_baseline_uses_complete_science_suite_from_the_pinned_source_checkout():
+    root = Path(__file__).resolve().parents[1]
+    aggregator = (root / "tools" / "aggregate_streamed_outputs.py").read_text(encoding="utf-8")
+    suite = (root / "tools" / "run_pinned_science_suite.py").read_text(encoding="utf-8")
+    assert "from tools.run_pinned_science_suite import run_suite" in aggregator
+    assert 'PINNED_SCIENCE_COMMIT = "ab547ecc82bcc4d6ccef545a59852536c2beacc6"' in suite
+    assert '"raw_hdf5_used_by_supplementary_suite": False' in suite
+    assert "result1_detectability_noise_gates" in suite
+    assert "result2_track_sensitivity_and_dem_stencil_sweep" in suite
+    assert "result3_impoundment_" in suite
+    assert "result6_sentinel2_candidate_map" in suite
+    plan_test = (root / "tests" / "test_run_pinned_science_suite.py").read_text(encoding="utf-8")
+    assert 'not any(".h5" in " ".join(entry["argv"]).lower() for entry in plan)' in plan_test
 
 
 def test_artifact_only_reassembly_reuses_existing_product_runs_without_source_downloads():
