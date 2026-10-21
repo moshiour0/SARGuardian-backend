@@ -208,9 +208,20 @@ date window, retention mode and ordered product identities. Only products with
 passing derived-output validation, verified Drive retention, required local
 checkpoint files, and a remotely verified cleanup receipt are reusable.
 Missing/incomplete per-product or cleanup artifacts are treated as unverified,
-so those products are processed again. A green auto-resume CI test does not
-replace a live resumed full-baseline run; operational status remains pending
-until the branch's manual run succeeds end-to-end.
+so those products are processed again. In the aggregation job, current-run and
+prior-run product/cleanup artifact-family downloads are optional: this permits
+an all-reused resume (which may have an empty processing matrix) to reach the
+same evidence and science gates instead of failing just because there are no
+new artifacts to download.
+
+Storage accounting uses unique verified Drive file IDs and actual receipt sizes.
+Its `net_new_remote_bytes_in_run` excludes products reused from a prior checkpoint;
+the receipt's `reused` flag describes the original upload attempt and is not by
+itself proof that those bytes were uploaded during this new run.
+
+A green auto-resume CI test does not replace a live resumed full-baseline run;
+operational status remains pending until the branch's manual run succeeds
+end-to-end.
 
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
 
