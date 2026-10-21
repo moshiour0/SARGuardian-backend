@@ -86,9 +86,15 @@ def test_resume_rejects_pilot_source_run():
 def test_merge_preserves_good_checkpoint_when_current_only_has_diagnostics(tmp_path):
     previous, current, output = tmp_path / "previous", tmp_path / "current", tmp_path / "output"
     old = previous / "sarguardian-granule-GUNW-001"
-    _write(old / "product-processing.json", {"status": "good"})
+    _write(old / "product-processing.json", {
+        "status": "good", "derived_output_validation_status": "PASS",
+        "drive_remote_verification": "PASS", "drive_remote_folder_id": "folder-GUNW-001",
+        "source_file_sha256": "a" * 64, "source_file_bytes": 123,
+    })
     _write(old / "derived-output-validation.json", {"status": "PASS"})
-    _write(old / "drive-retention-receipt.json", {"remote_verification": "PASS"})
+    _write(old / "drive-retention-receipt.json", {
+        "remote_verification": "PASS", "remote_folder_id": "folder-GUNW-001",
+    })
     new = current / "sarguardian-granule-GUNW-001"
     _write(new / "product-run-diagnostics.json", {"download": "failure"})
     result = merge_artifact_roots(previous, current, output, "granule")
@@ -101,9 +107,15 @@ def test_merge_prefers_complete_new_artifact_over_old_checkpoint(tmp_path):
     previous, current, output = tmp_path / "previous", tmp_path / "current", tmp_path / "output"
     for root, status in ((previous, "old"), (current, "new")):
         folder = root / "sarguardian-granule-GUNW-001"
-        _write(folder / "product-processing.json", {"status": status})
+        _write(folder / "product-processing.json", {
+            "status": status, "derived_output_validation_status": "PASS",
+            "drive_remote_verification": "PASS", "drive_remote_folder_id": "folder-GUNW-001",
+            "source_file_sha256": "b" * 64, "source_file_bytes": 456,
+        })
         _write(folder / "derived-output-validation.json", {"status": "PASS"})
-        _write(folder / "drive-retention-receipt.json", {"remote_verification": "PASS"})
+        _write(folder / "drive-retention-receipt.json", {
+            "remote_verification": "PASS", "remote_folder_id": "folder-GUNW-001",
+        })
     merge_artifact_roots(previous, current, output, "granule")
     assert json.loads((output / "sarguardian-granule-GUNW-001/product-processing.json").read_text())["status"] == "new"
 
