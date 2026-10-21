@@ -8,7 +8,7 @@ import os
 import urllib.parse
 from typing import Any
 
-from tools.resolve_resume_run import API_ROOT, WORKFLOW_ID, WORKFLOW_PATH, api_json
+from tools.resolve_resume_run import API_ROOT, SCIENCE_COMMIT, WORKFLOW_ID, WORKFLOW_PATH, api_json, get_run_manifest
 
 REPOSITORY = "moshiour0/SARGuardian-backend"
 DEFAULT_BRANCH = "main"
@@ -49,6 +49,35 @@ def validate_run(repo: str, run_id: str, token: str, branch: str) -> dict[str, A
 
 
 def has_bundle_artifact(repo: str, run_id: str, token: str) -> bool:
+    """Require a full 33-product compatible manifest plus its final report bundle.
+
+    The workflow also publishes successful validation-pilot artifacts. They
+    are deliberately ineligible as a source for a scientific extension run.
+    """
+    manifest, has_checkpoints = get_run_manifest(repo, run_id, token)
+    if not manifest or not has_checkpoints:
+        return False
+    products = manifest.get("products")
+    if (
+        manifest.get("run_profile") != "full-source-baseline"
+        or manifest.get("aoi") != "source"
+        or manifest.get("science_commit") != SCIENCE_COMMIT
+        or manifest.get("retention_profile") not in {"derived-only", "full-lossless"}
+        or not str(manifest.get("run_id", "")).startswith(run_id + "-")
+        or not isinstance(products, list)
+        or len(products) != 33
+    ):
+        return False
+    counts = {
+        family: sum(
+            1 for product in products
+            if isinstance(product, dict) and product.get("product_type") == family
+        )
+        for family in ("GUNW", "GOFF")
+    }
+    if counts != {"GUNW": 15, "GOFF": 18}:
+        return False
+
     payload = api_json(
         f"{API_ROOT}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", token
     )
@@ -62,7 +91,6 @@ def has_bundle_artifact(repo: str, run_id: str, token: str) -> bool:
         and str(item.get("name", "")).startswith(required_prefix)
         for item in artifacts
     )
-
 
 def resolve(requested: str, repo: str, branch: str, token: str) -> tuple[str, str, int]:
     requested = (requested or "").strip().lower()
