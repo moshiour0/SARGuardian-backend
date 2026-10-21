@@ -456,6 +456,59 @@ class Drive:
             'sha256': sha, 'reused': False, 'webViewLink': info.get('webViewLink'),
         }
 
+REPLACEABLE_RECEIPT_NAMES = frozenset({
+    "product-processing.json",
+    "drive-retention-receipt.json",
+    "local-cleanup-receipt.json",
+})
+
+
+def plan_existing_uploads(drive, folder, records, *, replace_existing_receipts=False):
+    """Preflight existing files without silently replacing scientific outputs."""
+    missing = 0
+    replacements = []
+    for path, md5, _sha, size, _mime in records:
+        existing = drive.list_named_children(folder, path.name)
+        ordinary = [item for item in existing if item.get("mimeType") != FOLDER_MIME]
+        if len(ordinary) > 1:
+            raise DriveError("DRIVE_DUPLICATE_FILE_CONFLICT")
+        if not ordinary:
+            missing += size
+            continue
+
+        item = ordinary[0]
+        try:
+            remote_size = int(item.get("size", -1))
+        except (TypeError, ValueError):
+            remote_size = -1
+        matches = remote_size == size and str(item.get("md5Checksum", "")).lower() == md5.lower()
+        if matches:
+            continue
+
+        if not replace_existing_receipts or path.name not in REPLACEABLE_RECEIPT_NAMES:
+            raise DriveError(f"DRIVE_EXISTING_FILE_CONFLICT name={path.name}")
+        file_id = item.get("id")
+        if not isinstance(file_id, str) or not file_id:
+            raise DriveError(f"DRIVE_EXISTING_RECEIPT_ID_MISSING name={path.name}")
+        replacements.append({"id": file_id, "name": path.name, "bytes": size})
+        # Conservative quota accounting: require room for the replacement before
+        # deleting the stale same-run receipt, even though deletion may free space.
+        missing += size
+    return missing, replacements
+
+
+def normalise_run_scoped_receipt_row(row, *, existing_files_are_new):
+    """Distinguish same-workflow-run reuse from content retained by a prior run."""
+    result = dict(row)
+    if existing_files_are_new:
+        result["upload_action_reused"] = bool(result.get("reused", False))
+        # The folder is scoped to this unique Actions run/attempt. A matching file
+        # already present there was created during this same run's earlier try,
+        # so retention accounting must count its bytes once for this run.
+        result["reused"] = False
+    return result
+
+
 def granule_folder_names(product_type, maturity, granule_name, version_tag=None):
     """Return a deterministic folder path; optional version tags preserve prior runs."""
     if product_type not in {"GUNW", "GOFF"} or maturity not in {"PROVISIONAL", "BETA"}:
@@ -484,6 +537,14 @@ def main():
     p.add_argument('--granule-name')
     p.add_argument('--run-name', help='upload an aggregate run bundle under SARGuardian-DataArchive/Runs/<run-name>')
     p.add_argument('--version-tag', help='isolate a granule upload under <granule>/Runs/<version-tag>; never overwrites prior runs')
+    p.add_argument(
+        '--existing-files-are-new', action='store_true',
+        help='treat matching files in this unique run-scoped folder as retained by this same workflow run (retry-only accounting)',
+    )
+    p.add_argument(
+        '--replace-existing-receipts', action='store_true',
+        help='replace only allowlisted metadata/cleanup receipts in this run-scoped folder after checksum conflict; scientific outputs still fail closed',
+    )
     p.add_argument('--files', nargs='+', required=True, help='explicit local files to upload; raw source must NOT be included')
     p.add_argument('--out', required=True, type=Path)
     args = p.parse_args()
@@ -496,6 +557,10 @@ def main():
             raise DriveError('RUN_NAME_INVALID')
     elif not (args.product_type and args.maturity and args.granule_name):
         raise DriveError('GRANULE_UPLOAD_REQUIRES_PRODUCT_MATURITY_AND_NAME')
+    if args.existing_files_are_new and (not args.version_tag or args.run_name):
+        raise DriveError('SAME_RUN_REUSE_ACCOUNTING_REQUIRES_VERSION_TAG')
+    if args.replace_existing_receipts and not args.existing_files_are_new:
+        raise DriveError('RECEIPT_REPLACEMENT_REQUIRES_SAME_RUN_RETRY_MODE')
     root = args.root.resolve()
     files = [Path(x).resolve() for x in args.files]
     for path in files:
@@ -526,18 +591,13 @@ def main():
         if granule_folder.lower().endswith('.h5'): granule_folder = granule_folder[:-3]
     folder = parent
     for name in folder_names: folder = drive.ensure_folder(folder, name)
-    # Query exact existing names before calculating projected new bytes. Conflicts abort without overwrite.
-    missing = 0
-    for path, md5, sha, size, mime in records:
-        existing = drive.list_named_children(folder, path.name)
-        ordinary = [e for e in existing if e.get('mimeType') != FOLDER_MIME]
-        if len(ordinary) > 1: raise DriveError('DRIVE_DUPLICATE_FILE_CONFLICT')
-        if ordinary:
-            e = ordinary[0]
-            try: esize = int(e.get('size', -1))
-            except (TypeError, ValueError): esize = -1
-            if esize != size or e.get('md5Checksum', '').lower() != md5.lower(): raise DriveError(f'DRIVE_EXISTING_FILE_CONFLICT name={path.name}')
-        else: missing += size
+    # Query exact existing names before calculating projected new bytes.
+    # Only known metadata receipts may be replaced on a same-run retry; science
+    # products/exports remain immutable and mismatched content fails closed.
+    missing, replacements = plan_existing_uploads(
+        drive, folder, records,
+        replace_existing_receipts=args.replace_existing_receipts,
+    )
     # Quota is based on the exact post-processing files in this upload allowlist,
     # not source-file estimates from the acquisition manifest. This check runs
     # after the retained archive and derived outputs have actually been created.
@@ -555,11 +615,26 @@ def main():
         f"FILE_COUNT={len(records)} ACTUAL_CURATED_BYTES={local_total} "
         f"NEW_BYTES_REQUIRED={missing}"
     )
+    for old in replacements:
+        response = drive.request(
+            "DELETE", f"{API}/files/{old['id']}",
+            params={"supportsAllDrives": "true"},
+        )
+        response.close()
+        print(f"DRIVE_REPLACED_SAME_RUN_RECEIPT name={old['name']}")
+
     outputs = []
     for path, md5, sha, size, mime in records:
         row = drive.upload_resumable(folder, path, mime, md5, sha, size)
+        row = normalise_run_scoped_receipt_row(
+            row, existing_files_are_new=args.existing_files_are_new,
+        )
         outputs.append(row)
-        print(f"DRIVE_FILE_VERIFIED name={path.name} bytes={size} reused={str(row['reused']).lower()}")
+        print(
+            f"DRIVE_FILE_VERIFIED name={path.name} bytes={size} "
+            f"reused_from_prior_run={str(row['reused']).lower()} "
+            f"reused_in_upload_attempt={str(row.get('upload_action_reused', False)).lower()}"
+        )
     receipt = {'schema_version':'sarguardian-drive-retention-receipt/1.0','created_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'upload_kind':'run_bundle' if args.run_name else 'single_granule',
         'run_name':args.run_name, 'product_type':args.product_type, 'maturity':args.maturity, 'version_tag':args.version_tag,
