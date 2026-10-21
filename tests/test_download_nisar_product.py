@@ -420,3 +420,35 @@ def test_user_token_is_sufficient_without_username_password(monkeypatch, tmp_pat
     assert download.main() == 0
     assert "PRODUCT_PREFLIGHT_STATUS=PASS" in capsys.readouterr().out
     assert not out_dir.exists()
+
+
+def test_rejected_user_token_falls_back_once_to_credentials(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("EARTHDATA_TOKEN", "expired-user-token")
+    monkeypatch.setenv("EARTHDATA_USERNAME", "user")
+    monkeypatch.setenv("EARTHDATA_PASSWORD", "password")
+    token_session = FakeSession(head_response=FakeResponse(401, reason="Unauthorized"))
+    credential_session = FakeSession(head_response=FakeResponse(200, {"Content-Length": "987654"}))
+
+    class FakeASFSession:
+        def auth_with_token(self, token):
+            assert token == "expired-user-token"
+            return token_session
+
+    monkeypatch.setitem(
+        download.sys.modules,
+        "asf_search",
+        SimpleNamespace(ASFSession=FakeASFSession),
+    )
+    acquisition = FakeSourceAcquisition(credential_session)
+
+    record, returned_session, size = download.probe_known_product(
+        acquisition, WANTED, "GUNW", "PROVISIONAL"
+    )
+
+    assert returned_session is credential_session
+    assert size == 987654
+    assert record["granuleName"] == WANTED
+    output = capsys.readouterr().err
+    assert "EARTHDATA_USER_TOKEN_REJECTED=retrying_once_with_username_password_session" in output
