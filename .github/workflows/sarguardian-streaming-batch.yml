@@ -33,7 +33,7 @@ on:
           - full-lossless
         default: derived-only
       resume_from_run_id:
-        description: Optional failed full-baseline run ID; only verified products will be reused
+        description: Numeric run ID to resume; blank auto-detects the latest compatible failed full run; use none for a fresh run
         required: false
         type: string
         default: ''
@@ -64,30 +64,50 @@ jobs:
           ref: ab547ecc82bcc4d6ccef545a59852536c2beacc6
           path: science-source
 
+      - name: Resolve a compatible run for automatic resume
+        id: resume
+        env:
+          INPUT_RUN_ID: ${{ inputs.resume_from_run_id || '' }}
+          RUN_PROFILE: ${{ inputs.run_profile || 'validation-pilot' }}
+          WINDOW_START: ${{ inputs.start_date || '2025-01-01' }}
+          WINDOW_END: ${{ inputs.end_date || '2026-12-31' }}
+          RETENTION_PROFILE: ${{ inputs.retention_profile || 'derived-only' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/resolve_resume_run.py \
+            --science-root science-source \
+            --run-profile "$RUN_PROFILE" \
+            --start-date "$WINDOW_START" \
+            --end-date "$WINDOW_END" \
+            --retention-profile "$RETENTION_PROFILE" \
+            --requested-run-id "$INPUT_RUN_ID"
+
       - name: Download previous run manifest for safe resume
-        if: inputs.resume_from_run_id != ''
+        if: steps.resume.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           name: sarguardian-stream-run-manifest
-          run-id: ${{ inputs.resume_from_run_id }}
+          run-id: ${{ steps.resume.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-stream/resume/manifest
 
       - name: Download previous per-product checkpoints for safe resume
-        if: inputs.resume_from_run_id != ''
+        if: steps.resume.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
-          run-id: ${{ inputs.resume_from_run_id }}
+          run-id: ${{ steps.resume.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-stream/resume/granules
 
       - name: Download previous cleanup receipts for safe resume
-        if: inputs.resume_from_run_id != ''
+        if: steps.resume.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
-          run-id: ${{ inputs.resume_from_run_id }}
+          run-id: ${{ steps.resume.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-stream/resume/cleanups
 
@@ -102,7 +122,7 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SCIENCE_COMMIT: ab547ecc82bcc4d6ccef545a59852536c2beacc6
           RETENTION_PROFILE: ${{ inputs.retention_profile || 'derived-only' }}
-          RESUME_RUN_ID: ${{ inputs.resume_from_run_id || '' }}
+          RESUME_RUN_ID: ${{ steps.resume.outputs.run_id || '' }}
           RESUME_MANIFEST_PATH: ${{ runner.temp }}/sarguardian-stream/resume/manifest/manifest.json
           RESUME_GRANULE_ROOT: ${{ runner.temp }}/sarguardian-stream/resume/granules
           RESUME_CLEANUP_ROOT: ${{ runner.temp }}/sarguardian-stream/resume/cleanups
@@ -1024,20 +1044,20 @@ jobs:
           path: ${{ runner.temp }}/sarguardian-aggregation/current-cleanup-artifacts
 
       - name: Download prior per-granule checkpoints for resume
-        if: always() && inputs.resume_from_run_id != ''
+        if: always() && steps.resume.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
-          run-id: ${{ inputs.resume_from_run_id }}
+          run-id: ${{ steps.resume.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-aggregation/resume-granule-artifacts
 
       - name: Download prior post-cleanup evidence for resume
-        if: always() && inputs.resume_from_run_id != ''
+        if: always() && steps.resume.outputs.run_id != ''
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
-          run-id: ${{ inputs.resume_from_run_id }}
+          run-id: ${{ steps.resume.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-aggregation/resume-cleanup-artifacts
 
