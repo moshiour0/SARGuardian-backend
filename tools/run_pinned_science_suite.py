@@ -194,7 +194,7 @@ def run_suite(
         report["status"] = "FAIL"
         report["finished_utc"] = datetime.now(timezone.utc).isoformat()
         (log_root / "pinned-science-suite.json").write_text(
-            json.dumps(report, indent=2) + "\\n", encoding="utf-8"
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
         return report
 
@@ -243,7 +243,7 @@ def run_suite(
                     required_text = item.get("required_log_text", [])
                     missing_text = [phrase for phrase in required_text if phrase not in stdout_text.lower()]
                     if name == "result6_sentinel2_scene_survey":
-                        match = re.search(r"(\\d+) Sentinel-2 L2A scenes over the source zone", stdout_text)
+                        match = re.search(r"(\d+) Sentinel-2 L2A scenes over the source zone", stdout_text)
                         if not match or int(match.group(1)) <= 0:
                             missing_text.append("one or more retrievable Sentinel-2 scenes")
                     if output_errors:
