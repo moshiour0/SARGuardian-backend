@@ -1,0 +1,17 @@
+name: Target49 workflow parse probe
+on:
+  push:
+    branches:
+      - science/target4-target9-raw-validation
+    paths:
+      - ".github/workflows/target49-workflow-probe.yml"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Echo isolated branch and head
+        run: |
+          echo "TARGET49_PROBE_BRANCH=$GITHUB_REF_NAME"
+          echo "TARGET49_PROBE_SHA=$GITHUB_SHA"
