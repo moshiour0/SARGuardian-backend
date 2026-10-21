@@ -8,6 +8,7 @@ exact argv, attempts, stdout logs, outputs, and reference-output checks.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import re
@@ -69,27 +70,32 @@ def command_plan() -> list[dict[str, Any]]:
             "argv": [py, "src/geometry_merge.py", "--sensitivity", "--lat", "28.2877", "--lon", "85.5281",
                      "--stencil-sweep", "--csv", "outputs/geometry_sensitivity_source.csv"],
             "outputs": ["outputs/geometry_sensitivity_source.csv"], "network": True,
+            "required_log_text": ["sensitivity across dem stencil widths"],
         },
         {
             "name": "result2_north_face_aspect_hypothesis",
             "argv": [py, "src/geometry_merge.py", "--sensitivity", "--lat", "28.28771", "--lon", "85.52809",
                      "--aspect", "0"],
             "outputs": [], "network": True,
+            "required_log_text": ["[override] aspect"],
         },
         {
             "name": "result6_sentinel2_scene_survey",
             "argv": [py, "src/scar_map.py", "--survey"],
             "outputs": [], "network": True,
+            "required_log_text": ["scenes over the source zone"],
         },
         {
             "name": "result6_sentinel2_candidate_map",
             "argv": [py, "src/scar_map.py", "--map", "--candidates-csv", "outputs/scar_candidates_source.csv"],
             "outputs": ["outputs/scar_candidates_source.csv"], "network": True,
+            "required_log_text": ["detachment-like"],
         },
         {
             "name": "result6_reported_point_probe",
             "argv": [py, "src/scar_map.py", "--probe", "28.28771", "85.52809"],
             "outputs": [], "network": True,
+            "required_log_text": ["not a scar", "usable pixels"],
         },
     ] + [
         {
@@ -98,9 +104,32 @@ def command_plan() -> list[dict[str, Any]]:
                      "10", "25", "50", "100", "150", "--rank-by", "efficiency",
                      "--geojson", f"outputs/dam_sites_{aoi}.geojson"],
             "outputs": [f"outputs/dam_sites_{aoi}.geojson"], "network": True,
+            "required_log_text": ["caveats: pools are not tested"],
         }
         for aoi in ("source", "langtang", "lhende", "blatten")
     ]
+
+
+def validate_output_file(path: Path) -> str | None:
+    """Validate fresh output structure rather than accepting an old/stale file."""
+    try:
+        if path.suffix.lower() == ".csv":
+            with path.open("r", newline="", encoding="utf-8-sig") as fh:
+                reader = csv.DictReader(fh)
+                if not reader.fieldnames or not any(str(k).strip() for k in reader.fieldnames):
+                    return "CSV_HEADER_MISSING"
+                if next(reader, None) is None:
+                    return "CSV_HAS_NO_DATA_ROWS"
+        elif path.suffix.lower() == ".geojson":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            features = payload.get("features") if isinstance(payload, dict) else None
+            if payload.get("type") != "FeatureCollection" or not isinstance(features, list) or not features:
+                return "GEOJSON_NOT_A_NONEMPTY_FEATURE_COLLECTION"
+        elif not path.is_file() or path.stat().st_size == 0:
+            return "OUTPUT_FILE_EMPTY"
+    except Exception as exc:
+        return f"OUTPUT_VALIDATION_FAILED:{type(exc).__name__}"
+    return None
 
 
 def retryable_network_failure(text: str, returncode: int, is_network: bool) -> bool:
@@ -187,6 +216,10 @@ def run_suite(
         stdout_text = ""
         success = False
         limit = max_attempts if item["network"] else 1
+        # Remove generated targets so a failed command cannot accidentally
+        # pass validation by leaving a committed file at the same path.
+        for rel in item["outputs"]:
+            (science_root / rel).unlink(missing_ok=True)
         for attempt in range(1, limit + 1):
             try:
                 done = runner(
@@ -202,14 +235,22 @@ def run_suite(
                 record = {"attempt": attempt, "returncode": int(done.returncode)}
                 attempts.append(record)
                 if done.returncode == 0:
-                    missing = [
-                        rel for rel in item["outputs"]
-                        if not (science_root / rel).is_file()
-                        or (science_root / rel).stat().st_size == 0
-                    ]
-                    if missing:
-                        stdout_text += "\nERROR=EXPECTED_OUTPUT_MISSING names=" + ",".join(missing)
-                    else:
+                    output_errors = []
+                    for rel in item["outputs"]:
+                        problem = validate_output_file(science_root / rel)
+                        if problem:
+                            output_errors.append(f"{rel}:{problem}")
+                    required_text = item.get("required_log_text", [])
+                    missing_text = [phrase for phrase in required_text if phrase not in stdout_text.lower()]
+                    if name == "result6_sentinel2_scene_survey":
+                        match = re.search(r"(\\d+) Sentinel-2 L2A scenes over the source zone", stdout_text)
+                        if not match or int(match.group(1)) <= 0:
+                            missing_text.append("one or more retrievable Sentinel-2 scenes")
+                    if output_errors:
+                        stdout_text += "\nERROR=OUTPUT_VALIDATION_FAILED details=" + ";".join(output_errors)
+                    if missing_text:
+                        stdout_text += "\nERROR=EXPECTED_SCIENCE_EVIDENCE_MISSING items=" + ";".join(missing_text)
+                    if not output_errors and not missing_text:
                         success = True
                         break
                 retryable = retryable_network_failure(stdout_text, int(done.returncode), bool(item["network"]))
