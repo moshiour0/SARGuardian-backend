@@ -222,8 +222,8 @@ def test_candidate4_common_reference_uses_exact_pinned_pr_ur_stack():
 
 def test_auto_resume_id_is_passed_from_manifest_job_to_aggregate_job():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\\n", 1)[1].split("  process-one:\\n", 1)[0]
-    aggregate = text.split("  aggregate:\\n", 1)[1]
+    manifest = text.split("  manifest:", 1)[1].split("  process-one:", 1)[0]
+    aggregate = text.split("  aggregate:", 1)[1]
     assert "resume_run_id: ${{ steps.resume.outputs.run_id }}" in manifest
     assert "resume_mode: ${{ steps.resume.outputs.mode }}" in manifest
     assert "needs.manifest.outputs.resume_run_id != ''" in aggregate
