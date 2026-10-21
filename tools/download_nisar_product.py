@@ -407,7 +407,7 @@ def main() -> int:
     has_user_token = bool(os.environ.get("EARTHDATA_TOKEN", "").strip())
     has_credentials = bool(os.environ.get("EARTHDATA_USERNAME")) and bool(os.environ.get("EARTHDATA_PASSWORD"))
     if not has_user_token and not has_credentials:
-        print("ERROR=EARTHDATA_CREDENTIALS_OR_TOKEN_MISSING", file=sys.stderr)
+        print("ERROR=EARTHDATA_CREDENTIALS_MISSING_OR_EARTHDATA_TOKEN_MISSING", file=sys.stderr)
         return 2
 
     try:
