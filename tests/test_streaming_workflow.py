@@ -174,7 +174,7 @@ def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
     assert "Download previous run manifest for safe resume" in text
     assert "Download previous per-product checkpoints for safe resume" in text
     assert "RESUME_PRODUCTS_REUSED=" in text
-    assert '"products_to_process": matrix_products' in text
+    assert 'manifest["products_to_process"] = matrix_products' in text
     assert "Download prior per-granule checkpoints for resume" in text
     assert "Assemble complete product checkpoints for aggregation" in text
     assert "python tools/resume_streamed_run.py merge" in text
