@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       run_profile:
-        description: Compare one GUNW and one GOFF first, or process every baseline product in the selected window
+        description: SAFE default is a 2-product pilot. Select full-source-baseline to test all 33 products and the complete downstream science suite.
         required: true
         type: choice
         options:
@@ -78,6 +78,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "RUN_PROFILE_SELECTED=$RUN_PROFILE"
+          if [[ "$RUN_PROFILE" == "validation-pilot" ]]; then
+            echo "::notice title=Pilot mode only::This run processes one GUNW plus one GOFF; it does not execute the full 33-product end-to-end science suite. Select full-source-baseline for complete science validation."
+          else
+            echo "RUN_PROFILE_INTENT=full-source-baseline science validation"
+          fi
           python tools/resolve_resume_run.py \
             --science-root science-source \
             --run-profile "$RUN_PROFILE" \
