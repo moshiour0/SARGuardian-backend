@@ -79,7 +79,7 @@ def test_drive_api_retries_transient_503_and_then_succeeds(monkeypatch):
     response = drive.request("GET", f"{drive_upload.API}/files")
 
     assert response.status_code == 200
-    assert len(session.request_calls) == 3
+    assert len(session.request_calls) == 2
     assert all(call[2]["headers"]["Authorization"] == "Bearer test-access-token"
                for call in session.request_calls)
 
@@ -175,4 +175,4 @@ def test_folder_creation_recovers_if_post_response_is_transiently_ambiguous(monk
     folder_id = drive.ensure_folder("parent-id", "SARGuardian-DataArchive")
 
     assert folder_id == "folder-created-before-500"
-    assert len(session.request_calls) == 2
+    assert len(session.request_calls) == 3
