@@ -179,3 +179,13 @@ def test_full_baseline_can_resume_only_verified_prior_product_checkpoints():
     assert "Assemble complete product checkpoints for aggregation" in text
     assert "python tools/resume_streamed_run.py merge" in text
     assert "retention-days: 14" in text
+
+
+def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert text.count("EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}") == 2
+    downloader = (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("EARTHDATA_TOKEN", "").strip()' in downloader
+    assert "auth_with_token(token)" in downloader
+    assert "EARTHDATA_AUTH_MODE=pre_generated_user_token" in downloader
+    assert "EARTHDATA_AUTH_MODE=username_password_token_exchange" in downloader
