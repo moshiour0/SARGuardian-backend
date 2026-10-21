@@ -39,6 +39,78 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def download_exact_product_with_timeout(
+    session: Any,
+    url: str,
+    out_path: Path,
+    expected_bytes: int | None,
+    *,
+    connect_timeout_seconds: int = 30,
+    read_timeout_seconds: int = 120,
+    progress_interval_bytes: int = 128 * 1024 * 1024,
+) -> int:
+    """Stream one authenticated ASF object with bounded idle waits and progress logs."""
+    if not trusted_asf_url(url):
+        raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
+    response = session.get(
+        url,
+        allow_redirects=True,
+        stream=True,
+        timeout=(connect_timeout_seconds, read_timeout_seconds),
+    )
+    try:
+        response.raise_for_status()
+        header_length = response.headers.get("Content-Length")
+        try:
+            header_bytes = int(header_length) if header_length else None
+        except (TypeError, ValueError, OverflowError):
+            header_bytes = None
+        if (
+            expected_bytes and header_bytes
+            and header_bytes != expected_bytes
+        ):
+            raise RuntimeError(
+                f"DOWNLOAD_CONTENT_LENGTH_MISMATCH expected={expected_bytes} "
+                f"response_header={header_bytes}"
+            )
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        downloaded = 0
+        next_progress = progress_interval_bytes
+        try:
+            with out_path.open("wb") as target:
+                for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                    if not chunk:
+                        continue
+                    target.write(chunk)
+                    downloaded += len(chunk)
+                    if downloaded >= next_progress:
+                        print(
+                            f"DOWNLOAD_PROGRESS_BYTES={downloaded} "
+                            f"EXPECTED_BYTES={expected_bytes or header_bytes or 'unknown'}",
+                            flush=True,
+                        )
+                        while next_progress <= downloaded:
+                            next_progress += progress_interval_bytes
+        except requests.exceptions.RequestException:
+            out_path.unlink(missing_ok=True)
+            raise
+
+        if downloaded <= 0:
+            out_path.unlink(missing_ok=True)
+            raise RuntimeError("DOWNLOAD_EMPTY_RESPONSE_BODY")
+        expected = expected_bytes or header_bytes
+        if expected and downloaded != expected:
+            out_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"DOWNLOAD_CONTENT_LENGTH_MISMATCH expected={expected} actual={downloaded}"
+            )
+        print(f"DOWNLOAD_COMPLETE_BYTES={downloaded}", flush=True)
+        return downloaded
+    finally:
+        response.close()
+
+
 def load_source_acquisition(science_root: Path, aoi: str) -> tuple[Any, str]:
     """Load the exact acquisition module shipped by the pinned science repo."""
     source_file = (science_root / "src" / "nisar_acquisition.py").resolve()
@@ -96,6 +168,8 @@ def is_retryable_remote_failure(exc: BaseException) -> bool:
     if status is not None:
         return int(status) in {408, 425, 429, 500, 502, 503, 504}
     if re.search(r"\b(?:HTTP_STATUS_)(?:408|425|429|500|502|503|504)\b", str(exc)):
+        return True
+    if "DOWNLOAD_CONTENT_LENGTH_MISMATCH" in str(exc):
         return True
     return isinstance(exc, requests.exceptions.RequestException)
 
@@ -466,12 +540,12 @@ def main() -> int:
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(mode=0o700)
     try:
-        import asf_search
-        # Same authenticated ASF downloader used by nisar_acquisition.py.
-        asf_search.download_url(
-            url=record["downloadUrl"],
-            path=str(staging_dir),
-            session=session,
+        staged_raw = staging_dir / f"{wanted}.h5"
+        download_exact_product_with_timeout(
+            session,
+            record["downloadUrl"],
+            staged_raw,
+            remote_content_length_bytes,
         )
         files = sorted([*staging_dir.glob("*.h5"), *staging_dir.glob("*.H5")])
         if len(files) != 1:
