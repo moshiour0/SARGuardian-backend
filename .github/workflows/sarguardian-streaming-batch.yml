@@ -97,6 +97,7 @@ jobs:
 
       - name: Download previous per-product checkpoints for safe resume
         if: steps.resume.outputs.run_id != ''
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-granule-*
@@ -106,6 +107,7 @@ jobs:
 
       - name: Download previous cleanup receipts for safe resume
         if: steps.resume.outputs.run_id != ''
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: sarguardian-cleanup-*
