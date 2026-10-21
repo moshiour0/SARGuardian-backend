@@ -85,9 +85,15 @@ For each granule the workflow does the following:
    not preserved unless a compact equivalent was explicitly exported.
 
 A failed upload or failed verification never reaches the explicit `rm` step.
-GitHub-hosted runners are disposable; if a run fails before retention succeeds,
-rerun that granule from its exact ID. The manifest is deterministic and the
-Drive uploader refuses to overwrite a same-name file with different content.
+After the initial product matrix completes, the workflow checks all processed
+product and cleanup receipts and retries each incomplete product once through
+the same full processing worker. The separate preassembly gate verifies every
+selected product—including valid checkpoints reused from a compatible resume
+source—before any reassembly starts. If a product is still incomplete after
+that retry, the final verification report is preserved and reassembly is
+blocked; inspect the per-product diagnostic and retry report rather than
+treating a partial set as success. The manifest is deterministic and the Drive
+uploader refuses to overwrite same-name content with different checksums.
 
 ## What is regenerated in full-source-baseline
 
@@ -225,6 +231,39 @@ end-to-end.
 
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
 
+
+## Retry failed products before reassembly
+
+The streaming workflow factors the existing per-product processing sequence
+into a reusable worker. The initial matrix still honors the selected
+`resume_from_run_id` behavior: `none` forces a fresh run, blank selects the
+automatic compatible-resume path, and a numeric ID selects a manual resume
+source.
+
+After the initial matrix is complete, `retry-plan` validates each product's
+`product-processing.json`, derived-output validation and remote-retention
+receipt, required export inventory, and both post-cleanup receipts. Only
+products with a missing or invalid granule/cleanup receipt pair are added to
+the retry-only matrix. The original downloader retains its four-attempt
+bounded retry for transient download failures; if the whole product job still
+fails or its output receipt is incomplete, that product gets one additional
+full-worker attempt.
+
+The `preassembly-verify` job then checks every product in the complete manifest,
+not only the products processed in the latest matrix. In full-baseline mode it
+requires exactly 33 ordered product identities (15 GUNW and 18 GOFF). It
+accepts a product only when its granule and cleanup receipts form one complete,
+compatible pair from either this run or the selected compatible resume source.
+Reassembly is gated on this job passing. If any product remains missing or
+invalid after retry, the workflow fails closed, retains
+`sarguardian-preassembly-retry-plan` and
+`sarguardian-preassembly-verification` reports when available, and skips the
+aggregate/reassembly job. The science commit, pinned source scripts and
+scientific comparison tolerances are not changed by this retry orchestration.
+
+A manual full-baseline run on the updated testing branch is still required to
+verify this exact retry-before-reassembly path against all live 33 products;
+regression CI alone does not count as live end-to-end proof.
 
 ## Optional Earthdata user-token authentication
 
