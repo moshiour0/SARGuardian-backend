@@ -79,7 +79,8 @@ def test_download_reuses_the_pinned_source_acquisition_code_in_both_workflows():
     assert "def direct_product_url(" in downloader
     assert "def probe_direct_product(" in downloader
     assert "acquisition.build_session()" in downloader
-    assert "asf_search.download_url" in downloader
+    assert "download_exact_product_with_timeout(" in downloader
+    assert "timeout=(connect_timeout_seconds, read_timeout_seconds)" in downloader
     assert "query_by_year(" not in downloader
     assert "earthaccess" not in downloader.lower()
     for workflow in (stream, live):
