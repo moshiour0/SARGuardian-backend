@@ -358,7 +358,13 @@ jobs:
               exit 2
             fi
           fi
-          python tools/drive_resumable_upload.py \
+          retry_upload_flags=()
+          if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
+            # This version-tag is unique to this workflow run/attempt. Matching
+            # remote outputs were therefore retained by this same run's first try.
+            retry_upload_flags+=(--existing-files-are-new)
+          fi
+          python tools/drive_resumable_upload.py "${retry_upload_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" --files "${files[@]}" \
             --out "$CURATED_DIR/drive-retention-receipt.json"
@@ -388,7 +394,11 @@ jobs:
           meta["drive_retention_receipt"]="drive-retention-receipt.json"
           meta_path.write_text(json.dumps(meta,indent=2),encoding="utf-8")
           PY
-          python tools/drive_resumable_upload.py \
+          metadata_retry_flags=()
+          if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
+            metadata_retry_flags+=(--existing-files-are-new --replace-existing-receipts)
+          fi
+          python tools/drive_resumable_upload.py "${metadata_retry_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" \
             --files "$CURATED_DIR/product-processing.json" "$CURATED_DIR/drive-retention-receipt.json" \
@@ -596,7 +606,11 @@ jobs:
           (root/"local-cleanup-receipt.json").write_text(json.dumps(record,indent=2),encoding="utf-8")
           print("LOCAL_RAW_AND_POLICY_REQUIRED_ARCHIVE_COPIES_DELETED_AFTER_REMOTE_VERIFICATION=yes")
           PY
-          python tools/drive_resumable_upload.py \
+          cleanup_retry_flags=()
+          if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
+            cleanup_retry_flags+=(--existing-files-are-new --replace-existing-receipts)
+          fi
+          python tools/drive_resumable_upload.py "${cleanup_retry_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
             --granule-name "$GRANULE_NAME" --version-tag "$DRIVE_VERSION_TAG" \
             --files "$CURATED_DIR/local-cleanup-receipt.json" \
