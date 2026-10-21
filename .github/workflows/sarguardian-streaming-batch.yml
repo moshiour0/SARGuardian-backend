@@ -77,11 +77,11 @@ jobs:
         run: |
           set -euo pipefail
           python tools/resolve_resume_run.py \
-            --science-root science-source \\
-            --run-profile "$RUN_PROFILE" \\
-            --start-date "$WINDOW_START" \\
-            --end-date "$WINDOW_END" \\
-            --retention-profile "$RETENTION_PROFILE" \\
+            --science-root science-source \
+            --run-profile "$RUN_PROFILE" \
+            --start-date "$WINDOW_START" \
+            --end-date "$WINDOW_END" \
+            --retention-profile "$RETENTION_PROFILE" \
             --requested-run-id "$INPUT_RUN_ID"
 
       - name: Download previous run manifest for safe resume
