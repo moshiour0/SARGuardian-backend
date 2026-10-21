@@ -124,10 +124,12 @@ def _sleep_before_retry(stage: str, attempt: int, detail: str) -> None:
     time.sleep(delay)
 
 
-def build_authenticated_session_with_retry(acquisition: Any, attempts: int = 2) -> Any:
+def build_authenticated_session_with_retry(
+    acquisition: Any, attempts: int = 2, *, force_credentials: bool = False
+) -> Any:
     """Prefer a pre-generated Earthdata user token; otherwise retry credential exchange."""
     token = os.environ.get("EARTHDATA_TOKEN", "").strip()
-    if token:
+    if token and not force_credentials:
         import asf_search
 
         print("EARTHDATA_AUTH_MODE=pre_generated_user_token", file=sys.stderr)
@@ -197,14 +199,14 @@ def probe_url_content_length(session: Any, url: str, attempts: int = 3) -> int |
 
 
 def probe_direct_product(
-    acquisition: Any, wanted: str, product_type: str, maturity: str
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
 ) -> tuple[dict[str, Any], Any, int | None]:
     """Verify the exact production HTTPS object and read its size."""
     url = direct_product_url(wanted, product_type, maturity)
     if not trusted_asf_url(url):
         raise ValueError("DIRECT_PRODUCT_URL_NOT_TRUSTED")
 
-    session = build_authenticated_session_with_retry(acquisition)
+    session = build_authenticated_session_with_retry(acquisition, force_credentials=force_credentials)
     remote_bytes = probe_url_content_length(session, url)
     record = {
         "granuleName": wanted,
@@ -313,13 +315,13 @@ def _catalog_record_for_exact_granule(
 
 
 def probe_catalog_product(
-    acquisition: Any, wanted: str, product_type: str, maturity: str
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
 ) -> tuple[dict[str, Any], Any, int | None]:
     """Resolve an exact ASF catalog URL (including UR bucket routing), then verify it."""
     record, _props = _catalog_record_for_exact_granule(
         wanted, product_type, maturity
     )
-    session = build_authenticated_session_with_retry(acquisition)
+    session = build_authenticated_session_with_retry(acquisition, force_credentials=force_credentials)
     try:
         remote_bytes = probe_url_content_length(session, record["downloadUrl"])
     except RuntimeError as exc:
@@ -335,22 +337,44 @@ def probe_catalog_product(
 
 
 def probe_known_product(
-    acquisition: Any, wanted: str, product_type: str, maturity: str
+    acquisition: Any, wanted: str, product_type: str, maturity: str, *, force_credentials: bool = False
 ) -> tuple[dict[str, Any], Any, int | None]:
-    """Use direct HTTPS for routine products; use exact catalog URLs for UR/404 cases."""
-    if is_urgent_response_product(wanted):
-        print("DISCOVERY_FALLBACK=ASF_CATALOG_URGENT_RESPONSE", file=sys.stderr)
-        return probe_catalog_product(acquisition, wanted, product_type, maturity)
+    """Use exact product routing, falling back from rejected user tokens when credentials exist."""
     try:
-        return probe_direct_product(acquisition, wanted, product_type, maturity)
+        if is_urgent_response_product(wanted):
+            print("DISCOVERY_FALLBACK=ASF_CATALOG_URGENT_RESPONSE", file=sys.stderr)
+            return probe_catalog_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
+        try:
+            return probe_direct_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
+        except RuntimeError as exc:
+            if "DIRECT_PRODUCT_HTTP_STATUS_404" not in str(exc):
+                raise
+            print(
+                "DIRECT_PRODUCT_HTTP_404=retrying exact ASF catalog URL resolution",
+                file=sys.stderr,
+            )
+            return probe_catalog_product(
+                acquisition, wanted, product_type, maturity, force_credentials=force_credentials
+            )
     except RuntimeError as exc:
-        if "DIRECT_PRODUCT_HTTP_STATUS_404" not in str(exc):
-            raise
-        print(
-            "DIRECT_PRODUCT_HTTP_404=retrying exact ASF catalog URL resolution",
-            file=sys.stderr,
+        token = os.environ.get("EARTHDATA_TOKEN", "").strip()
+        has_credentials = bool(os.environ.get("EARTHDATA_USERNAME")) and bool(os.environ.get("EARTHDATA_PASSWORD"))
+        auth_rejected = any(
+            f"DIRECT_PRODUCT_HTTP_STATUS_{status}" in str(exc) for status in (401, 403)
         )
-        return probe_catalog_product(acquisition, wanted, product_type, maturity)
+        if token and has_credentials and not force_credentials and auth_rejected:
+            print(
+                "EARTHDATA_USER_TOKEN_REJECTED=retrying_once_with_username_password_session",
+                file=sys.stderr,
+            )
+            return probe_known_product(
+                acquisition, wanted, product_type, maturity, force_credentials=True
+            )
+        raise
 
 
 def main() -> int:
