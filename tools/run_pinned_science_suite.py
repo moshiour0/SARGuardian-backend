@@ -181,7 +181,7 @@ def run_suite(
 
     # The pipeline must execute the committed engine, not a modified local copy.
     source_status = runner(
-        ["git", "-C", str(science_root), "status", "--porcelain", "--", "src"],
+        ["git", "-C", str(science_root), "status", "--porcelain", "--untracked-files=all", "--", "src"],
         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=30,
     )
     if source_status.returncode != 0 or (source_status.stdout or "").strip():
@@ -308,6 +308,28 @@ def run_suite(
                 "committed_sha256": previous_hash,
                 "generated_sha256": None,
             })
+
+    # Re-check the maintained science source after every experiment. This
+    # makes the "unchanged pinned src/" guarantee an end-to-end invariant, not
+    # merely a precondition checked before the commands start.
+    post_source_status = runner(
+        ["git", "-C", str(science_root), "status", "--porcelain", "--untracked-files=all", "--", "src"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=30,
+    )
+    post_status_text = (post_source_status.stdout or "").strip()
+    source_integrity_status = "PASS" if post_source_status.returncode == 0 and not post_status_text else "FAIL"
+    report["source_integrity_after_run"] = {
+        "status": source_integrity_status,
+        "returncode": post_source_status.returncode,
+        "status_output": post_status_text[:800],
+    }
+    if source_integrity_status != "PASS":
+        report["source_scripts_modified"] = True
+        report["errors"].append({
+            "problem": "PINNED_SCIENCE_SOURCE_TREE_CHANGED_DURING_RUN",
+            "returncode": post_source_status.returncode,
+            "status_output": post_status_text[:800],
+        })
 
     report["status"] = "PASS" if not report["errors"] else "FAIL"
     report["finished_utc"] = datetime.now(timezone.utc).isoformat()
