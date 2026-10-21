@@ -452,3 +452,67 @@ def test_rejected_user_token_falls_back_once_to_credentials(monkeypatch, capsys)
     assert record["granuleName"] == WANTED
     output = capsys.readouterr().err
     assert "EARTHDATA_USER_TOKEN_REJECTED=retrying_once_with_username_password_session" in output
+
+
+class FakeDownloadResponse(FakeResponse):
+    def __init__(self, status_code=200, body_chunks=None, headers=None, reason="OK"):
+        super().__init__(status_code, headers=headers, reason=reason)
+        self.body_chunks = list(body_chunks or [])
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            exc = download.requests.exceptions.HTTPError(f"HTTP {self.status_code}: {self.reason}")
+            exc.response = self
+            raise exc
+
+    def iter_content(self, chunk_size=1):
+        yield from self.body_chunks
+
+
+def test_streamed_download_uses_connect_read_timeouts_and_checks_size(tmp_path):
+    response = FakeDownloadResponse(
+        body_chunks=[b"abcd", b"efgh"],
+        headers={"Content-Length": "8"},
+    )
+    session = FakeSession(get_response=response)
+    out = tmp_path / "product.h5"
+
+    size = download.download_exact_product_with_timeout(
+        session,
+        "https://datapool.asf.alaska.edu/product.h5",
+        out,
+        expected_bytes=8,
+        progress_interval_bytes=4,
+    )
+
+    assert size == 8
+    assert out.read_bytes() == b"abcdefgh"
+    assert session.get_calls[0][1] == {
+        "allow_redirects": True,
+        "stream": True,
+        "timeout": (30, 120),
+    }
+    assert response.closed
+
+
+def test_streamed_download_removes_incomplete_file_and_marks_size_mismatch_retryable(tmp_path):
+    response = FakeDownloadResponse(
+        body_chunks=[b"partial"],
+        headers={"Content-Length": "7"},
+    )
+    session = FakeSession(get_response=response)
+    out = tmp_path / "product.h5"
+
+    with pytest.raises(RuntimeError, match="DOWNLOAD_CONTENT_LENGTH_MISMATCH"):
+        download.download_exact_product_with_timeout(
+            session,
+            "https://datapool.asf.alaska.edu/product.h5",
+            out,
+            expected_bytes=99,
+        )
+
+    assert not out.exists()
+    assert download.is_retryable_remote_failure(
+        RuntimeError("DOWNLOAD_CONTENT_LENGTH_MISMATCH expected=99 actual=7")
+    )
+    assert response.closed
