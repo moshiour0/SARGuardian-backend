@@ -9,8 +9,9 @@ def _full_manifest() -> dict:
     products = []
     for family, count in (("GUNW", 15), ("GOFF", 18)):
         for index in range(1, count + 1):
+            product_index = len(products) + 1
             products.append({
-                "id": f"{family}-{index:03d}",
+                "id": f"{family}-{product_index:03d}",
                 "product_type": family,
                 "granule_name": f"NISAR_L2_{family}_TEST_PRODUCT_{index:03d}.h5",
                 "maturity": "BETA",
@@ -60,7 +61,7 @@ def test_retry_plan_only_retries_products_without_complete_current_receipts(tmp_
 
     assert report["products_checked"] == 2
     assert report["products_verified"] == 1
-    assert report["retry_product_ids"] == ["GOFF-018"]
+    assert report["retry_product_ids"] == ["GOFF-033"]
     assert report["products_to_retry"] == 1
 
 
@@ -83,7 +84,7 @@ def test_preassembly_verification_accepts_current_and_resume_checkpoints(tmp_pat
     }
     for product in manifest["products"][2:]:
         pid = product["id"]
-        if pid == "GOFF-018":
+        if pid == "GOFF-033":
             continue
         valid_g.add(("previous-granules", f"sarguardian-granule-{pid}"))
         valid_c.add(("previous-cleanups", f"sarguardian-cleanup-{pid}"))
@@ -98,7 +99,7 @@ def test_preassembly_verification_accepts_current_and_resume_checkpoints(tmp_pat
     assert report["verified_products"] == 32
     assert report["current_run_checkpoints"] == 2
     assert report["resume_source_checkpoints"] == 30
-    assert report["missing_or_invalid_product_ids"] == ["GOFF-018"]
+    assert report["missing_or_invalid_product_ids"] == ["GOFF-033"]
 
 
 def test_full_baseline_guard_rejects_wrong_product_count():
