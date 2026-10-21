@@ -67,6 +67,21 @@ def _product_pair_status(
     if not remote_folder:
         return False, "granule:remote_folder_id_missing"
 
+    metadata_upload = read_json(granule_dir / "drive-metadata-upload-receipt.json")
+    if not metadata_upload:
+        return False, "granule:metadata_upload_receipt_missing_or_invalid"
+    if metadata_upload.get("remote_verification") != "PASS":
+        return False, "granule:metadata_upload_receipt_not_verified"
+    if metadata_upload.get("remote_folder_id") != remote_folder:
+        return False, "granule:metadata_upload_folder_mismatch"
+    metadata_files = {
+        str(item.get("name", ""))
+        for item in metadata_upload.get("files", [])
+        if isinstance(item, dict)
+    }
+    if not {"product-processing.json", "drive-retention-receipt.json"}.issubset(metadata_files):
+        return False, "granule:required_metadata_files_not_remotely_verified"
+
     good, reason = _valid_cleanup(cleanup_dir, product, manifest, remote_folder)
     if not good:
         return False, f"cleanup:{reason}"
