@@ -5,7 +5,7 @@ Never uploads the original raw product. Idempotent by exact filename+parent:
 identical size+MD5 reuses the remote file; conflicting content fails closed.
 """
 from __future__ import annotations
-import argparse, hashlib, json, mimetypes, os, sys, time
+import argparse, hashlib, json, mimetypes, os, re, sys, time
 from pathlib import Path
 from urllib.parse import urlparse
 import requests
@@ -15,6 +15,39 @@ UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 TOKEN = "https://oauth2.googleapis.com/token"
 FOLDER_MIME = "application/vnd.google-apps.folder"
 CHUNK_BYTES = 8 * 1024 * 1024  # 8 MiB; multiple of 256 KiB.
+MAX_RETRY_ATTEMPTS = 5
+RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+RETRY_BASE_SECONDS = 2
+RETRY_MAX_SECONDS = 30
+
+def _retryable_status(status: int) -> bool:
+    return status in RETRYABLE_HTTP_STATUSES
+
+def _retry_delay(attempt: int, retry_after: str | None = None) -> float:
+    """Bounded exponential backoff; honour a numeric Retry-After when supplied."""
+    if retry_after:
+        try:
+            return min(max(float(retry_after), 0.0), 120.0)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return min(RETRY_BASE_SECONDS * (2 ** max(0, attempt - 1)), RETRY_MAX_SECONDS)
+
+def _log_retry(stage: str, attempt: int, delay: float, reason: str) -> None:
+    """Keep retry logs useful without printing URLs, credentials, or request bodies."""
+    print(
+        f"DRIVE_RETRY stage={stage} attempt={attempt}/{MAX_RETRY_ATTEMPTS} "
+        f"sleep_seconds={delay:g} reason={reason}",
+        file=sys.stderr,
+        flush=True,
+    )
+    time.sleep(delay)
+
+def _transient_drive_error(error: BaseException) -> bool:
+    """Classify only explicit network and retryable HTTP failures."""
+    message = str(error)
+    if "DRIVE_API_NETWORK_ERROR" in message or "DRIVE_TOKEN_REFRESH_NETWORK_ERROR" in message:
+        return True
+    return any(f"HTTP_{status}" in message for status in RETRYABLE_HTTP_STATUSES)
 
 class DriveError(RuntimeError): pass
 
@@ -51,27 +84,99 @@ class Drive:
         self._refresh()
 
     def _refresh(self):
-        try:
-            r = self.s.post(TOKEN, data={'client_id': self.client_id, 'client_secret': self.client_secret,
-                'refresh_token': self.refresh, 'grant_type': 'refresh_token'}, timeout=(15, 45))
-            if r.status_code != 200: raise DriveError(f'DRIVE_TOKEN_REFRESH_HTTP_{r.status_code}')
-            self.token = r.json().get('access_token')
-            if not self.token: raise DriveError('DRIVE_TOKEN_REFRESH_INVALID')
-        except requests.RequestException:
-            raise DriveError('DRIVE_TOKEN_REFRESH_NETWORK_ERROR') from None
+        """Refresh the OAuth access token with bounded retries for transient failures."""
+        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+            try:
+                r = self.s.post(
+                    TOKEN,
+                    data={
+                        'client_id': self.client_id,
+                        'client_secret': self.client_secret,
+                        'refresh_token': self.refresh,
+                        'grant_type': 'refresh_token',
+                    },
+                    timeout=(15, 45),
+                )
+            except requests.RequestException as exc:
+                if attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry("token_refresh", attempt, _retry_delay(attempt), type(exc).__name__)
+                    continue
+                raise DriveError("DRIVE_TOKEN_REFRESH_NETWORK_ERROR attempts_exhausted") from None
+
+            if _retryable_status(r.status_code):
+                status = r.status_code
+                delay = _retry_delay(attempt, r.headers.get("Retry-After"))
+                r.close()
+                if attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry("token_refresh", attempt, delay, f"HTTP_{status}")
+                    continue
+                raise DriveError(f"DRIVE_TOKEN_REFRESH_HTTP_{status}_RETRIES_EXHAUSTED")
+
+            if r.status_code != 200:
+                status = r.status_code
+                r.close()
+                raise DriveError(f"DRIVE_TOKEN_REFRESH_HTTP_{status}")
+            try:
+                token = r.json().get("access_token")
+            except (ValueError, AttributeError):
+                token = None
+            finally:
+                r.close()
+            if not token:
+                raise DriveError("DRIVE_TOKEN_REFRESH_INVALID")
+            self.token = token
+            return
 
     def request(self, method, url, **kw):
-        headers = kw.pop('headers', {})
-        headers['Authorization'] = f'Bearer {self.token}'
-        try: r = self.s.request(method, url, headers=headers, timeout=kw.pop('timeout', (20, 120)), **kw)
-        except requests.RequestException: raise DriveError('DRIVE_API_NETWORK_ERROR') from None
-        if r.status_code == 401:
-            self._refresh(); headers['Authorization'] = f'Bearer {self.token}'
-            try: r = self.s.request(method, url, headers=headers, timeout=(20, 120), **kw)
-            except requests.RequestException: raise DriveError('DRIVE_API_NETWORK_ERROR') from None
-        if r.status_code >= 400:
-            raise DriveError(f'DRIVE_API_HTTP_{r.status_code}')
-        return r
+        """Retry safe Drive API requests on transient network/HTTP errors.
+
+        POST is not automatically retried because resource-creation requests can
+        be non-idempotent. Callers may explicitly set retry_post=True for
+        resumable-session creation, where an abandoned session creates no file.
+        Folder creation uses its own lookup-before-retry flow.
+        """
+        headers = dict(kw.pop('headers', {}))
+        timeout = kw.pop('timeout', (20, 120))
+        retry_post = bool(kw.pop("retry_post", False))
+        can_retry = method.upper() in {"GET", "HEAD", "PUT", "DELETE"} or retry_post
+        refreshed = False
+        attempt = 1
+
+        while True:
+            request_headers = dict(headers)
+            request_headers['Authorization'] = f'Bearer {self.token}'
+            try:
+                r = self.s.request(
+                    method, url, headers=request_headers, timeout=timeout, **kw
+                )
+            except requests.RequestException as exc:
+                if can_retry and attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry(f"api_{method.lower()}", attempt, _retry_delay(attempt), type(exc).__name__)
+                    attempt += 1
+                    continue
+                raise DriveError("DRIVE_API_NETWORK_ERROR") from None
+
+            if r.status_code == 401 and not refreshed:
+                r.close()
+                self._refresh()
+                refreshed = True
+                continue
+
+            if _retryable_status(r.status_code) and can_retry:
+                status = r.status_code
+                delay = _retry_delay(attempt, r.headers.get("Retry-After"))
+                r.close()
+                if attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry(f"api_{method.lower()}", attempt, delay, f"HTTP_{status}")
+                    attempt += 1
+                    continue
+                raise DriveError(f"DRIVE_API_HTTP_{status}_RETRIES_EXHAUSTED")
+
+            if r.status_code >= 400:
+                status = r.status_code
+                r.close()
+                raise DriveError(f"DRIVE_API_HTTP_{status}")
+            return r
 
     @staticmethod
     def _q(s: str) -> str: return s.replace('\\', '\\\\').replace("'", "\\'")
@@ -83,15 +188,41 @@ class Drive:
         return data.get('files', [])
 
     def ensure_folder(self, parent, name):
-        rows = self.list_named_children(parent, name)
-        folders = [x for x in rows if x.get('mimeType') == FOLDER_MIME]
-        if any(x.get('mimeType') != FOLDER_MIME for x in rows): raise DriveError('DRIVE_FOLDER_NAME_CONFLICT')
-        if len(folders) > 1: raise DriveError('DRIVE_DUPLICATE_FOLDER_CONFLICT')
-        if folders: return folders[0]['id']
+        """Create a folder idempotently, resolving ambiguous network failures by lookup."""
+        q = f"'{self._q(parent)}' in parents and name = '{self._q(name)}' and trashed = false"
         data = {'name': name, 'mimeType': FOLDER_MIME, 'parents': [parent]}
-        out = self.request('POST', f'{API}/files', params={'fields': 'id,name,mimeType,parents'}, json=data).json()
-        if not out.get('id') or out.get('mimeType') != FOLDER_MIME: raise DriveError('DRIVE_FOLDER_CREATE_INVALID')
-        return out['id']
+
+        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+            rows = self.list_named_children(parent, name)
+            folders = [x for x in rows if x.get('mimeType') == FOLDER_MIME]
+            if any(x.get('mimeType') != FOLDER_MIME for x in rows):
+                raise DriveError('DRIVE_FOLDER_NAME_CONFLICT')
+            if len(folders) > 1:
+                raise DriveError('DRIVE_DUPLICATE_FOLDER_CONFLICT')
+            if folders:
+                return folders[0]['id']
+
+            try:
+                out = self.request(
+                    'POST', f'{API}/files',
+                    params={'fields': 'id,name,mimeType,parents'},
+                    json=data,
+                ).json()
+            except DriveError as exc:
+                if not _transient_drive_error(exc) or attempt >= MAX_RETRY_ATTEMPTS:
+                    raise
+                # The server may have created the folder before the response was
+                # lost. The next iteration re-queries by exact parent/name before
+                # issuing another POST, preventing duplicate folders.
+                delay = _retry_delay(attempt)
+                _log_retry("create_folder", attempt, delay, str(exc).split()[0])
+                continue
+
+            if not out.get('id') or out.get('mimeType') != FOLDER_MIME:
+                raise DriveError('DRIVE_FOLDER_CREATE_INVALID')
+            return out['id']
+
+        raise DriveError("DRIVE_FOLDER_CREATE_RETRIES_EXHAUSTED")
 
     def quota(self):
         doc = self.request('GET', f'{API}/about', params={'fields': 'storageQuota(limit,usage,usageInDrive)'}).json()
@@ -100,54 +231,230 @@ class Drive:
             raise DriveError('DRIVE_QUOTA_UNKNOWN_FAIL_CLOSED')
         return int(q['limit']), int(q['usage'])
 
+    def _query_resumable_status(self, session_url: str, size: int) -> dict:
+        """Ask Google which bytes it has accepted after an ambiguous chunk failure."""
+        headers = {
+            'Content-Length': '0',
+            'Content-Range': f'bytes */{size}',
+        }
+        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+            try:
+                response = self.s.put(
+                    session_url, data=b'', headers=headers, timeout=(20, 60)
+                )
+            except requests.RequestException as exc:
+                if attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry("resumable_status", attempt, _retry_delay(attempt), type(exc).__name__)
+                    continue
+                raise DriveError("DRIVE_RESUMABLE_STATUS_NETWORK_ERROR attempts_exhausted") from None
+
+            if response.status_code in (200, 201):
+                try:
+                    info = response.json()
+                except (ValueError, AttributeError):
+                    response.close()
+                    raise DriveError("DRIVE_RESUMABLE_STATUS_METADATA_INVALID") from None
+                response.close()
+                return {"complete": True, "info": info, "offset": size}
+
+            if response.status_code == 308:
+                value = response.headers.get('Range', '')
+                response.close()
+                if not value:
+                    return {"complete": False, "offset": 0}
+                match = re.fullmatch(r"bytes=0-(\d+)", value.strip())
+                if not match:
+                    raise DriveError("DRIVE_RESUMABLE_RANGE_INVALID")
+                offset = int(match.group(1)) + 1
+                if not 0 <= offset <= size:
+                    raise DriveError("DRIVE_RESUMABLE_RANGE_INVALID")
+                return {"complete": False, "offset": offset}
+
+            if _retryable_status(response.status_code):
+                status = response.status_code
+                delay = _retry_delay(attempt, response.headers.get("Retry-After"))
+                response.close()
+                if attempt < MAX_RETRY_ATTEMPTS:
+                    _log_retry("resumable_status", attempt, delay, f"HTTP_{status}")
+                    continue
+                raise DriveError(f"DRIVE_RESUMABLE_STATUS_HTTP_{status}_RETRIES_EXHAUSTED")
+
+            status = response.status_code
+            response.close()
+            if status in (404, 410):
+                raise DriveError("DRIVE_RESUMABLE_SESSION_EXPIRED")
+            raise DriveError(f"DRIVE_RESUMABLE_STATUS_HTTP_{status}")
+
+        raise DriveError("DRIVE_RESUMABLE_STATUS_RETRIES_EXHAUSTED")
+
     def upload_resumable(self, parent, path: Path, mime, md5, sha, size):
         existing = self.list_named_children(parent, path.name)
         files = [x for x in existing if x.get('mimeType') != FOLDER_MIME]
-        if len(files) > 1: raise DriveError('DRIVE_DUPLICATE_FILE_CONFLICT')
+        if len(files) > 1:
+            raise DriveError('DRIVE_DUPLICATE_FILE_CONFLICT')
         if files:
             item = files[0]
-            try: remote_size = int(item.get('size', -1))
-            except (TypeError, ValueError): remote_size = -1
+            try:
+                remote_size = int(item.get('size', -1))
+            except (TypeError, ValueError):
+                remote_size = -1
             if remote_size == size and item.get('md5Checksum', '').lower() == md5.lower():
-                return {'id': item['id'], 'name': path.name, 'bytes': size, 'md5': md5, 'sha256': sha, 'reused': True,
-                        'webViewLink': item.get('webViewLink')}
+                return {
+                    'id': item['id'], 'name': path.name, 'bytes': size, 'md5': md5,
+                    'sha256': sha, 'reused': True, 'webViewLink': item.get('webViewLink'),
+                }
             raise DriveError(f'DRIVE_EXISTING_FILE_CONFLICT name={path.name}')
-        meta = {'name': path.name, 'parents': [parent], 'description': f'SARGuardian curated archive; sha256={sha}'}
-        headers = {'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': str(size), 'Content-Type': 'application/json; charset=UTF-8'}
-        r = self.request('POST', UPLOAD, params={'uploadType': 'resumable', 'supportsAllDrives': 'true', 'fields': 'id,name,size,md5Checksum,parents,webViewLink'}, json=meta, headers=headers)
+
+        meta = {
+            'name': path.name,
+            'parents': [parent],
+            'description': f'SARGuardian curated archive; sha256={sha}',
+        }
+        headers = {
+            'X-Upload-Content-Type': mime,
+            'X-Upload-Content-Length': str(size),
+            'Content-Type': 'application/json; charset=UTF-8',
+        }
+        r = self.request(
+            'POST', UPLOAD,
+            params={
+                'uploadType': 'resumable', 'supportsAllDrives': 'true',
+                'fields': 'id,name,size,md5Checksum,parents,webViewLink',
+            },
+            json=meta,
+            headers=headers,
+            retry_post=True,
+        )
         session_url = r.headers.get('Location')
+        r.close()
         parsed_session = urlparse(session_url or '')
-        if parsed_session.scheme != 'https' or parsed_session.hostname not in {'www.googleapis.com', 'upload.googleapis.com'}:
+        if parsed_session.scheme != 'https' or parsed_session.hostname not in {
+            'www.googleapis.com', 'upload.googleapis.com'
+        }:
             raise DriveError('DRIVE_RESUMABLE_SESSION_INVALID')
+
         offset = 0
+        info = None
         with path.open('rb') as f:
-            while offset < size:
-                f.seek(offset); block = f.read(min(CHUNK_BYTES, size - offset))
-                if not block: raise DriveError('LOCAL_FILE_READ_SHORT')
+            while offset < size and info is None:
+                f.seek(offset)
+                block = f.read(min(CHUNK_BYTES, size - offset))
+                if not block:
+                    raise DriveError('LOCAL_FILE_READ_SHORT')
                 end = offset + len(block) - 1
-                headers = {'Content-Type': mime, 'Content-Length': str(len(block)), 'Content-Range': f'bytes {offset}-{end}/{size}'}
-                try: part = self.s.put(session_url, data=block, headers=headers, timeout=(20, 240))
-                except requests.RequestException: raise DriveError('DRIVE_CHUNK_UPLOAD_NETWORK_ERROR') from None
-                if part.status_code in (200, 201):
-                    info = part.json(); break
-                if part.status_code == 308:
-                    rng = part.headers.get('Range', '')
-                    if rng.startswith('bytes=0-'):
-                        try: next_offset = int(rng.split('-', 1)[1]) + 1
-                        except ValueError: raise DriveError('DRIVE_RESUMABLE_RANGE_INVALID') from None
-                    else: raise DriveError('DRIVE_RESUMABLE_OFFSET_UNKNOWN')
-                    if next_offset <= offset or next_offset > end + 1 or next_offset > size: raise DriveError('DRIVE_RESUMABLE_NO_PROGRESS')
-                    offset = next_offset
-                elif part.status_code >= 500:
-                    raise DriveError(f'DRIVE_CHUNK_UPLOAD_HTTP_{part.status_code}')
-                else: raise DriveError(f'DRIVE_CHUNK_UPLOAD_HTTP_{part.status_code}')
-            else: raise DriveError('DRIVE_UPLOAD_FINISHED_WITHOUT_METADATA')
-        try: remote_size = int(info.get('size', -1))
-        except (TypeError, ValueError): remote_size = -1
-        if not info.get('id') or remote_size != size or info.get('md5Checksum', '').lower() != md5.lower():
+                chunk_headers = {
+                    'Content-Type': mime,
+                    'Content-Length': str(len(block)),
+                    'Content-Range': f'bytes {offset}-{end}/{size}',
+                }
+                attempt = 1
+
+                while True:
+                    try:
+                        part = self.s.put(
+                            session_url, data=block, headers=chunk_headers,
+                            timeout=(20, 240),
+                        )
+                    except requests.RequestException as exc:
+                        if attempt >= MAX_RETRY_ATTEMPTS:
+                            raise DriveError(
+                                "DRIVE_CHUNK_UPLOAD_NETWORK_ERROR_RETRIES_EXHAUSTED"
+                            ) from None
+                        _log_retry("chunk_upload", attempt, _retry_delay(attempt), type(exc).__name__)
+                        state = self._query_resumable_status(session_url, size)
+                        if state["complete"]:
+                            info = state["info"]
+                            offset = size
+                            break
+                        server_offset = state["offset"]
+                        if server_offset < offset:
+                            raise DriveError("DRIVE_RESUMABLE_OFFSET_MOVED_BACKWARDS")
+                        if server_offset > offset:
+                            offset = server_offset
+                            break
+                        attempt += 1
+                        continue
+
+                    status = part.status_code
+                    if status in (200, 201):
+                        try:
+                            info = part.json()
+                        except (ValueError, AttributeError):
+                            part.close()
+                            raise DriveError("DRIVE_UPLOAD_FINAL_METADATA_INVALID") from None
+                        part.close()
+                        offset = size
+                        break
+
+                    if status == 308:
+                        value = part.headers.get('Range', '')
+                        part.close()
+                        if not value:
+                            next_offset = 0
+                        else:
+                            match = re.fullmatch(r"bytes=0-(\d+)", value.strip())
+                            if not match:
+                                raise DriveError('DRIVE_RESUMABLE_RANGE_INVALID')
+                            next_offset = int(match.group(1)) + 1
+                        if next_offset < offset or next_offset > size:
+                            raise DriveError('DRIVE_RESUMABLE_RANGE_INVALID')
+                        if next_offset == offset:
+                            if attempt >= MAX_RETRY_ATTEMPTS:
+                                raise DriveError('DRIVE_RESUMABLE_NO_PROGRESS')
+                            delay = _retry_delay(attempt)
+                            _log_retry("chunk_no_progress", attempt, delay, "HTTP_308_NO_PROGRESS")
+                            attempt += 1
+                            continue
+                        offset = next_offset
+                        break
+
+                    if _retryable_status(status):
+                        delay = _retry_delay(attempt, part.headers.get("Retry-After"))
+                        part.close()
+                        if attempt >= MAX_RETRY_ATTEMPTS:
+                            raise DriveError(
+                                f"DRIVE_CHUNK_UPLOAD_HTTP_{status}_RETRIES_EXHAUSTED"
+                            )
+                        _log_retry("chunk_upload", attempt, delay, f"HTTP_{status}")
+                        # Never blindly resend an ambiguous chunk: query the
+                        # resumable session first and continue at Google's
+                        # acknowledged byte offset.
+                        state = self._query_resumable_status(session_url, size)
+                        if state["complete"]:
+                            info = state["info"]
+                            offset = size
+                            break
+                        server_offset = state["offset"]
+                        if server_offset < offset:
+                            raise DriveError("DRIVE_RESUMABLE_OFFSET_MOVED_BACKWARDS")
+                        if server_offset > offset:
+                            offset = server_offset
+                            break
+                        attempt += 1
+                        continue
+
+                    part.close()
+                    raise DriveError(f'DRIVE_CHUNK_UPLOAD_HTTP_{status}')
+
+                if info is not None:
+                    break
+
+        if info is None:
+            raise DriveError('DRIVE_UPLOAD_FINISHED_WITHOUT_METADATA')
+        try:
+            remote_size = int(info.get('size', -1))
+        except (TypeError, ValueError):
+            remote_size = -1
+        if (
+            not info.get('id')
+            or remote_size != size
+            or info.get('md5Checksum', '').lower() != md5.lower()
+        ):
             raise DriveError('DRIVE_REMOTE_SIZE_OR_MD5_MISMATCH')
-        return {'id': info['id'], 'name': path.name, 'bytes': size, 'md5': md5, 'sha256': sha, 'reused': False,
-                'webViewLink': info.get('webViewLink')}
+        return {
+            'id': info['id'], 'name': path.name, 'bytes': size, 'md5': md5,
+            'sha256': sha, 'reused': False, 'webViewLink': info.get('webViewLink'),
+        }
 
 def granule_folder_names(product_type, maturity, granule_name, version_tag=None):
     """Return a deterministic folder path; optional version tags preserve prior runs."""
