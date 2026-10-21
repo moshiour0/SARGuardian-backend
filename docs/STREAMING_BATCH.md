@@ -166,3 +166,19 @@ To continue a run after a transient network/authentication failure, select the b
 The workflow downloads the prior manifest, product artifacts and cleanup receipts. It rejects reuse if the AOI, pinned science commit, dates, retention mode or ordered product identities differ. A checkpoint is reusable only when the derived-output baseline validation and remote-retention receipt pass, required local export/provenance files are present, and the cleanup receipt has been remotely verified. Every incomplete/ambiguous product is processed again.
 
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
+
+
+## Optional Earthdata user-token authentication
+
+The downloader supports an optional `EARTHDATA_TOKEN` repository Actions secret. When set, it builds an ASF session with `ASFSession.auth_with_token()` instead of requesting a new login token for each session through `urs.earthdata.nasa.gov/api/users/find_or_create_token`. If ASF rejects the user token with HTTP 401/403, the downloader retries once using the existing `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` credentials, if present. If the token endpoint/network itself is temporarily unreachable, a valid pre-generated user token avoids that particular dependency; it cannot prevent an unrelated outage on the ASF data host.
+
+To enable it:
+
+1. Sign in to [Earthdata Login](https://urs.earthdata.nasa.gov/), open your profile's **User Tokens / Generate Token** page, and create a user token.
+2. In this GitHub repository, open **Settings → Secrets and variables → Actions → New repository secret**.
+3. Set the secret name to `EARTHDATA_TOKEN` and paste the token only into its secret value. Do not commit it, put it in workflow inputs, or paste it into logs/issues/chat.
+4. Leave `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` configured as a fallback. The workflow never prints the token value.
+
+Earthdata Login's current user-token documentation says tokens are valid for 60 days and a user may have at most two valid tokens at a time. Rotate/update the secret before it expires. See the [official token documentation](https://urs.earthdata.nasa.gov/documentation/for_users/user_token) and the [ASFSession token-authentication reference](https://docs.asf.alaska.edu/asf_search/ASFSession/).
+
+The current resumed run #39520455676 was started before this token support was committed, so it does not have the new token-authentication code. Do not assume it is using the new secret; its active downloader step uses the older code from the run's pinned commit. A subsequent workflow attempt from the updated branch will use the optional token.
