@@ -47,7 +47,7 @@ jobs:
             .github/workflows/sarguardian-streaming-batch.yml \
             .github/workflows/sarguardian-reassemble-existing.yml \
             .github/workflows/sarguardian-live-validation.yml \
-            .github/workflows/sarguardian-retention-ci.yml \
+            .github/workflows/sarguardian-retention-ci.yml
 
   pinned-science-regression:
     name: Test the maintained SARGuardian science engine
@@ -74,7 +74,7 @@ jobs:
   # Isolated to PR #36's branch: never runs for the nearly-successful feature branch.
   target49-raw-diagnostics:
     name: Raw-HDF5 investigation for Target 4 and Target 9
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'science/target4-target9-raw-validation') || (github.event_name == 'push' && github.ref_name == 'science/target4-target9-raw-validation')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'science/target4-target9-raw-validation'
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -85,7 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 22bd6afaa4f326d4b0f354f5cdae46724755c6a4
+          ref: a79c84c64f7a0342a3ed5c366ee6dc48a06a2e41
           path: scientific_engine
 
       - name: Set up Python
