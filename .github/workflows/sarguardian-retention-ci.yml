@@ -47,7 +47,6 @@ jobs:
             .github/workflows/sarguardian-reassemble-existing.yml \
             .github/workflows/sarguardian-live-validation.yml \
             .github/workflows/sarguardian-retention-ci.yml \
-            .github/workflows/target4-9-raw-investigation.yml
 
   pinned-science-regression:
     name: Test the maintained SARGuardian science engine
