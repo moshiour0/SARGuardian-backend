@@ -77,6 +77,26 @@ def test_auto_resume_picks_newest_compatible_failed_run_and_skips_invalid_candid
     assert scanned == 2
 
 
+
+def test_feature_branch_can_resume_compatible_main_checkpoint():
+    current = _manifest("999-1")
+    runs = [
+        _run("108", "2026-10-21T11:00:00Z", branch="unrelated-feature"),
+        _run("107", "2026-10-21T10:00:00Z", branch="main"),
+    ]
+
+    chosen, scanned = choose_compatible_failed_run(
+        runs,
+        current,
+        current_run_id="999",
+        branch="feat/e2e-pinned-science-pipeline",
+        workflow_path=".github/workflows/sarguardian-streaming-batch.yml",
+        manifest_loader=lambda run_id: (_manifest(f"{run_id}-1"), True),
+    )
+
+    assert chosen == "107"
+    assert scanned == 1
+
 def test_auto_resume_returns_none_when_no_compatible_checkpoint_exists():
     current = _manifest("999-1")
     run_id, mode, scanned = resolve(
