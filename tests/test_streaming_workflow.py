@@ -286,8 +286,8 @@ def test_failed_products_are_retried_and_receipts_gate_reassembly():
     assert "Assemble complete product checkpoints for aggregation" in aggregate
     assert "continue-on-error: true" in worker
     assert worker.count("overwrite: true") == 2
-    assert "metadata_retry_flags+=(--existing-files-are-new --replace-existing-receipts)" in worker
-    assert "cleanup_retry_flags+=(--existing-files-are-new --replace-existing-receipts)" in worker
+    assert "metadata_retry_flags+=(--existing-files-are-new --replace-existing-retry-sidecars)" in worker
+    assert "cleanup_retry_flags+=(--existing-files-are-new --replace-existing-retry-sidecars)" in worker
     assert "retry_upload_flags+=(--existing-files-are-new)" in worker
     ci = (WORKFLOW.parent / "sarguardian-retention-ci.yml").read_text(encoding="utf-8")
     assert ".github/workflows/sarguardian-product-worker.yml" in ci
