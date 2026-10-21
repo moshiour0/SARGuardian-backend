@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - feat/streaming-science-pipeline
+      - science/target4-target9-raw-validation
     paths:
       - "tools/**"
       - "tests/**"
@@ -73,7 +74,7 @@ jobs:
   # Isolated to PR #36's branch: never runs for the nearly-successful feature branch.
   target49-raw-diagnostics:
     name: Raw-HDF5 investigation for Target 4 and Target 9
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'science/target4-target9-raw-validation'
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'science/target4-target9-raw-validation') || (github.event_name == 'push' && github.ref_name == 'science/target4-target9-raw-validation')
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
