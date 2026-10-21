@@ -226,7 +226,7 @@ def test_only_known_receipt_files_can_be_replaced_during_same_run_retry(tmp_path
         drive,
         "run-folder-id",
         [(path, md5, sha, size, "application/json")],
-        replace_existing_receipts=True,
+        replace_existing_retry_sidecars=True,
     )
 
     assert missing == size
@@ -249,7 +249,7 @@ def test_retry_never_replaces_a_scientific_output_with_different_content(tmp_pat
             drive,
             "run-folder-id",
             [(path, md5, sha, size, "image/tiff")],
-            replace_existing_receipts=True,
+            replace_existing_retry_sidecars=True,
         )
 
 
@@ -265,7 +265,7 @@ def test_identical_run_scoped_files_do_not_require_new_drive_bytes(tmp_path):
         drive,
         "run-folder-id",
         [(path, md5, sha, size, "image/tiff")],
-        replace_existing_receipts=True,
+        replace_existing_retry_sidecars=True,
     )
 
     assert missing == 0
