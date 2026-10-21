@@ -1,0 +1,140 @@
+name: Target 4/9 raw NISAR diagnostic (isolated science branch)
+
+on:
+  push:
+    branches:
+      - science/target4-target9-raw-validation
+    paths:
+      - ".github/workflows/target49-raw-diagnostic.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/target49-raw-diagnostic.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: target49-raw-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  raw-hdf5-diagnostic:
+    if: github.ref_name == 'science/target4-target9-raw-validation' || github.event.pull_request.head.ref == 'science/target4-target9-raw-validation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout the isolated backend investigation branch
+        uses: actions/checkout@v4
+
+      - name: Checkout the isolated science diagnostic tools
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: a79c84c64f7a0342a3ed5c366ee6dc48a06a2e41
+          path: scientific_engine
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install science dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r scientific_engine/requirements.txt
+
+      - name: Test diagnostic gates before downloading
+        run: python -m pytest scientific_engine/tests/test_target49_gate_diagnostic.py scientific_engine/tests/test_bound.py -q
+
+      - name: Download exact Run 55 granules and audit raw HDF5
+        env:
+          EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+          EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+          EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/target49/output"
+          RAWROOT="$RUNNER_TEMP/target49/raw"
+          mkdir -p "$OUT" "$RAWROOT"
+          attempts=0
+          passed=0
+          errors=0
+
+          if [[ -z "${EARTHDATA_TOKEN:-}" && ( -z "${EARTHDATA_USERNAME:-}" || -z "${EARTHDATA_PASSWORD:-}" ) ]]; then
+            echo "EARTHDATA_AUTH_MISSING: configure EARTHDATA_TOKEN or both EARTHDATA_USERNAME and EARTHDATA_PASSWORD in SARGuardian-backend Actions secrets." | tee -a "$GITHUB_STEP_SUMMARY"
+            python -c 'import json,sys; from datetime import datetime,timezone; from pathlib import Path; Path(sys.argv[1]).write_text(json.dumps({"status":"blocked_missing_earthdata_auth","created_utc":datetime.now(timezone.utc).isoformat(),"raw_hdf5_downloaded":False},indent=2)+"\n")' "$OUT/raw_download_status.json"
+            exit 2
+          fi
+
+          while IFS='|' read -r PRODUCT MATURITY GRANULE; do
+            [[ -z "$GRANULE" ]] && continue
+            attempts=$((attempts+1))
+            STEM="${GRANULE%.h5}"
+            WORK="$RAWROOT/$STEM"
+            mkdir -p "$WORK"
+            echo "::group::$GRANULE"
+            ok=1
+            if ! python tools/download_nisar_product.py --product-type "$PRODUCT" --maturity "$MATURITY" --granule-name "$GRANULE" --science-root scientific_engine --aoi source --out-dir "$WORK"; then
+              ok=0
+              errors=$((errors+1))
+              echo "DOWNLOAD_FAILED $GRANULE" >&2
+            else
+              RAW="$WORK/$GRANULE"
+              MANIFEST="$WORK/download-manifest.json"
+              if [[ ! -s "$RAW" || ! -s "$MANIFEST" ]]; then
+                ok=0; errors=$((errors+1))
+                echo "RAW_OR_MANIFEST_MISSING $GRANULE" >&2
+              else
+                cp "$MANIFEST" "$OUT/${STEM}_download.json"
+                if ! python scientific_engine/tools/target49_gate_diagnostic.py "$RAW" --aoi source --out "$OUT/${STEM}_source.json"; then ok=0; errors=$((errors+1)); fi
+                if ! python scientific_engine/tools/target49_gate_diagnostic.py "$RAW" --aoi langtang --out "$OUT/${STEM}_langtang.json"; then ok=0; errors=$((errors+1)); fi
+                if [[ "$PRODUCT" == "GUNW" ]]; then
+                  if ! python scientific_engine/tools/target49_gate_diagnostic.py "$RAW" --aoi source --no-iono --out "$OUT/${STEM}_source_no_iono.json"; then ok=0; errors=$((errors+1)); fi
+                  if ! python scientific_engine/tools/target49_gate_diagnostic.py "$RAW" --aoi langtang --no-iono --out "$OUT/${STEM}_langtang_no_iono.json"; then ok=0; errors=$((errors+1)); fi
+                fi
+              fi
+            fi
+            # Never upload raw HDF5. Delete each file immediately after its diagnostic.
+            rm -rf "$WORK"
+            if [[ "$ok" -eq 1 ]]; then passed=$((passed+1)); echo "RAW_DIAGNOSTIC_DONE $GRANULE"; fi
+            echo "::endgroup::"
+          done <<'PRODUCTS'
+GUNW|BETA|NISAR_L2_PR_GUNW_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
+GUNW|PROVISIONAL|NISAR_L2_PR_GUNW_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
+GOFF|BETA|NISAR_L2_PR_GOFF_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
+GOFF|PROVISIONAL|NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
+PRODUCTS
+
+          python - "$OUT/raw_download_status.json" "$attempts" "$passed" "$errors" <<'PY'
+import json,sys
+from datetime import datetime,timezone
+from pathlib import Path
+target,attempts,passed,errors=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]),int(sys.argv[4])
+Path(target).write_text(json.dumps({
+ "status":"completed" if attempts==12 and passed==12 and errors==0 else "completed_with_errors",
+ "created_utc":datetime.now(timezone.utc).isoformat(),
+ "expected_products":12,"products_attempted":attempts,"products_with_all_selected_diagnostics_passed":passed,
+ "diagnostic_error_count":errors,"raw_hdf5_in_artifact":False,
+ "notes":"A completed run means diagnostics executed, not that the underlying geophysical estimates have passed independent validation."
+},indent=2)+"\n")
+PY
+          echo "TARGET49_RAW_DIAGNOSTICS expected=12 attempted=$attempts passed=$passed errors=$errors" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$attempts" -ne 12 || "$passed" -ne 12 || "$errors" -ne 0 ]]; then exit 1; fi
+
+      - name: Upload diagnostics only; never upload raw HDF5
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: target4-9-raw-hdf5-investigation
+          path: ${{ runner.temp }}/target49/output/
+          if-no-files-found: error
+          retention-days: 14
