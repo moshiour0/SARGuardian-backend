@@ -1087,13 +1087,31 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
                                  "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
         return
 
-    # The science ZIP contains no committed ts_gunw_source.csv; report it as
-    # generated but unbaselined, never as a parity PASS.
-    report["unbaselined_outputs"] = [{
-        "file": "ts_gunw_source.csv",
-        "status": "GENERATED_NO_COMMITTED_BASELINE",
-        "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline.",
-    }]
+    # These experiments are generated from the exact pinned source entry points,
+    # but the supplied SARGuardian-main.zip has no committed result file for them.
+    # Record that explicitly; generation/structure checks are not baseline parity.
+    report["unbaselined_outputs"] = [
+        {
+            "file": "outputs/detectability_blatten_phase.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Scenario sweep has no committed CSV reference in SARGuardian-main.zip; pinned script and parameters are recorded in the science-suite report.",
+        },
+        {
+            "file": "outputs/detectability_blatten_offsets.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Offset/noise sweep has no committed CSV reference in SARGuardian-main.zip; pinned script and parameters are recorded in the science-suite report.",
+        },
+        {
+            "file": "outputs/geometry_sensitivity_source.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Live DEM stencil-sensitivity output has no committed CSV reference in SARGuardian-main.zip.",
+        },
+        {
+            "file": "outputs/ts_gunw_source.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline; this is reconstructed from the retained AOI-clipped exports.",
+        },
+    ]
 
     # Compare regenerated key outputs with the pinned repository's committed baselines.
     baseline_dir = out_root / "baseline-snapshot"
