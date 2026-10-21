@@ -313,3 +313,47 @@ def test_read_product_diagnostic_context_handles_missing_or_invalid_json(tmp_pat
     assert result["diagnostics_artifact_present"] is True
     assert "diagnostics_parse_error" in result
 
+
+
+
+def test_candidate4_common_reference_stack_keeps_all_16_pr_and_two_ur_edges():
+    rows = [
+        {"file": f"NISAR_L2_PR_GOFF_006_098_A_016_{i:03d}_4000_SH_20251128T233919_20251128T233954_20251210T233920_20251210T233955_X05010_N_F_J_001.h5",
+         "layer": "HH/layer2"}
+        for i in range(16)
+    ]
+    # These are distinct PR/UR files for the same late acquisition edges. They
+    # must both be in the common-mask stack and the least-squares inversion.
+    rows.extend([
+        {"file": "NISAR_L2_UR_GOFF_028_048_D_074_029_2000_SH_20260816T125812_20260816T125846_20260828T125812_20260828T125846_P05023_F_F_J_001.h5",
+         "layer": "HH/layer2"},
+        {"file": "NISAR_L2_UR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_F_F_J_001.h5",
+         "layer": "HH/layer2"},
+    ])
+
+    selected = agg.select_candidate4_common_reference_rows(rows)
+
+    assert len(selected) == 18
+    assert sum("_PR_GOFF_" in row["file"] for row in selected) == 16
+    assert sum("_UR_GOFF_" in row["file"] for row in selected) == 2
+    assert {row["file"] for row in selected} == {row["file"] for row in rows}
+
+
+def test_candidate4_common_reference_stack_fails_closed_when_ur_edges_are_missing():
+    rows = [
+        {"file": f"NISAR_L2_PR_GOFF_006_098_A_016_{i:03d}_4000_SH_20251128T233919_20251128T233954_20251210T233920_20251210T233955_X05010_N_F_J_001.h5",
+         "layer": "HH/layer2"}
+        for i in range(16)
+    ]
+    rows.append({
+        "file": "NISAR_L2_UR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_F_F_J_001.h5",
+        "layer": "HH/layer2",
+    })
+
+    try:
+        agg.select_candidate4_common_reference_rows(rows)
+    except ValueError as exc:
+        assert "Expected all 18 candidate-4 GOFF layer2 source products" in str(exc)
+        assert "PR=16 UR=1" in str(exc)
+    else:
+        raise AssertionError("The candidate-4 stack must fail closed when one UR product is missing")
