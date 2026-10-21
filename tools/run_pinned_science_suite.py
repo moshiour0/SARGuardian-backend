@@ -150,6 +150,25 @@ def run_suite(
         (log_root / "pinned-science-suite.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         return report
 
+    # The pipeline must execute the committed engine, not a modified local copy.
+    source_status = runner(
+        ["git", "-C", str(science_root), "status", "--porcelain", "--", "src"],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=30,
+    )
+    if source_status.returncode != 0 or (source_status.stdout or "").strip():
+        report["source_scripts_modified"] = True
+        report["errors"].append({
+            "problem": "PINNED_SCIENCE_SOURCE_TREE_IS_DIRTY",
+            "returncode": source_status.returncode,
+            "status_output": (source_status.stdout or "")[:800],
+        })
+        report["status"] = "FAIL"
+        report["finished_utc"] = datetime.now(timezone.utc).isoformat()
+        (log_root / "pinned-science-suite.json").write_text(
+            json.dumps(report, indent=2) + "\\n", encoding="utf-8"
+        )
+        return report
+
     reference_names = [
         "outputs/detectability.csv", "outputs/detectability_fixed_gate.csv",
         "outputs/scar_candidates_source.csv",
