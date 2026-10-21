@@ -224,13 +224,13 @@ def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any]
         str(x.get("name", "")).removeprefix("sarguardian-granule-")
         for x in artifacts
         if isinstance(x, dict) and not x.get("expired")
-        and re.fullmatch(r"sarguardian-granule-(?:GUNW|GOFF)-\\d{3}", str(x.get("name", "")))
+        and re.fullmatch(r"sarguardian-granule-(?:GUNW|GOFF)-\d{3}", str(x.get("name", "")))
     }
     cleanup_ids = {
         str(x.get("name", "")).removeprefix("sarguardian-cleanup-")
         for x in artifacts
         if isinstance(x, dict) and not x.get("expired")
-        and re.fullmatch(r"sarguardian-cleanup-(?:GUNW|GOFF)-\\d{3}", str(x.get("name", "")))
+        and re.fullmatch(r"sarguardian-cleanup-(?:GUNW|GOFF)-\d{3}", str(x.get("name", "")))
     }
     checkpoint_pairs = len(granule_ids & cleanup_ids)
     if not manifest_artifact:
@@ -241,15 +241,15 @@ def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any]
     archive_url = f"{API_ROOT}/repos/{repo}/actions/artifacts/{artifact_id}/zip"
     archive_bytes = request_bytes(archive_url, token, allow_redirect=True)
     if len(archive_bytes) > 10 * 1024 * 1024:
-        return None, has_checkpoint
+        return None, checkpoint_pairs
     try:
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
             names = [n for n in archive.namelist() if Path(n).name == "manifest.json"]
             if len(names) != 1:
-                return None, has_checkpoint
+                return None, checkpoint_pairs
             parsed = json.loads(archive.read(names[0]).decode("utf-8"))
     except (OSError, ValueError, zipfile.BadZipFile, KeyError, UnicodeDecodeError):
-        return None, has_checkpoint
+        return None, checkpoint_pairs
     return (parsed if isinstance(parsed, dict) else None), checkpoint_pairs
 
 
