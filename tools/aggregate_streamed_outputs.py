@@ -20,6 +20,15 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+# This script is also invoked directly by the workflow. Ensure imports from the
+# repository's tools namespace work when cwd and sys.path[0] are tools/ or an
+# unrelated directory, not the repository root.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from tools.run_pinned_science_suite import run_suite
+
 NUMERIC_REL_TOL = 1e-5
 NUMERIC_ABS_TOL = 1e-3
 IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL builds
@@ -897,7 +906,6 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
     # formulas or alternate implementations. These checks happen after product
     # jobs have read/validated raw HDF5 and passed their cleanup gates; their
     # inputs are committed reference data plus public terrain/optical services.
-    from tools.run_pinned_science_suite import run_suite
     suite = run_suite(science_root, out_root)
     report["pinned_science_suite"] = {
         "status": suite.get("status"),
