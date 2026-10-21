@@ -190,3 +190,31 @@ def test_optional_earthdata_user_token_is_passed_to_preflight_and_product_jobs()
     assert "auth_with_token(token)" in downloader
     assert "EARTHDATA_AUTH_MODE=pre_generated_user_token" in downloader
     assert "EARTHDATA_AUTH_MODE=username_password_token_exchange" in downloader
+
+
+
+def test_artifact_only_reassembly_reuses_existing_product_runs_without_source_downloads():
+    root = Path(__file__).resolve().parents[1]
+    replay = (root / ".github" / "workflows" / "sarguardian-reassemble-existing.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in replay
+    assert "default: '39510497044'" in replay
+    assert "default: '39524783921'" in replay
+    assert "permissions:\\n  contents: read\\n  actions: read" in replay
+    assert "validate_resume_compatibility(product, base)" in replay
+    assert "REASSEMBLY_MANIFEST_COMPATIBILITY=PASS PRODUCTS=" in replay
+    assert "pattern: sarguardian-granule-*" in replay
+    assert "pattern: sarguardian-cleanup-*" in replay
+    assert "Merge verified checkpoints without re-downloading source data" in replay
+    assert "python tools/resume_streamed_run.py merge" in replay
+    assert "python tools/aggregate_streamed_outputs.py" in replay
+    assert "retention-days: 14" in replay
+    assert "EARTHDATA_TOKEN" not in replay
+    assert "raw HDF5" not in replay.lower()
+
+
+def test_candidate4_common_reference_uses_exact_pinned_pr_ur_stack():
+    root = Path(__file__).resolve().parents[1]
+    aggregator = (root / "tools" / "aggregate_streamed_outputs.py").read_text(encoding="utf-8")
+    assert "select_candidate4_common_reference_rows(stats)" in aggregator
+    assert '"product_families": {"PR": 16, "UR": 2}' in aggregator
+    assert "Expected all 18 candidate-4 GOFF layer2 source products" in aggregator
