@@ -261,7 +261,7 @@ def test_optional_checkpoint_downloads_do_not_abort_resume_aggregation():
         "Download prior post-cleanup evidence for resume",
     )
     for name in optional_steps:
-        section = text.split(f"- name: {name}", 1)[1].split("\\n      - name:", 1)[0]
+        section = text.split(f"- name: {name}", 1)[1].split("\n      - name:", 1)[0]
         assert "continue-on-error: true" in section, name
 
 
