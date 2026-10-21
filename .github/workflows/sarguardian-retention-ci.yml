@@ -139,10 +139,7 @@ jobs:
             echo "::group::Download/diagnose $granule"
             downloaded=0
 
-            if python tools/download_nisar_product.py \\
-              --product-type "$product" --maturity "$maturity" \\
-              --granule-name "$granule" --science-root scientific_engine \\
-              --aoi source --out-dir "$tempdir"; then
+            if python tools/download_nisar_product.py --product-type "$product" --maturity "$maturity" --granule-name "$granule" --science-root scientific_engine --aoi source --out-dir "$tempdir"; then
               raw="$tempdir/$granule"
               manifest="$tempdir/download-manifest.json"
               if [[ ! -s "$raw" || ! -s "$manifest" ]]; then
