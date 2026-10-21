@@ -174,7 +174,7 @@ The aggregation job combines the prior checkpoint artifacts with results from th
 
 ## Optional Earthdata user-token authentication
 
-The downloader supports an optional `EARTHDATA_TOKEN` repository Actions secret. When set, it builds an ASF session with `ASFSession.auth_with_token()` instead of requesting a new login token for each session through `urs.earthdata.nasa.gov/api/users/find_or_create_token`. If ASF rejects the user token with HTTP 401/403, the downloader retries once using the existing `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` credentials, if present. If the token endpoint/network itself is temporarily unreachable, a valid pre-generated user token avoids that particular dependency; it cannot prevent an unrelated outage on the ASF data host.
+The downloader supports the optional `EARTHDATA_TOKEN` repository Actions secret. The streaming-batch, live-validation, and retention-pilot workflows now pass that secret through to the downloader. When set, it builds an ASF session with `ASFSession.auth_with_token()` instead of requesting a new login token for each session through `urs.earthdata.nasa.gov/api/users/find_or_create_token`. If ASF rejects the user token with HTTP 401/403, the downloader retries once using the existing `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` credentials, if present. If the token endpoint/network itself is temporarily unreachable, a valid pre-generated user token avoids that particular dependency; it cannot prevent an unrelated outage on the ASF data host.
 
 To enable it:
 
@@ -189,6 +189,38 @@ The direct HDF5 transfer is also streamed using the authenticated ASF session wi
 
 The current resumed run #39520455676 was started before this token support was committed, so it does not have the new token-authentication code. Do not assume it is using the new secret; its active downloader step uses the older code from the run's pinned commit. A subsequent workflow attempt from the updated branch will use the optional token.
 
+
+## Bounded retry and recovery policy (2026-10-21)
+
+The product downloader has a four-attempt workflow-level retry for failures it
+classifies as transient, plus bounded retries for Earthdata authentication,
+direct-product probes, and exact ASF catalogue fallback. Configure the optional
+repository Actions secret `EARTHDATA_TOKEN` from a valid pre-generated
+Earthdata user token to avoid exchanging username/password for a new token on
+every fresh runner. Keep `EARTHDATA_USERNAME` and `EARTHDATA_PASSWORD` as the
+fallback credentials. An unset token secret preserves the existing credential
+exchange path; it does not itself solve a network outage at the Earthdata Login
+host.
+
+The Google Drive uploader now retries transient token-refresh and safe API
+requests (network failures and HTTP 408/425/429/500/502/503/504), uses bounded
+exponential backoff and honours a numeric `Retry-After`. Folder creation
+re-queries the exact folder after an ambiguous transient failure before trying
+another create request. If a resumable chunk upload fails with a network error
+or retryable server status, the uploader queries the upload session for the
+server-acknowledged byte range and continues from that offset; it does not
+blindly restart a partially accepted chunk. Final file size and MD5 checks
+remain mandatory. Package installation uses explicit pip retry and timeout
+settings.
+
+Retries are deliberately bounded and limited to transient infrastructure
+failures. A reproducible science exception, AOI mismatch, invalid HDF5 schema,
+missing export, baseline mismatch, quota exhaustion, or checksum mismatch is
+not blindly retried as if it were a network outage. Those stages fail closed;
+the per-product checkpoint/resume workflow reuses only complete, remotely
+verified products and reprocesses incomplete ones. If only downstream
+aggregation/parity failed after product artifacts were retained, use the
+artifact-only reassembly workflow rather than downloading raw HDF5 again.
 
 ## Candidate-4 replay correction
 
