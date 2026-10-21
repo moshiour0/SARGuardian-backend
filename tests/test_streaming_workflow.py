@@ -199,7 +199,7 @@ def test_artifact_only_reassembly_reuses_existing_product_runs_without_source_do
     assert "workflow_dispatch:" in replay
     assert "default: '39510497044'" in replay
     assert "default: '39524783921'" in replay
-    assert "permissions:\\n  contents: read\\n  actions: read" in replay
+    assert "permissions:\n  contents: read\n  actions: read" in replay
     assert "validate_resume_compatibility(product, base)" in replay
     assert "REASSEMBLY_MANIFEST_COMPATIBILITY=PASS PRODUCTS=" in replay
     assert "pattern: sarguardian-granule-*" in replay
