@@ -11,11 +11,15 @@ from tools.run_pinned_science_suite import (
 )
 
 
-def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
+def _fake_runner_factory(
+    tmp_path: Path, *, retry_name: str | None = None, dirty_after_run: bool = False
+):
     calls: list[list[str]] = []
     network_attempts: dict[str, int] = {}
+    source_status_calls = 0
 
     def runner(argv, **kwargs):
+        nonlocal source_status_calls
         args = list(argv)
         calls.append(args)
         if args[:4] == ["git", "-C", str(tmp_path.resolve()), "rev-parse"]:
@@ -23,6 +27,9 @@ def _fake_runner_factory(tmp_path: Path, *, retry_name: str | None = None):
         if args[:4] == ["git", "-C", str(tmp_path.resolve()), "diff"]:
             return SimpleNamespace(returncode=0, stdout="")
         if args[:4] == ["git", "-C", str(tmp_path.resolve()), "status"]:
+            source_status_calls += 1
+            if dirty_after_run and source_status_calls > 1:
+                return SimpleNamespace(returncode=0, stdout=" M src/impoundment.py\\n")
             return SimpleNamespace(returncode=0, stdout="")
         name = next((x["name"] for x in command_plan() if x["argv"] == args), None)
         assert name is not None, args
@@ -101,3 +108,18 @@ def test_network_stage_retries_503_but_deterministic_model_does_not(tmp_path):
     assert len(row["attempts"]) == 2
     assert attempts["result3_impoundment_source"] == 2
     assert 2 in sleeps
+
+def test_suite_fails_if_pinned_science_sources_change_during_execution(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "outputs").mkdir()
+    runner, _, _ = _fake_runner_factory(tmp_path, dirty_after_run=True)
+
+    report = run_suite(tmp_path, tmp_path / "aggregate", runner=runner, sleeper=lambda _delay: None)
+
+    assert report["status"] == "FAIL"
+    assert report["source_scripts_modified"] is True
+    assert report["source_integrity_after_run"]["status"] == "FAIL"
+    assert any(
+        error.get("problem") == "PINNED_SCIENCE_SOURCE_TREE_CHANGED_DURING_RUN"
+        for error in report["errors"]
+    )
