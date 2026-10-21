@@ -75,6 +75,5 @@ optional `full-lossless` archive mode, pre-cleanup baseline validation and
 downstream parity gates are documented in
 [docs/STREAMING_BATCH.md](docs/STREAMING_BATCH.md) and
 [docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md](docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md).
-Start with the two-granule live pilot; do not start the 33-product run until
-that pilot and every required parity gate pass.
+The two-granule pilot and the 33-product source-baseline replay have now passed. See the run evidence and remaining scientific limits in `docs/STREAMING_BATCH.md` and `docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md`. The artifact-only replay is proven; the distinct full live `resume_from_run_id` recovery mode remains separately unverified.
 
