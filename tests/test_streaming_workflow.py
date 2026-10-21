@@ -251,3 +251,17 @@ def test_auto_resume_id_is_passed_from_manifest_job_to_aggregate_job():
     assert "needs.manifest.outputs.resume_run_id != ''" in aggregate
     assert aggregate.count("run-id: ${{ needs.manifest.outputs.resume_run_id }}") == 2
     assert "steps.resume.outputs.run_id" not in aggregate
+
+def test_optional_checkpoint_downloads_do_not_abort_resume_aggregation():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    optional_steps = (
+        "Download current-run per-granule artifacts",
+        "Download current-run post-cleanup evidence",
+        "Download prior per-granule checkpoints for resume",
+        "Download prior post-cleanup evidence for resume",
+    )
+    for name in optional_steps:
+        section = text.split(f"- name: {name}", 1)[1].split("\\n      - name:", 1)[0]
+        assert "continue-on-error: true" in section, name
+
+
