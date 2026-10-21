@@ -4,7 +4,9 @@ import csv
 from pathlib import Path
 
 import pytest
+from urllib.parse import parse_qs, urlparse
 
+import tools.resolve_resume_run as resolver
 from tools.resolve_resume_run import (
     build_target_manifest,
     choose_compatible_failed_run,
@@ -198,3 +200,26 @@ def test_build_target_manifest_requires_entire_pinned_33_product_window(tmp_path
         "derived-only",
     )
     assert partial is None
+
+def test_run_discovery_paginates_beyond_first_hundred_runs(monkeypatch):
+    requested_pages = []
+
+    def fake_api_json(url, token):
+        assert token == "test-token"
+        query = parse_qs(urlparse(url).query)
+        page = int(query["page"][0])
+        requested_pages.append(page)
+        assert query["per_page"] == ["100"]
+        if page == 1:
+            return {"workflow_runs": [{"id": n} for n in range(100)]}
+        if page == 2:
+            return {"workflow_runs": [{"id": 100}]}
+        return {"workflow_runs": []}
+
+    monkeypatch.setattr(resolver, "api_json", fake_api_json)
+    runs = resolver.list_workflow_runs("owner/repo", "feat/test", "test-token")
+
+    assert requested_pages == [1, 2]
+    assert len(runs) == 101
+    assert runs[-1]["id"] == 100
+
