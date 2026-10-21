@@ -456,14 +456,19 @@ class Drive:
             'sha256': sha, 'reused': False, 'webViewLink': info.get('webViewLink'),
         }
 
-REPLACEABLE_RECEIPT_NAMES = frozenset({
+REPLACEABLE_RETRY_SIDECAR_NAMES = frozenset({
+    # These files describe a processing attempt and may legitimately include a
+    # new timestamp or upload receipt IDs when the same product is retried.
+    # Source identity must be proven equal before the worker enables this mode.
+    "download-manifest.json",
+    "preflight-report.json",
     "product-processing.json",
     "drive-retention-receipt.json",
     "local-cleanup-receipt.json",
 })
 
 
-def plan_existing_uploads(drive, folder, records, *, replace_existing_receipts=False):
+def plan_existing_uploads(drive, folder, records, *, replace_existing_retry_sidecars=False):
     """Preflight existing files without silently replacing scientific outputs."""
     missing = 0
     replacements = []
@@ -485,7 +490,7 @@ def plan_existing_uploads(drive, folder, records, *, replace_existing_receipts=F
         if matches:
             continue
 
-        if not replace_existing_receipts or path.name not in REPLACEABLE_RECEIPT_NAMES:
+        if not replace_existing_retry_sidecars or path.name not in REPLACEABLE_RETRY_SIDECAR_NAMES:
             raise DriveError(f"DRIVE_EXISTING_FILE_CONFLICT name={path.name}")
         file_id = item.get("id")
         if not isinstance(file_id, str) or not file_id:
@@ -542,7 +547,7 @@ def main():
         help='treat matching files in this unique run-scoped folder as retained by this same workflow run (retry-only accounting)',
     )
     p.add_argument(
-        '--replace-existing-receipts', action='store_true',
+        '--replace-existing-retry-sidecars', action='store_true',
         help='replace only allowlisted metadata/cleanup receipts in this run-scoped folder after checksum conflict; scientific outputs still fail closed',
     )
     p.add_argument('--files', nargs='+', required=True, help='explicit local files to upload; raw source must NOT be included')
@@ -559,8 +564,8 @@ def main():
         raise DriveError('GRANULE_UPLOAD_REQUIRES_PRODUCT_MATURITY_AND_NAME')
     if args.existing_files_are_new and (not args.version_tag or args.run_name):
         raise DriveError('SAME_RUN_REUSE_ACCOUNTING_REQUIRES_VERSION_TAG')
-    if args.replace_existing_receipts and not args.existing_files_are_new:
-        raise DriveError('RECEIPT_REPLACEMENT_REQUIRES_SAME_RUN_RETRY_MODE')
+    if args.replace_existing_retry_sidecars and not args.existing_files_are_new:
+        raise DriveError('RETRY_SIDECAR_REPLACEMENT_REQUIRES_SAME_RUN_RETRY_MODE')
     root = args.root.resolve()
     files = [Path(x).resolve() for x in args.files]
     for path in files:
@@ -592,11 +597,11 @@ def main():
     folder = parent
     for name in folder_names: folder = drive.ensure_folder(folder, name)
     # Query exact existing names before calculating projected new bytes.
-    # Only known metadata receipts may be replaced on a same-run retry; science
+    # Only allowlisted retry sidecars may be replaced on a same-run retry; science
     # products/exports remain immutable and mismatched content fails closed.
     missing, replacements = plan_existing_uploads(
         drive, folder, records,
-        replace_existing_receipts=args.replace_existing_receipts,
+        replace_existing_retry_sidecars=args.replace_existing_retry_sidecars,
     )
     # Quota is based on the exact post-processing files in this upload allowlist,
     # not source-file estimates from the acquisition manifest. This check runs
