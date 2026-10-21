@@ -1,19 +1,16 @@
 name: SARGuardian Live Retention Validation (known AOI products)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/sarguardian-live-validation.yml"
-      - "tools/download_nisar_product.py"
-      - "tools/validate_product_aoi.py"
-      - "tools/sarguardian_hdf5_archive.py"
-      - "tools/verify_reader_equivalence.py"
-      - "tools/drive_resumable_upload.py"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# This workflow retains engine-ready HDF5 archives; start it deliberately,
+# never as a side effect of routine code pushes. Serialize it with batch/pilot.
+concurrency:
+  group: sarguardian-nisar-data-processing
+  cancel-in-progress: false
 
 jobs:
   validate-retention:
