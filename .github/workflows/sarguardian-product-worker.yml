@@ -80,6 +80,14 @@ jobs:
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
 
+      - name: Download first-attempt evidence for retry identity checks
+        if: inputs.execution_label != 'initial'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-granule-${{ inputs.product_id }}
+          path: ${{ runner.temp }}/sarguardian-stream/prior-attempt/granule
+
       - name: Create isolated one-product scratch folders
         id: paths
         shell: bash
@@ -140,6 +148,53 @@ jobs:
           raw_path="$(sed -n 's/^RAW_PRODUCT_PATH=//p' "$log" | tail -n 1)"
           test -n "$raw_path" && test -f "$raw_path"
           echo "raw_path=$raw_path" >> "$GITHUB_OUTPUT"
+
+      - name: Verify retry source bytes match the first attempt
+        id: source_identity
+        if: inputs.execution_label != 'initial' && steps.download.outcome == 'success'
+        env:
+          RAW_PATH: ${{ steps.download.outputs.raw_path }}
+          PRIOR_ROOT: ${{ runner.temp }}/sarguardian-stream/prior-attempt/granule
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          prior_root = Path(os.environ["PRIOR_ROOT"])
+          prior_manifest = prior_root / "download-manifest.json"
+          prior_retention = prior_root / "drive-retention-receipt.json"
+          prior_metadata = prior_root / "product-processing.json"
+          current_raw = Path(os.environ["RAW_PATH"])
+          current_manifest = current_raw.parent / "download-manifest.json"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("same_source=false\\n")
+
+          if not prior_manifest.is_file():
+              if prior_retention.is_file() or prior_metadata.is_file():
+                  raise SystemExit(
+                      "ERROR=RETRY_PRIOR_RETENTION_EXISTS_WITHOUT_SOURCE_MANIFEST"
+                  )
+              print("RETRY_SOURCE_IDENTITY=NO_PRIOR_MANIFEST_NO_PRIOR_RETENTION")
+              raise SystemExit(0)
+
+          if not current_manifest.is_file():
+              raise SystemExit("ERROR=RETRY_CURRENT_SOURCE_MANIFEST_MISSING")
+          old = json.loads(prior_manifest.read_text(encoding="utf-8"))
+          new = json.loads(current_manifest.read_text(encoding="utf-8"))
+          old_sha = str(old.get("source_sha256", "")).lower()
+          new_sha = str(new.get("source_sha256", "")).lower()
+          if len(old_sha) != 64 or len(new_sha) != 64:
+              raise SystemExit("ERROR=RETRY_SOURCE_SHA256_MISSING_OR_INVALID")
+          if old_sha != new_sha:
+              print(f"RETRY_PRIOR_SOURCE_SHA256={old_sha}")
+              print(f"RETRY_CURRENT_SOURCE_SHA256={new_sha}")
+              raise SystemExit("ERROR=RETRY_SOURCE_BYTES_CHANGED")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("same_source=true\\n")
+          print("RETRY_SOURCE_IDENTITY=PASS_SOURCE_SHA256_MATCH")
+          PY
 
       - name: Verify product grid intersects the original source AOI
         id: aoi_preflight
@@ -360,9 +415,11 @@ jobs:
           fi
           retry_upload_flags=()
           if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
-            # This version-tag is unique to this workflow run/attempt. Matching
-            # remote outputs were therefore retained by this same run's first try.
+            # The version-tag is unique to this workflow run/attempt.
             retry_upload_flags+=(--existing-files-are-new)
+          fi
+          if [[ "${{ steps.source_identity.outputs.same_source || 'false' }}" == "true" ]]; then
+            retry_upload_flags+=(--replace-existing-retry-sidecars)
           fi
           python tools/drive_resumable_upload.py "${retry_upload_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
@@ -396,7 +453,10 @@ jobs:
           PY
           metadata_retry_flags=()
           if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
-            metadata_retry_flags+=(--existing-files-are-new --replace-existing-receipts)
+            metadata_retry_flags+=(--existing-files-are-new)
+          fi
+          if [[ "${{ steps.source_identity.outputs.same_source || 'false' }}" == "true" ]]; then
+            metadata_retry_flags+=(--replace-existing-retry-sidecars)
           fi
           python tools/drive_resumable_upload.py "${metadata_retry_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
@@ -608,7 +668,10 @@ jobs:
           PY
           cleanup_retry_flags=()
           if [[ "$PRODUCT_EXECUTION_LABEL" != "initial" ]]; then
-            cleanup_retry_flags+=(--existing-files-are-new --replace-existing-receipts)
+            cleanup_retry_flags+=(--existing-files-are-new)
+          fi
+          if [[ "${{ steps.source_identity.outputs.same_source || 'false' }}" == "true" ]]; then
+            cleanup_retry_flags+=(--replace-existing-retry-sidecars)
           fi
           python tools/drive_resumable_upload.py "${cleanup_retry_flags[@]}" \
             --root "$CURATED_DIR" --product-type "$PRODUCT_TYPE" --maturity "$MATURITY" \
