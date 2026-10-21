@@ -247,6 +247,8 @@ def run_suite(
                         match = re.search(r"(\d+) Sentinel-2 L2A scenes over the source zone", stdout_text)
                         if not match or int(match.group(1)) <= 0:
                             missing_text.append("one or more retrievable Sentinel-2 scenes")
+                    record["output_validation_errors"] = output_errors
+                    record["missing_required_log_text"] = missing_text
                     if output_errors:
                         stdout_text += "\nERROR=OUTPUT_VALIDATION_FAILED details=" + ";".join(output_errors)
                     if missing_text:
@@ -255,6 +257,17 @@ def run_suite(
                         success = True
                         break
                 retryable = retryable_network_failure(stdout_text, int(done.returncode), bool(item["network"]))
+                # A source command can catch a transient HTTP error and still exit
+                # zero. If expected evidence or a fresh output is then missing,
+                # retry the network stage only when its diagnostics identify a
+                # known transient condition; never retry deterministic stages. 
+                if (
+                    item["network"]
+                    and int(done.returncode) == 0
+                    and not success
+                    and NETWORK_RETRY.search(stdout_text)
+                ):
+                    retryable = True
             except subprocess.TimeoutExpired as exc:
                 stdout_text = str(exc)
                 attempts.append({"attempt": attempt, "returncode": None, "exception": "TimeoutExpired"})
