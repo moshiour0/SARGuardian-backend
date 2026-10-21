@@ -239,6 +239,33 @@ end-to-end.
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
 
 
+## Why the automatic retry gate exists
+
+The prior live failure evidence shows why a granule must not be labelled
+permanently bad just because one run exhausts its retry budget:
+
+- In [Run #31](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39529540908),
+  `GOFF-018`, `GOFF-022`, and `GOFF-025` exhausted four download attempts
+  after a `ConnectionError` while reaching the Earthdata Login token endpoint
+  `urs.earthdata.nasa.gov/oauth/tokens/user`. These errors occurred during
+  authentication/probing, before the granule bytes were successfully obtained;
+  they are not evidence of a corrupt HDF5 file.
+- In the same run, `GOFF-021` completed the download and scientific processing,
+  uploaded its derived products, and then failed while uploading metadata due
+  to `DRIVE_CHUNK_UPLOAD_HTTP_500`. That is a separate transient Drive upload
+  failure, and it can leave some same-run outputs remotely present.
+- In [Run #51](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39602014392),
+  those four product jobs later completed successfully. This supports retrying
+  the product job after the initial sequential matrix and checking the actual
+  receipts, rather than assuming the previous failure is a permanent granule
+  problem.
+
+The gate therefore tests the resulting product/retention/cleanup evidence,
+not merely the initial job's green/red state. It retries only incomplete
+products, verifies source SHA-256 before refreshing attempt-dependent Drive
+sidecars, does not replace changed scientific outputs, and blocks reassembly
+if any product still lacks a valid complete receipt pair.
+
 ## Retry failed products before reassembly
 
 The streaming workflow factors the existing per-product processing sequence
