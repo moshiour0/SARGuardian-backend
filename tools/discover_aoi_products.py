@@ -159,24 +159,103 @@ def record_name(row: dict[str, Any]) -> str:
     name = Path(str(value).strip()).name
     return name[:-3] if name.lower().endswith(".h5") else name
 
-def product_size_bytes(row: dict[str, Any], family: str) -> int:
-    for key in ("bytes", "sizeBytes", "fileSize"):
+def product_size_bytes(row: dict[str, Any], family: str, granule_name: str) -> tuple[int, str]:
+    """Resolve the exact HDF5 size from ASF's per-file byte map when supplied."""
+    wanted = Path(granule_name).name
+    if not wanted.lower().endswith(".h5"):
+        wanted += ".h5"
+    byte_map = row.get("bytes")
+    if isinstance(byte_map, dict):
+        for key, metadata in byte_map.items():
+            if Path(str(key)).name.lower() != wanted.lower():
+                continue
+            raw = metadata.get("bytes") if isinstance(metadata, dict) else metadata
+            try:
+                n = int(float(raw))
+                if n > 0:
+                    return n, "ASF_catalog_bytes_map_exact_granule_HDF5"
+            except (TypeError, ValueError, OverflowError):
+                pass
+    for key in ("sizeBytes", "fileSize", "granuleSizeBytes"):
         value = row.get(key)
         try:
             n = int(float(value))
             if n > 0:
-                return n
+                return n, f"ASF_catalog_{key}"
         except (TypeError, ValueError, OverflowError):
             pass
     value = row.get("sizeMB") or row.get("sizeMb")
     try:
         n = int(float(value) * 1024 * 1024)
         if n > 0:
-            return n
+            return n, "ASF_catalog_sizeMB"
     except (TypeError, ValueError, OverflowError):
         pass
-    # Conservative operational planning defaults; actual transfer size is checked later.
-    return 2_400_000_000 if family == "GUNW" else 1_000_000_000
+    # Conservative operational estimate only when the catalog has no exact size.
+    return (2_400_000_000 if family == "GUNW" else 1_000_000_000), "family_fallback_estimate"
+
+
+def product_processing_type(granule_name: str) -> str:
+    parts = granule_name.split("_")
+    return parts[2] if len(parts) > 2 and parts[2] in {"PR", "UR", "OD"} else "UNKNOWN"
+
+
+def acquisition_pair_key(granule_name: str) -> tuple[str, ...]:
+    """Key pair variants by sensor, product, track/frame/mode, timestamps and CRID."""
+    parts = granule_name.split("_")
+    if len(parts) >= 20 and parts[2] in {"PR", "UR", "OD"}:
+        # Fields before CRID identify the acquisition-pair geometry; token 2 is
+        # only processing type, while suffix fields after CRID are quality/coverage/
+        # location/counter variants rather than independent acquisitions.
+        normalized = parts[:16]
+        normalized[2] = "<PROCESSING_TYPE>"
+        return tuple(normalized)
+    return (granule_name,)
+
+
+def processing_variant_rank(granule_name: str) -> tuple[int, int, int, str]:
+    """Prefer standard production, then explicit quality/coverage where otherwise tied."""
+    parts = granule_name.split("_")
+    proc_rank = {"PR": 0, "OD": 1, "UR": 2}.get(product_processing_type(granule_name), 9)
+    accuracy_rank = {"P": 0, "M": 1, "N": 2, "F": 3}.get(parts[16] if len(parts) > 16 else "", 9)
+    coverage_rank = {"F": 0, "P": 1}.get(parts[17] if len(parts) > 17 else "", 9)
+    return proc_rank, accuracy_rank, coverage_rank, granule_name
+
+
+def collapse_duplicate_variants(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Retain one declared, mature product per unique acquisition pair."""
+    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for product in products:
+        groups.setdefault(acquisition_pair_key(product["granule_name"]), []).append(product)
+    selected: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for key, variants in groups.items():
+        ordered = sorted(variants, key=lambda r: processing_variant_rank(r["granule_name"]))
+        chosen = dict(ordered[0])
+        chosen["pair_variant_count"] = len(variants)
+        chosen["pair_variants"] = [
+            {
+                "granule_name": v["granule_name"],
+                "processing_type": product_processing_type(v["granule_name"]),
+                "selected": v["granule_name"] == chosen["granule_name"],
+                "selection_rank": list(processing_variant_rank(v["granule_name"])),
+            }
+            for v in ordered
+        ]
+        selected.append(chosen)
+        for variant in ordered[1:]:
+            rejected.append({
+                "granule_name": variant["granule_name"],
+                "reason": "DUPLICATE_ACQUISITION_PAIR_LOWER_VARIANT_PRIORITY",
+                "selected_granule_name": chosen["granule_name"],
+                "product_type": variant["product_type"],
+                "reference_date": variant["reference_date"],
+                "secondary_date": variant["secondary_date"],
+                "processing_type": product_processing_type(variant["granule_name"]),
+            })
+    selected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    rejected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    return selected, rejected
 
 def discover(args: argparse.Namespace) -> dict[str, Any]:
     start = parse_date(args.start_date, "START_DATE")
