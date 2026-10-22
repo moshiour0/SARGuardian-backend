@@ -23,8 +23,8 @@ class FakeResponse:
 class FakeSession:
     def __init__(self):
         self.calls = []
-    def post(self, url, data, timeout):
-        self.calls.append((url, data, timeout))
+    def get(self, url, params, timeout):
+        self.calls.append((url, params, timeout))
         return FakeResponse()
 
 
@@ -42,7 +42,7 @@ def test_pair_secondary_date_is_third_timestamp():
     assert dates[1].isoformat() == "2025-05-22"
 
 
-def test_asf_query_posts_exact_wkt_and_normalizes_geojson_properties():
+def test_asf_query_uses_documented_nisar_searchable_fields_and_normalizes_geojson_properties():
     session = FakeSession()
     wkt = "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28))"
     rows = discovery.query_asf_polygon(wkt, "GUNW", discovery.parse_date("2025-12-31", "END_DATE"), session=session)
@@ -52,7 +52,25 @@ def test_asf_query_posts_exact_wkt_and_normalizes_geojson_properties():
     url, params, timeout = session.calls[0]
     assert url == discovery.ASF_API
     assert params["intersectsWith"] == wkt
-    assert params["processingLevel"] == "GUNW"
+    assert "processingLevel" not in params
     assert params["shortName"] == "NISAR_L2_GUNW_V1"
+    assert params["dataset"] == "NISAR"
+    assert params["platform"] == "NISAR"
     assert params["output"] == "json"
     assert timeout == (30, 180)
+
+
+
+def test_realistic_nisar_provisional_granule_name_is_accepted_and_pair_dates_parse():
+    name = (
+        "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
+        "20260702T233920_20260702T233955_20260714T233920_"
+        "20260714T233954_P05023_F_F_J_001"
+    )
+    match = discovery.PRODUCT_PATTERN.fullmatch(name)
+    assert match is not None
+    assert match.group(1) == "GUNW"
+    dates = discovery.product_dates(name)
+    assert dates is not None
+    assert dates[0].isoformat() == "2026-07-02"
+    assert dates[1].isoformat() == "2026-07-14"
