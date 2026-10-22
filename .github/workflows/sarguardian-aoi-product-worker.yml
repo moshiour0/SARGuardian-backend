@@ -277,14 +277,14 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$PRODUCT_TYPE" == "GUNW" ]]; then
-            stats="$CURATED_DIR/derived/gunw_stats_source.csv"
-            export_dir="$CURATED_DIR/derived/export_src"
+            stats="$CURATED_DIR/derived/gunw_stats_custom.csv"
+            export_dir="$CURATED_DIR/derived/export_custom"
             mkdir -p "$export_dir"
             python science-source/src/gunw_reader.py \
               --read "$RAW_PATH" --aoi "$AOI_NAME" --auto-ref --csv "$stats" --export "$export_dir"
           else
-            stats="$CURATED_DIR/derived/goff_stats_source.csv"
-            export_dir="$CURATED_DIR/derived/export_goff_src"
+            stats="$CURATED_DIR/derived/goff_stats_custom.csv"
+            export_dir="$CURATED_DIR/derived/export_goff_custom"
             mkdir -p "$export_dir"
             python science-source/src/goff_reader.py \
               --read "$RAW_PATH" --aoi "$AOI_NAME" --layer layer2 --csv "$stats" --export "$export_dir"
@@ -301,9 +301,9 @@ jobs:
         run: |
           set -euo pipefail
           family_lc="$(printf '%s' "$PRODUCT_TYPE" | tr '[:upper:]' '[:lower:]')"
-          export_dir="$CURATED_DIR/derived/export_src"
+          export_dir="$CURATED_DIR/derived/export_custom"
           if [[ "$PRODUCT_TYPE" == "GOFF" ]]; then
-            export_dir="$CURATED_DIR/derived/export_goff_src"
+            export_dir="$CURATED_DIR/derived/export_goff_custom"
           fi
           python tools/validate_aoi_derived_outputs.py \
   --product-id "$PRODUCT_ID" --product-type "$PRODUCT_TYPE" \
@@ -358,7 +358,7 @@ jobs:
                   for block in iter(lambda: f.read(8*1024*1024), b""):
                       h.update(block)
               return h.hexdigest()
-          export_dir = root / "derived" / ("export_src" if os.environ["PRODUCT_TYPE"] == "GUNW" else "export_goff_src")
+          export_dir = root / "derived" / ("export_custom" if os.environ["PRODUCT_TYPE"] == "GUNW" else "export_goff_custom")
           exports = [p.relative_to(root).as_posix() for p in sorted(export_dir.rglob("*")) if p.is_file() and p.suffix.lower() in {".tif", ".tiff"}]
           if not exports:
               raise SystemExit("ERROR=READER_DID_NOT_EXPORT_ANY_GEOTIFF")
