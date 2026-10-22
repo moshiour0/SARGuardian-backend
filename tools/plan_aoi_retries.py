@@ -37,7 +37,10 @@ def plan(manifest: dict[str, Any], product_root: Path, cleanup_root: Path) -> di
         if not meta: reasons.append("PRODUCT_PROCESSING_RECEIPT_MISSING")
         else:
             for key,expected in (("id",pid),("product_type",family),("granule_name",granule),
-                                 ("aoi",want_aoi),("science_commit",want_sha),("retention_profile",want_profile),
+                                 ("aoi",want_aoi),("science_commit",want_sha),
+                                 ("orchestration_sha",manifest.get("orchestration_sha")),
+                                 ("orchestration_branch",manifest.get("orchestration_branch")),
+                                 ("retention_profile",want_profile),
                                  ("derived_output_validation_status","PASS"),("drive_remote_verification","PASS")):
                 if meta.get(key)!=expected: reasons.append("META_"+key.upper()+"_INVALID")
         if not validation or validation.get("status")!="PASS": reasons.append("STRUCTURAL_VALIDATION_MISSING_OR_FAIL")
