@@ -306,10 +306,10 @@ jobs:
             export_dir="$CURATED_DIR/derived/export_goff_custom"
           fi
           python tools/validate_aoi_derived_outputs.py \
-  --product-id "$PRODUCT_ID" --product-type "$PRODUCT_TYPE" \
-  --granule-name "$GRANULE_NAME" --aoi-name "$AOI_NAME" \
-  --stats-csv "$STATS_PATH" --export-dir "$export_dir" \
-  --out "$CURATED_DIR/derived-output-validation.json"
+            --product-id "$PRODUCT_ID" --product-type "$PRODUCT_TYPE" \
+            --granule-name "$GRANULE_NAME" --aoi-name "$AOI_NAME" \
+            --stats-csv "$STATS_PATH" --export-dir "$export_dir" \
+            --out "$CURATED_DIR/derived-output-validation.json"
 
       - name: Build the per-granule processing and retention manifest
         id: metadata
