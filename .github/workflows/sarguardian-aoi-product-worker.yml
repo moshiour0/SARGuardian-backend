@@ -257,7 +257,7 @@ jobs:
           python tools/verify_reader_equivalence.py \
             --product-type "$PRODUCT_TYPE" --source "$RAW_PATH" --archive "$ARCHIVE_PATH" \
             --science-root "$PWD/science-source" --science-commit "$SCIENCE_COMMIT" \
-            --aoi source --preflight-report "$CURATED_DIR/preflight-report.json" \
+            --aoi "$AOI_NAME" --preflight-report "$CURATED_DIR/preflight-report.json" \
             --out "$CURATED_DIR/reader-equivalence.json"
           python - <<'PY'
           import json, os
@@ -268,7 +268,7 @@ jobs:
           print(f"READER_EQUIVALENCE_STATUS={d['status']}")
           PY
 
-      - name: Run the original single-product reader with batch-equivalent source-AOI settings
+      - name: Run the original single-product reader with dynamic WKT-AOI settings
         id: reader
         env:
           RAW_PATH: ${{ steps.download.outputs.raw_path }}
@@ -281,13 +281,13 @@ jobs:
             export_dir="$CURATED_DIR/derived/export_src"
             mkdir -p "$export_dir"
             python science-source/src/gunw_reader.py \
-              --read "$RAW_PATH" --aoi source --auto-ref --csv "$stats" --export "$export_dir"
+              --read "$RAW_PATH" --aoi "$AOI_NAME" --auto-ref --csv "$stats" --export "$export_dir"
           else
             stats="$CURATED_DIR/derived/goff_stats_source.csv"
             export_dir="$CURATED_DIR/derived/export_goff_src"
             mkdir -p "$export_dir"
             python science-source/src/goff_reader.py \
-              --read "$RAW_PATH" --aoi source --layer layer2 --csv "$stats" --export "$export_dir"
+              --read "$RAW_PATH" --aoi "$AOI_NAME" --layer layer2 --csv "$stats" --export "$export_dir"
           fi
           test -s "$stats"
           echo "stats_path=$stats" >> "$GITHUB_OUTPUT"
@@ -525,7 +525,7 @@ jobs:
               "product_id": os.environ.get("PRODUCT_ID"),
               "product_type": os.environ.get("PRODUCT_TYPE"),
               "granule_name": os.environ.get("GRANULE_NAME"),
-              "aoi": "source",
+              "aoi": os.environ["AOI_NAME"],
               "science_commit": os.environ.get("SCIENCE_COMMIT"),
               "step_outcomes": {
                   "download": os.environ.get("DOWNLOAD_OUTCOME"),
