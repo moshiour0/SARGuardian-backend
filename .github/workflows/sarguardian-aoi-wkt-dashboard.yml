@@ -74,13 +74,24 @@ jobs:
       matrix: ${{ steps.discover.outputs.matrix }}
       product_count: ${{ steps.discover.outputs.product_count }}
       aoi_wkt_sha256: ${{ steps.discover.outputs.aoi_wkt_sha256 }}
+      orchestration_sha: ${{ steps.orch.outputs.sha }}
     env:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
+      AOI_ORCHESTRATION_BRANCH: feat/e2e-aoi-wkt-date-dashboard
     steps:
       - name: Checkout backend orchestration tools from the isolated feature branch
         uses: actions/checkout@v4
         with:
           ref: feat/e2e-aoi-wkt-date-dashboard
+
+      - name: Record exact orchestration revision for every downstream product
+        id: orch
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "AOI_ORCHESTRATION_SHA=$sha" >> "$GITHUB_ENV"
 
       - name: Checkout pinned dynamic-WKT scientific engine
         uses: actions/checkout@v4
@@ -140,6 +151,7 @@ jobs:
     uses: ./.github/workflows/sarguardian-aoi-product-worker.yml
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
+      orchestration_sha: ${{ needs.manifest.outputs.orchestration_sha }}
       product_id: ${{ matrix.id }}
       granule_name: ${{ matrix.granule_name }}
       product_type: ${{ matrix.product_type }}
@@ -158,10 +170,10 @@ jobs:
       retry_matrix: ${{ steps.plan.outputs.retry_matrix }}
       retry_count: ${{ steps.plan.outputs.retry_count }}
     steps:
-      - name: Checkout receipt-check tools from the isolated feature branch
+      - name: Checkout receipt-check tools at the manifest's exact code revision
         uses: actions/checkout@v4
         with:
-          ref: feat/e2e-aoi-wkt-date-dashboard
+          ref: ${{ needs.manifest.outputs.orchestration_sha }}
 
       - name: Download AOI run manifest
         uses: actions/download-artifact@v4
@@ -215,6 +227,7 @@ jobs:
     uses: ./.github/workflows/sarguardian-aoi-product-worker.yml
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
+      orchestration_sha: ${{ needs.manifest.outputs.orchestration_sha }}
       product_id: ${{ matrix.id }}
       granule_name: ${{ matrix.granule_name }}
       product_type: ${{ matrix.product_type }}
@@ -235,11 +248,12 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-AOI-${{ github.run_id }}-${{ github.run_attempt }}
+      AOI_ORCHESTRATION_SHA: ${{ needs.manifest.outputs.orchestration_sha }}
     steps:
-      - name: Checkout backend dashboard tools from the isolated feature branch
+      - name: Checkout dashboard tools at the manifest's exact code revision
         uses: actions/checkout@v4
         with:
-          ref: feat/e2e-aoi-wkt-date-dashboard
+          ref: ${{ needs.manifest.outputs.orchestration_sha }}
 
       - name: Checkout the same pinned science engine for WKT/provenance checks
         uses: actions/checkout@v4
@@ -247,6 +261,14 @@ jobs:
           repository: moshiour0/SARGuardian
           ref: 39e5a4991fe7bdb0f7a3ae41e5f38c1ba5dc53eb
           path: science-source
+
+      - name: Verify dashboard code matches the product manifest revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$AOI_ORCHESTRATION_SHA"
+          echo "AOI_ORCHESTRATION_REVISION_VERIFIED=$actual"
 
       - name: Set up Python
         uses: actions/setup-python@v5
