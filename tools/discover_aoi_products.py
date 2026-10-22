@@ -129,7 +129,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         ring = parse_polygon_wkt(wkt)
         # Canonical closure/order and precision are deterministic. The exact polygon,
         # never its bounding box, is passed to ASF.
-        canonical_wkt = "POLYGON ((" + ", ".join(f"{x:.12g} {y:.12g}" for x, y in ring) + "))"
+        canonical_wkt = "POLYGON ((" + ", ".join(f"{x:.17g} {y:.17g}" for x, y in ring) + "))"
         engine.set_aoi("custom")
         maturity_for_name = engine.product_maturity
     except Exception as exc:
