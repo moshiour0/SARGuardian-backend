@@ -2,6 +2,28 @@ name: SARGuardian AOI WKT E2E + Dashboard
 
 # Separate workflow: the existing streaming source-AOI workflow is intentionally untouched.
 on:
+  workflow_call:
+    inputs:
+      aoi_wkt:
+        description: "Single-ring WGS84 POLYGON WKT."
+        required: true
+        type: string
+      start_date:
+        description: "Inclusive secondary-acquisition date start."
+        required: true
+        type: string
+      end_date:
+        description: "Inclusive secondary-acquisition date end."
+        required: true
+        type: string
+      run_profile:
+        description: "validation-pilot or full-aoi-baseline."
+        required: true
+        type: string
+      retention_profile:
+        description: "derived-only or full-lossless."
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       aoi_wkt:
@@ -55,8 +77,10 @@ jobs:
     env:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
     steps:
-      - name: Checkout backend orchestration tools
+      - name: Checkout backend orchestration tools from the isolated feature branch
         uses: actions/checkout@v4
+        with:
+          ref: feat/e2e-aoi-wkt-date-dashboard
 
       - name: Checkout pinned dynamic-WKT scientific engine
         uses: actions/checkout@v4
@@ -210,8 +234,10 @@ jobs:
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-AOI-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Checkout backend dashboard tools
+      - name: Checkout backend dashboard tools from the isolated feature branch
         uses: actions/checkout@v4
+        with:
+          ref: feat/e2e-aoi-wkt-date-dashboard
 
       - name: Checkout the same pinned science engine for WKT/provenance checks
         uses: actions/checkout@v4
