@@ -45,7 +45,10 @@ def test_pair_secondary_date_is_third_timestamp():
 def test_asf_query_uses_documented_nisar_searchable_fields_and_normalizes_geojson_properties():
     session = FakeSession()
     wkt = "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28))"
-    rows = discovery.query_asf_polygon(wkt, "GUNW", discovery.parse_date("2025-12-31", "END_DATE"), session=session)
+    rows = discovery.query_asf_polygon(
+        wkt, "GUNW", discovery.parse_date("2025-12-31", "END_DATE"),
+        maturity_filter="PROVISIONAL", session=session
+    )
     assert len(rows) == 1
     assert rows[0]["granuleName"].startswith("NISAR_L2_PR_GUNW")
     assert len(session.calls) == 1
@@ -54,6 +57,8 @@ def test_asf_query_uses_documented_nisar_searchable_fields_and_normalizes_geojso
     assert params["intersectsWith"] == wkt
     assert params["processingLevel"] == "GUNW"
     assert params["dataset"] == "NISAR"
+    assert params["dataMaturity"] == "PROVISIONAL"
+    assert rows[0]["_sarguardian_query_maturity"] == "PROVISIONAL"
     assert "platform" not in params
     assert "shortName" not in params
     assert params["output"] == "geojson"
@@ -165,28 +170,62 @@ def test_date_window_default_requires_both_pair_acquisitions_inside_interval():
     assert ok and reason is None
 
 
-def test_maturity_requires_supported_crid_and_rejects_catalog_crid_conflict():
+def test_maturity_uses_asf_data_maturity_for_unmapped_crid_and_records_caveat():
     provisional_name = (
         "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
         "20260702T233920_20260702T233955_20260714T233920_"
         "20260714T233954_P05023_N_F_J_001"
     )
-    mat, evidence, error = discovery.product_maturity_evidence(
-        {"collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1"},
+    mat, evidence, error, source = discovery.product_maturity_evidence(
+        {
+            "_sarguardian_query_maturity": "PROVISIONAL",
+            "collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1",
+        },
         provisional_name, lambda _name: "PROVISIONAL"
     )
     assert mat == "PROVISIONAL"
     assert error is None
+    assert source == "ASF_dataMaturity_filter_plus_collection"
     assert "P05023" in evidence
 
-    unsupported_name = provisional_name.replace("P05023", "X05026")
-    mat, evidence, error = discovery.product_maturity_evidence(
-        {"collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1"},
-        unsupported_name, lambda _name: "UNKNOWN"
+    # The current ASF catalog's explicit PROVISIONAL filter and collection
+    # label include X05026, although the pinned local CRID map does not know it.
+    # Use ASF's authoritative maturity classification and keep the caveat visible.
+    unmapped_name = provisional_name.replace("P05023", "X05026")
+    mat, evidence, error, source = discovery.product_maturity_evidence(
+        {
+            "_sarguardian_query_maturity": "PROVISIONAL",
+            "collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1",
+        },
+        unmapped_name, lambda _name: "UNKNOWN"
+    )
+    assert mat == "PROVISIONAL"
+    assert error is None
+    assert source == "ASF_dataMaturity_filter_plus_collection"
+    assert "X05026" in evidence
+    assert "local_crid_map=UNKNOWN" in evidence
+
+    # If the explicit ASF class conflicts with a CRID the science parser
+    # already understands, do not hide the disagreement.
+    mat, evidence, error, source = discovery.product_maturity_evidence(
+        {
+            "_sarguardian_query_maturity": "BETA",
+            "collectionName": "NISAR_L2_GUNW_BETA_V1",
+        },
+        provisional_name, lambda _name: "PROVISIONAL"
     )
     assert mat == "UNKNOWN"
-    assert error == "CATALOG_COLLECTION_CLAIMS_MATURITY_BUT_CRID_UNSUPPORTED"
-    assert "X05026" in evidence
+    assert error == "CRID_AND_ASF_MATURITY_CONFLICT"
+    assert source == "UNRESOLVED"
+
+    unknown_without_catalog_label = provisional_name.replace("P05023", "X05026")
+    mat, evidence, error, source = discovery.product_maturity_evidence(
+        {}, unknown_without_catalog_label, lambda _name: "UNKNOWN"
+    )
+    assert mat == "UNKNOWN"
+    assert error == "MATURITY_UNKNOWN_NO_AUTHORITATIVE_CATALOG_LABEL"
+    assert source == "UNRESOLVED"
+
 
 
 def test_catalog_exact_hdf5_byte_map_is_used_for_download_planning():
@@ -232,3 +271,30 @@ def test_duplicate_ur_variant_is_replaced_by_standard_pr_for_same_pair():
     assert selected[0]["pair_variant_count"] == 2
     assert len(rejected) == 1
     assert rejected[0]["reason"] == "DUPLICATE_ACQUISITION_PAIR_LOWER_VARIANT_PRIORITY"
+
+
+
+def test_p_series_release_wins_over_unmapped_x_release_for_same_pair():
+    stem = (
+        "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
+        "20260702T233920_20260702T233955_20260714T233920_"
+        "20260714T233954_{crid}_N_F_J_001"
+    )
+    def product(crid):
+        return {
+            "product_type": "GUNW",
+            "granule_name": stem.format(crid=crid),
+            "crid": crid,
+            "maturity": "PROVISIONAL",
+            "maturity_source": "ASF_dataMaturity_filter_plus_collection",
+            "reference_date": "2026-07-02",
+            "secondary_date": "2026-07-14",
+            "expected_source_bytes": 100,
+        }
+    selected, rejected = discovery.collapse_duplicate_variants([
+        product("X05026"), product("P05023")
+    ])
+    assert len(selected) == 1
+    assert selected[0]["crid"] == "P05023"
+    assert len(rejected) == 1
+    assert rejected[0]["excluded_crid"] == "X05026"
