@@ -52,11 +52,11 @@ def test_asf_query_uses_documented_nisar_searchable_fields_and_normalizes_geojso
     url, params, timeout = session.calls[0]
     assert url == discovery.ASF_API
     assert params["intersectsWith"] == wkt
-    assert "processingLevel" not in params
-    assert params["shortName"] == "NISAR_L2_GUNW_V1"
+    assert params["processingLevel"] == "GUNW"
     assert params["dataset"] == "NISAR"
-    assert params["platform"] == "NISAR"
-    assert params["output"] == "json"
+    assert "platform" not in params
+    assert "shortName" not in params
+    assert params["output"] == "geojson"
     assert timeout == (30, 180)
 
 
@@ -87,7 +87,7 @@ class EmptyPrimaryThenLegacySession:
         self.calls = []
     def get(self, url, params, timeout):
         self.calls.append((url, params, timeout))
-        if "shortName" in params:
+        if "dataset" in params:
             return EmptyResponse()
         return FakeResponse()
 
@@ -103,9 +103,11 @@ def test_empty_collection_query_retries_with_sarguardian_legacy_catalog_pattern(
     primary = session.calls[0][1]
     fallback = session.calls[1][1]
     assert primary["intersectsWith"] == wkt
-    assert primary["shortName"] == "NISAR_L2_GUNW_V1"
-    assert "processingLevel" not in primary
+    assert primary["dataset"] == "NISAR"
+    assert primary["processingLevel"] == "GUNW"
+    assert "shortName" not in primary
     assert fallback["intersectsWith"] == wkt
     assert fallback["platform"] == "NISAR"
-    assert fallback["processingLevel"] == "GUNW,GOFF,RUNW,ROFF,RIFG"
+    assert fallback["processingLevel"] == "GUNW"
+    assert "dataset" not in fallback
     assert "shortName" not in fallback
