@@ -17,10 +17,10 @@ on:
         required: true
         type: string
       date_filter_mode:
-        description: "both-acquisitions-in-window is the scientific default; secondary-only is explicit compatibility behavior."
+        description: "Default: secondary acquisition inside the requested interval; strict mode requires both pair acquisitions inside."
         required: false
         type: string
-        default: both-acquisitions-in-window
+        default: secondary-acquisition-in-window
       run_profile:
         description: "validation-pilot or full-aoi-baseline."
         required: true
@@ -47,7 +47,7 @@ on:
         type: string
         default: "2026-09-15"
       date_filter_mode:
-        description: "Both pair acquisitions must be in the window by default; choose secondary-only only when intentionally including boundary pairs."
+        description: "Select by the pair’s secondary acquisition date (reference may predate start); strict mode requires both dates inside."
         required: true
         type: choice
         options:
@@ -132,7 +132,7 @@ jobs:
         env:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
-          DATE_FILTER_MODE: ${{ inputs.date_filter_mode || 'both-acquisitions-in-window' }}
+          DATE_FILTER_MODE: ${{ inputs.date_filter_mode || 'secondary-acquisition-in-window' }}
           RUN_PROFILE: ${{ inputs.run_profile }}
           RETENTION_PROFILE: ${{ inputs.retention_profile }}
         shell: bash
