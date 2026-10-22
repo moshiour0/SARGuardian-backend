@@ -96,6 +96,16 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
                     raise ValueError("ASF_RESPONSE_ROOT_INVALID")
                 if not isinstance(raw, list):
                     raise ValueError("ASF_RESULTS_NOT_A_LIST")
+                # Some ASF responses wrap all scene records in a one-level list
+                # (e.g. [[{...}, {...}]]). Flatten response containers before
+                # applying record-level validation; otherwise real scenes vanish.
+                flattened = []
+                for item in raw:
+                    if isinstance(item, list):
+                        flattened.extend(item)
+                    else:
+                        flattened.append(item)
+                raw = flattened
                 # Normalize GeoJSON properties into the flat representation used below.
                 normalized = []
                 for record in raw:
