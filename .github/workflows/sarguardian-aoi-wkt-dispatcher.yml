@@ -46,9 +46,9 @@ jobs:
     name: Run AOI workflow from the isolated feature branch
     uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@feat/e2e-aoi-wkt-date-dashboard
     with:
-      aoi_wkt: \${{ inputs.aoi_wkt }}
-      start_date: \${{ inputs.start_date }}
-      end_date: \${{ inputs.end_date }}
-      run_profile: \${{ inputs.run_profile }}
-      retention_profile: \${{ inputs.retention_profile }}
+      aoi_wkt: ${{ inputs.aoi_wkt }}
+      start_date: ${{ inputs.start_date }}
+      end_date: ${{ inputs.end_date }}
+      run_profile: ${{ inputs.run_profile }}
+      retention_profile: ${{ inputs.retention_profile }}
     secrets: inherit
