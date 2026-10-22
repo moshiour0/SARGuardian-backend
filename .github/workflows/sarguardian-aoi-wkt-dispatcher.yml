@@ -1,0 +1,54 @@
+name: SARGuardian AOI WKT E2E (safe branch dispatcher)
+
+# This small default-branch entry point only calls the isolated feature workflow.
+# It does not edit, replace, or invoke the existing source-AOI E2E workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      aoi_wkt:
+        description: "Single-ring WKT POLYGON in EPSG:4326; coordinates are longitude latitude. No holes or MULTIPOLYGON."
+        required: true
+        type: string
+        default: "POLYGON ((85.464518764495 28.345047192656, 85.466235378264 28.277644183693, 85.48958132553 28.247707190493, 85.535586574553 28.245287672353, 85.556185939788 28.260106359332, 85.550692775725 28.290342185191, 85.54931948471 28.311199899645, 85.535586574553 28.330240328302, 85.510180690764 28.34021252508, 85.496447780608 28.3529030581, 85.464518764495 28.345047192656))"
+      start_date:
+        description: "Inclusive start date for secondary acquisitions (YYYY-MM-DD)."
+        required: true
+        type: string
+        default: "2025-01-01"
+      end_date:
+        description: "Inclusive end date for secondary acquisitions (YYYY-MM-DD)."
+        required: true
+        type: string
+        default: "2026-12-31"
+      run_profile:
+        description: "Full AOI baseline processes every matching catalog product; validation pilot selects newest matching GUNW and GOFF."
+        required: true
+        type: choice
+        options:
+          - validation-pilot
+          - full-aoi-baseline
+        default: validation-pilot
+      retention_profile:
+        description: "Choose derived outputs only or retain a full lossless HDF5 archive as well."
+        required: true
+        type: choice
+        options:
+          - derived-only
+          - full-lossless
+        default: derived-only
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  run-isolated-aoi-pipeline:
+    name: Run AOI workflow from the isolated feature branch
+    uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@feat/e2e-aoi-wkt-date-dashboard
+    with:
+      aoi_wkt: \${{ inputs.aoi_wkt }}
+      start_date: \${{ inputs.start_date }}
+      end_date: \${{ inputs.end_date }}
+      run_profile: \${{ inputs.run_profile }}
+      retention_profile: \${{ inputs.retention_profile }}
+    secrets: inherit
