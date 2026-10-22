@@ -6,6 +6,7 @@ on:
       - feat/e2e-aoi-wkt-date-dashboard
     paths:
       - ".github/workflows/sarguardian-aoi-live-discovery-check.yml"
+      - "tools/discover_aoi_products.py"
   workflow_dispatch:
     inputs:
       aoi_wkt:
