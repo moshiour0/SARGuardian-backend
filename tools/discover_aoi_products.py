@@ -25,6 +25,7 @@ ASF_API = "https://api.daac.asf.alaska.edu/services/search/param"
 SCIENCE_COMMIT = "39e5a4991fe7bdb0f7a3ae41e5f38c1ba5dc53eb"
 MAX_PRODUCTS = 200
 MAX_RESULTS = 2000
+DEFAULT_DATE_FILTER_MODE = "secondary-acquisition-in-window"
 PRODUCT_PATTERN = re.compile(
     r"^NISAR_L2_(?:(?:PR|UR|OD)_)?(GUNW|GOFF)_[A-Za-z0-9_.-]{10,250}$"
 )
@@ -737,7 +738,7 @@ def main() -> int:
         "--date-filter-mode",
         required=False,
         choices=("both-acquisitions-in-window", "secondary-acquisition-in-window"),
-        default="both-acquisitions-in-window",
+        default=DEFAULT_DATE_FILTER_MODE,
         help="Use both pair acquisition dates inside the window by default; secondary-only mode is explicit compatibility behavior.",
     )
     p.add_argument("--retention-profile", required=True, choices=("derived-only", "full-lossless"))
