@@ -16,7 +16,7 @@ Inputs:
 ## Pipeline design
 
 1. Validate WKT geometry and dates.
-2. Query the ASF DAAC catalog with the actual polygon WKT (`intersectsWith`), separately for NISAR GUNW and GOFF.
+2. Query the ASF DAAC catalog with the actual polygon WKT (`intersectsWith`), separately for NISAR GUNW and GOFF. The primary query uses NISAR's searchable `shortName`, `dataset` and `platform` fields; only when it returns zero rows, retry using the established SARGuardian `platform=NISAR` plus comma-separated interferometric `processingLevel` query. Catalog counts and which strategy returned rows are logged so a missing acquisition can be distinguished from a query-filter mismatch.
 3. Parse the pair ID and apply the inclusive secondary-date window. Record catalog counts, exclusions, product maturity, AOI WKT SHA-256 and the exact science commit.
 4. Download and validate each exact granule with the existing protected worker pattern, but use the `custom` AOI all the way through product preflight, GUNW/GOFF reader, export, provenance and retention receipts.
 5. Retry only products that lack a complete, hash-consistent processing/cleanup receipt pair.
