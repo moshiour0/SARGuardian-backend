@@ -158,8 +158,10 @@ jobs:
       retry_matrix: ${{ steps.plan.outputs.retry_matrix }}
       retry_count: ${{ steps.plan.outputs.retry_count }}
     steps:
-      - name: Checkout receipt-check tools
+      - name: Checkout receipt-check tools from the isolated feature branch
         uses: actions/checkout@v4
+        with:
+          ref: feat/e2e-aoi-wkt-date-dashboard
 
       - name: Download AOI run manifest
         uses: actions/download-artifact@v4
