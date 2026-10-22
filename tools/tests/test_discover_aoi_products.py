@@ -331,3 +331,45 @@ def test_p_series_release_wins_over_unmapped_x_release_for_same_pair():
     assert selected[0]["crid"] == "P05023"
     assert len(rejected) == 1
     assert rejected[0]["excluded_crid"] == "X05026"
+
+def test_cli_summary_uses_current_pair_count_schema(tmp_path, monkeypatch, capsys):
+    manifest = {
+        "aoi_wkt_sha256": "wkt-hash",
+        "run_profile": "full-aoi-baseline",
+        "time_window": {
+            "unique_product_family_pair_entries_in_window": 33,
+            "unique_acquisition_pairs_across_families": 17,
+            "supported_product_variants_after_maturity_policy": 44,
+            "products_with_reference_outside_window": 2,
+            "boundary_pair_products_included_by_secondary_policy": 2,
+        },
+        "processing_variant_selection": {"excluded_duplicate_variants": [{} for _ in range(11)]},
+        "products": [{
+            "id": "GOFF-001",
+            "granule_name": "NISAR_L2_PR_GOFF_TEST_PRODUCT",
+            "product_type": "GOFF",
+            "maturity": "PROVISIONAL",
+            "expected_source_bytes": 100,
+        }],
+        "baseline_product_counts": {"GUNW": 16, "GOFF": 17},
+    }
+    monkeypatch.setattr(discovery, "discover", lambda _args: manifest)
+    output_file = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setattr(sys, "argv", [
+        "discover_aoi_products.py",
+        "--science-root", str(tmp_path),
+        "--start-date", "2026-06-17",
+        "--end-date", "2026-09-15",
+        "--run-profile", "full-aoi-baseline",
+        "--retention-profile", "derived-only",
+        "--out", str(tmp_path / "manifest.json"),
+    ])
+
+    assert discovery.main() == 0
+    output = capsys.readouterr().out
+    assert "AOI_DISCOVERY_INVENTORY=33" in output
+    assert "AOI_UNIQUE_ACQUISITION_PAIRS_ACROSS_FAMILIES=17" in output
+    assert "AOI_BASELINE_GUNW=16" in output
+    assert "AOI_BASELINE_GOFF=17" in output
+    assert "product_count=1" in output_file.read_text(encoding="utf-8")
