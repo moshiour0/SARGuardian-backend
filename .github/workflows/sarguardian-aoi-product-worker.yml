@@ -54,10 +54,12 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
     steps:
-      - name: Checkout backend orchestration code
+      - name: Checkout backend orchestration code from the isolated feature branch
         uses: actions/checkout@v4
+        with:
+          ref: feat/e2e-aoi-wkt-date-dashboard
 
-      - name: Checkout the exact scientific engine used by SARGuardian main
+      - name: Checkout the pinned dynamic-AOI scientific engine
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
