@@ -9,11 +9,11 @@ on:
         required: true
         type: string
       start_date:
-        description: "Inclusive secondary-acquisition date start."
+        description: "Inclusive start date for the two acquisition dates (YYYY-MM-DD)."
         required: true
         type: string
       end_date:
-        description: "Inclusive end date (YYYY-MM-DD)."
+        description: "Inclusive end date for the two acquisition dates (YYYY-MM-DD)."
         required: true
         type: string
       date_filter_mode:
