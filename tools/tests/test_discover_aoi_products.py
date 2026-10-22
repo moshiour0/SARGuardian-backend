@@ -264,6 +264,21 @@ def test_catalog_exact_hdf5_byte_map_is_used_for_download_planning():
     assert basis == "ASF_catalog_bytes_map_exact_granule_HDF5"
 
 
+def test_observation_pair_count_key_collapses_product_families_but_retains_exact_pair_identity():
+    stem = (
+        "NISAR_L2_PR_{family}_024_098_A_016_025_4000_SH_"
+        "20260702T233920_20260702T233955_20260714T233920_"
+        "20260714T233954_{crid}_N_F_J_001"
+    )
+    gunw_p = stem.format(family="GUNW", crid="P05023")
+    gunw_x = stem.format(family="GUNW", crid="X05026")
+    goff_p = stem.format(family="GOFF", crid="P05023")
+
+    assert discovery.acquisition_pair_key(gunw_p) == discovery.acquisition_pair_key(gunw_x)
+    assert discovery.acquisition_observation_key(gunw_p) == discovery.acquisition_observation_key(goff_p)
+    assert discovery.acquisition_observation_key(gunw_p) == discovery.acquisition_observation_key(gunw_x)
+    assert discovery.acquisition_pair_key(gunw_p) != discovery.acquisition_pair_key(goff_p)
+
 def test_duplicate_ur_variant_is_replaced_by_standard_pr_for_same_pair():
     base = (
         "NISAR_L2_{ptype}_GUNW_028_098_A_016_029_4000_SH_"
