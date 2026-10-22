@@ -13,7 +13,7 @@ on:
         required: true
         type: string
       end_date:
-        description: "Inclusive end date for the two acquisition dates (YYYY-MM-DD)."
+        description: "Inclusive upper bound for secondary dates by default; strict mode also requires the reference date inside."
         required: true
         type: string
       date_filter_mode:
@@ -352,6 +352,8 @@ jobs:
           print("- **AOI WKT SHA-256:** `"+str(x.get("aoi_wkt_sha256"))+"`")
           print("- **Date window mode:** `" + str(x.get("date_filter_mode")) + "`")
           print("- **Date window:** {} to {}".format(x.get("date_start"),x.get("date_end")))
+          print("- **Pairs included because secondary date is in-window while reference predates it:** "+str(x.get("boundary_pairs_included_by_secondary_policy")))
+          print("- **Unique pairs with reference date outside the requested interval:** "+str(x.get("reference_outside_window_unique_pairs")))
           print("")
           print("Download the **sarguardian-aoi-dashboard-${{ github.run_id }}-${{ github.run_attempt }}** artifact and open `index.html`.")
           print("")
