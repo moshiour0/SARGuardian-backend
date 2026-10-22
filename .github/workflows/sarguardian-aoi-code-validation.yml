@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: science/aoi-wkt-dynamic-e2e
+          ref: db78ae471d161e9920e4aff8424ed3bc1a708f9f
           path: science-source
 
       - name: Set up Python
@@ -93,5 +93,7 @@ jobs:
               print(f"YAML_SYNTAX_PASS={path}")
           PY
 
-      - name: Test WKT parser, AOI discovery policy and dashboard integrity without network access
-        run: python -m pytest -q science-source/tests/test_aoi_wkt.py tools/tests/test_discover_aoi_products.py tools/tests/test_aggregate_aoi_run.py
+      - name: Test WKT parser, GOFF metadata-layer discovery, AOI discovery, validator identity and dashboard integrity
+        env:
+          PYTHONPATH: ${{ github.workspace }}/science-source/src
+        run: python -m pytest -q science-source/tests/test_aoi_wkt.py science-source/tests/test_goff_reader.py tools/tests/test_discover_aoi_products.py tools/tests/test_validate_aoi_derived_outputs.py tools/tests/test_aggregate_aoi_run.py
