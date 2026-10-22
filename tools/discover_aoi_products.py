@@ -67,13 +67,20 @@ def date_window_decision(
     raise ValueError("DATE_FILTER_MODE_INVALID")
 
 
-def query_asf_polygon(wkt: str, family: str, end_date: date,
-                      *, session: requests.Session | None = None) -> list[dict[str, Any]]:
-    """Query ASF with documented NISAR dataset/product-level filters.
+def query_asf_polygon(
+    wkt: str,
+    family: str,
+    end_date: date,
+    *,
+    maturity_filter: str | None = None,
+    session: requests.Session | None = None,
+) -> list[dict[str, Any]]:
+    """Query exact AOI/product family and optionally an ASF dataMaturity class.
 
-    ASF Search documents dataset and processingLevel as query fields for NISAR
-    and recommends GeoJSON output. A platform-based query is retained as a
-    fallback for catalog deployments where dataset aliasing differs.
+    ASF's NISAR Search guide documents dataMaturity=PROVISIONAL/BETA. In baseline
+    discovery we query those classes separately and record that archive-supplied
+    classification; CRID is corroborating provenance rather than the sole
+    arbiter when a new CRID is not yet mapped by the pinned local science code.
     """
     client = session or requests.Session()
     base = {
@@ -88,6 +95,10 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
         "dataset": "NISAR",
         "processingLevel": family,
     }
+    if maturity_filter:
+        if maturity_filter not in {"BETA", "PROVISIONAL"}:
+            raise ValueError("ASF_MATURITY_FILTER_INVALID")
+        primary_params["dataMaturity"] = maturity_filter
 
     def execute(params: dict[str, str], strategy: str) -> list[dict[str, Any]]:
         last_error = None
@@ -131,14 +142,17 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
                     if not isinstance(record, dict):
                         continue
                     props = record.get("properties")
-                    normalized.append({**record, **props} if isinstance(props, dict) else record)
+                    normalized_record = {**record, **props} if isinstance(props, dict) else dict(record)
+                    if maturity_filter:
+                        normalized_record["_sarguardian_query_maturity"] = maturity_filter
+                    normalized.append(normalized_record)
                 if len(normalized) >= MAX_RESULTS:
                     raise RuntimeError(
                         f"ASF_CATALOG_RESULT_CAP_REACHED family={family} "
                         f"strategy={strategy} limit={MAX_RESULTS}; discovery is incomplete"
                     )
                 print(
-                    f"ASF_CATALOG_RESPONSE family={family} strategy={strategy} "
+                    f"ASF_CATALOG_RESPONSE family={family} maturity={maturity_filter or 'UNFILTERED'} strategy={strategy} "
                     f"rows={len(normalized)} "
                     f"named_products={sum(bool(record_name(row)) for row in normalized)}"
                 )
@@ -165,8 +179,10 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
         "platform": "NISAR",
         "processingLevel": family,
     }
+    if maturity_filter:
+        fallback_params["dataMaturity"] = maturity_filter
     print(
-        f"ASF_CATALOG_FALLBACK family={family} "
+        f"ASF_CATALOG_FALLBACK family={family} maturity={maturity_filter or 'UNFILTERED'} "
         "reason=dataset_processingLevel_returned_zero_rows"
     )
     return execute(fallback_params, "platform_processingLevel")
@@ -278,15 +294,21 @@ def collapse_duplicate_variants(products: list[dict[str, Any]]) -> tuple[list[di
 
 def product_maturity_evidence(
     row: dict[str, Any], granule_name: str, maturity_from_crid: Any
-) -> tuple[str, str, str | None]:
-    """Require recognized CRID maturity and reject catalog/CRID contradictions.
+) -> tuple[str, str, str | None, str]:
+    """Resolve maturity from ASF's explicit classification, corroborated by CRID.
 
-    Date and processing-type tokens are not maturity labels. ASF documents
-    P05023+ as PROVISIONAL and the earlier X-release CRIDs as BETA; unknown
-    CRIDs are not relabelled from acquisition dates alone.
+    ASF documents dataMaturity as the archive's filter for calibrated PROVISIONAL
+    and pre-calibration BETA data. Some current catalog records use CRID X05026
+    in a PROVISIONAL collection even though this pinned CRID helper does not yet
+    map that release. A matching ASF maturity filter and collection label is
+    authoritative; the CRID-map gap is preserved in provenance, and a documented
+    P-series release is preferred when the same observation pair has both.
+    Maturity is never inferred from acquisition date alone.
     """
     parsed = str(maturity_from_crid(granule_name) or "UNKNOWN").upper()
-    explicit = str(row.get("dataMaturity") or row.get("maturity") or "").strip().upper()
+    query_maturity = str(row.get("_sarguardian_query_maturity") or "").strip().upper()
+    raw_data_maturity = str(row.get("dataMaturity") or row.get("maturity") or "").strip().upper()
+    explicit_maturity = raw_data_maturity if raw_data_maturity in {"BETA", "PROVISIONAL"} else ""
     collection = str(row.get("collectionName") or row.get("shortName") or "").strip()
     collection_upper = collection.upper()
     collection_maturity = (
@@ -294,20 +316,137 @@ def product_maturity_evidence(
         else "BETA" if "BETA" in collection_upper
         else ""
     )
-    explicit_maturity = explicit if explicit in {"BETA", "PROVISIONAL"} else ""
-    declared = explicit_maturity or collection_maturity
-    evidence = (
-        f"CRID={re.search(r'_[A-Z]\d{5}_', granule_name).group(0).strip('_') if re.search(r'_[A-Z]\d{5}_', granule_name) else 'unparsed'}"
-        f"; parsed={parsed}; catalog_maturity={declared or 'not_explicit'}"
-        f"; collection={collection or 'not_reported'}"
-    )
-    if declared and parsed not in {"BETA", "PROVISIONAL"}:
-        return "UNKNOWN", evidence, "CATALOG_COLLECTION_CLAIMS_MATURITY_BUT_CRID_UNSUPPORTED"
-    if parsed not in {"BETA", "PROVISIONAL"}:
-        return "UNKNOWN", evidence, "MATURITY_UNKNOWN_OR_UNSUPPORTED_CRID"
-    if declared and declared != parsed:
-        return "UNKNOWN", evidence, "CATALOG_COLLECTION_CRID_MATURITY_CONFLICT"
-    return parsed, evidence, None
+
+    authoritative_values = [
+        value for value in (query_maturity, explicit_maturity, collection_maturity)
+        if value in {"BETA", "PROVISIONAL"}
+    ]
+    crid_match = re.search(r"_([A-Z]\\d{5})_", granule_name)
+    crid = crid_match.group(1) if crid_match else "unparsed"
+    if len(set(authoritative_values)) > 1:
+        evidence = (
+            f"CRID={crid}; parsed={parsed}; query_maturity={query_maturity or 'not_filtered'}"
+            f"; dataMaturity={explicit_maturity or 'not_reported'}"
+            f"; collection_maturity={collection_maturity or 'not_reported'}"
+            f"; collection={collection or 'not_reported'}"
+        )
+        return "UNKNOWN", evidence, "ASF_MATURITY_FILTER_AND_METADATA_CONFLICT", "UNRESOLVED"
+
+    declared = authoritative_values[0] if authoritative_values else ""
+    if declared and parsed in {"BETA", "PROVISIONAL"} and declared != parsed:
+        evidence = (
+            f"CRID={crid}; parsed={parsed}; authoritative_catalog_maturity={declared}"
+            f"; query_maturity={query_maturity or 'not_filtered'}"
+            f"; dataMaturity={explicit_maturity or 'not_reported'}"
+            f"; collection={collection or 'not_reported'}"
+        )
+        return "UNKNOWN", evidence, "CRID_AND_ASF_MATURITY_CONFLICT", "UNRESOLVED"
+
+    if declared:
+        if parsed == "UNKNOWN":
+            evidence = (
+                f"CRID={crid}; local_crid_map=UNKNOWN; authoritative_catalog_maturity={declared}"
+                f"; maturity_query={query_maturity or 'not_filtered'}"
+                f"; collection={collection or 'not_reported'}"
+                "; note=ASF_classification_authoritative_for_unmapped_CRID"
+            )
+            source = "ASF_dataMaturity_filter_plus_collection" if query_maturity and collection_maturity else (
+                "ASF_dataMaturity_filter" if query_maturity else "ASF_collectionName"
+            )
+            return declared, evidence, None, source
+        evidence = (
+            f"CRID={crid}; parsed={parsed}; authoritative_catalog_maturity={declared}"
+            f"; maturity_query={query_maturity or 'not_filtered'}"
+            f"; collection={collection or 'not_reported'}"
+        )
+        source = "ASF_dataMaturity_filter" if query_maturity else (
+            "ASF_dataMaturity_field" if explicit_maturity else "ASF_collectionName"
+        )
+        return declared, evidence, None, source
+
+    if parsed in {"BETA", "PROVISIONAL"}:
+        evidence = f"CRID={crid}; parsed={parsed}; catalog_maturity=not_explicit"
+        return parsed, evidence, None, "CRID_fallback"
+
+    evidence = f"CRID={crid}; local_crid_map=UNKNOWN; authoritative_catalog_maturity=not_reported"
+    return "UNKNOWN", evidence, "MATURITY_UNKNOWN_NO_AUTHORITATIVE_CATALOG_LABEL", "UNRESOLVED"
+
+
+def acquisition_pair_key(granule_name: str) -> tuple[str, ...]:
+    """Group release/processing variants of the same product family and exact pair."""
+    parts = granule_name.split("_")
+    if len(parts) >= 20 and parts[2] in {"PR", "UR", "OD"}:
+        normalized = parts[:15]  # include family + both pair timestamps; omit CRID
+        normalized[2] = "<PROCESSING_TYPE>"
+        return tuple(normalized)
+    return (granule_name,)
+
+
+def processing_variant_rank(product: dict[str, Any]) -> tuple[int, int, int, int, int, int, str]:
+    """Prefer provisional, standard PR, documented P-series releases, accuracy, then coverage."""
+    name = str(product["granule_name"])
+    maturity_rank = {"PROVISIONAL": 0, "BETA": 1}.get(str(product.get("maturity")), 9)
+    processing_rank = {"PR": 0, "OD": 1, "UR": 2}.get(product_processing_type(name), 9)
+    crid = str(product.get("crid") or "")
+    crid_match = re.fullmatch(r"([A-Z])(\\d{5})", crid)
+    if crid_match and crid_match.group(1) == "P":
+        crid_family_rank, crid_version_rank = 0, -int(crid_match.group(2))
+    elif crid_match and crid_match.group(1) == "X":
+        # ASF classifies X05026 in the PROVISIONAL collection, but the current
+        # guide documents P05023+ for the provisional release; prefer known P
+        # when both releases exist for identical observation pair input.
+        crid_family_rank, crid_version_rank = 1, -int(crid_match.group(2))
+    else:
+        crid_family_rank, crid_version_rank = 9, 0
+    parts = name.split("_")
+    accuracy_rank = {"P": 0, "M": 1, "N": 2, "F": 3}.get(parts[16] if len(parts) > 16 else "", 9)
+    coverage_rank = {"F": 0, "P": 1}.get(parts[17] if len(parts) > 17 else "", 9)
+    return maturity_rank, processing_rank, crid_family_rank, crid_version_rank, accuracy_rank, coverage_rank, name
+
+
+def collapse_duplicate_variants(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Retain one best-supported release per exact family/acquisition pair."""
+    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for product in products:
+        groups.setdefault(acquisition_pair_key(product["granule_name"]), []).append(product)
+    selected: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for _key, variants in groups.items():
+        ordered = sorted(variants, key=processing_variant_rank)
+        chosen = dict(ordered[0])
+        chosen["pair_variant_count"] = len(variants)
+        chosen["pair_variants"] = [
+            {
+                "granule_name": v["granule_name"],
+                "processing_type": product_processing_type(v["granule_name"]),
+                "maturity": v.get("maturity"),
+                "maturity_source": v.get("maturity_source"),
+                "crid": v.get("crid"),
+                "selected": v["granule_name"] == chosen["granule_name"],
+                "selection_rank": list(processing_variant_rank(v)),
+            }
+            for v in ordered
+        ]
+        selected.append(chosen)
+        for variant in ordered[1:]:
+            rejected.append({
+                "granule_name": variant["granule_name"],
+                "reason": "DUPLICATE_ACQUISITION_PAIR_LOWER_VARIANT_PRIORITY",
+                "selected_granule_name": chosen["granule_name"],
+                "selected_crid": chosen.get("crid"),
+                "excluded_crid": variant.get("crid"),
+                "product_type": variant["product_type"],
+                "reference_date": variant["reference_date"],
+                "secondary_date": variant["secondary_date"],
+                "processing_type": product_processing_type(variant["granule_name"]),
+                "maturity": variant.get("maturity"),
+                "maturity_source": variant.get("maturity_source"),
+                "selection_policy": "one release per exact pair; maturity, PR/OD/UR, documented P-series, accuracy and coverage",
+            })
+    selected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    rejected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    return selected, rejected
+
 
 
 def discover(args: argparse.Namespace) -> dict[str, Any]:
@@ -337,9 +476,38 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
     query_summary: dict[str, Any] = {}
     with requests.Session() as session:
         for family in ("GUNW", "GOFF"):
-            rows = query_asf_polygon(canonical_wkt, family, end, session=session)
+            rows_by_name: dict[str, dict[str, Any]] = {}
+            query_rows_by_maturity: dict[str, int] = {}
+            query_conflicts: list[dict[str, str]] = []
+            conflicting_names: set[str] = set()
+            for maturity_filter in ("PROVISIONAL", "BETA"):
+                maturity_rows = query_asf_polygon(
+                    canonical_wkt, family, end,
+                    maturity_filter=maturity_filter, session=session
+                )
+                query_rows_by_maturity[maturity_filter] = len(maturity_rows)
+                for row in maturity_rows:
+                    name = record_name(row)
+                    if not name:
+                        continue
+                    prior = rows_by_name.get(name)
+                    if prior and prior.get("_sarguardian_query_maturity") != row.get("_sarguardian_query_maturity"):
+                        conflicting_names.add(name)
+                        query_conflicts.append({
+                            "granule_name": name,
+                            "reason": "ASF_GRANULE_RETURNED_BY_BOTH_MATURITY_FILTERS",
+                            "first_maturity": str(prior.get("_sarguardian_query_maturity")),
+                            "second_maturity": str(row.get("_sarguardian_query_maturity")),
+                        })
+                        continue
+                    rows_by_name.setdefault(name, row)
+
+            excluded.extend(query_conflicts)
+            rows = [row for name, row in rows_by_name.items() if name not in conflicting_names]
             stats = {
                 "catalog_rows_returned": len(rows),
+                "catalog_rows_by_maturity_filter": query_rows_by_maturity,
+                "maturity_filter_conflicts": len(query_conflicts),
                 "named_products": 0,
                 "family_name_matches": 0,
                 "parseable_pair_dates": 0,
@@ -388,17 +556,18 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     continue
                 stats["date_window_matches"] += 1
 
-                maturity, maturity_evidence, maturity_error = product_maturity_evidence(
+                maturity, maturity_evidence, maturity_error, maturity_source = product_maturity_evidence(
                     row, name, maturity_for_name
                 )
                 if maturity_error:
+                    crid_match = re.search(r"_([A-Z]\\d{5})_", name)
                     excluded.append({
                         "granule_name": name,
                         "reason": maturity_error,
-                        "crid": (re.search(r"_([A-Z]\d{5})_", name).group(1)
-                                 if re.search(r"_([A-Z]\d{5})_", name) else "unparsed"),
+                        "crid": crid_match.group(1) if crid_match else "unparsed",
                         "catalog_collection_name": row.get("collectionName"),
                         "catalog_data_maturity": row.get("dataMaturity") or row.get("maturity"),
+                        "maturity_query": row.get("_sarguardian_query_maturity"),
                         "maturity_evidence": maturity_evidence,
                         "reference_date": reference.isoformat(),
                         "secondary_date": secondary.isoformat(),
@@ -407,34 +576,37 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 stats["supported_maturity"] += 1
                 size_bytes, size_basis = product_size_bytes(row, family, name)
                 parts = name.split("_")
+                crid_match = re.search(r"_([A-Z]\\d{5})_", name)
                 record = {
                     "product_type": family,
                     "granule_name": name,
                     "processing_type": product_processing_type(name),
                     "product_accuracy": parts[16] if len(parts) > 16 else None,
                     "frame_coverage": parts[17] if len(parts) > 17 else None,
-                    "crid": re.search(r"_([A-Z]\d{5})_", name).group(1)
-                            if re.search(r"_([A-Z]\d{5})_", name) else None,
+                    "crid": crid_match.group(1) if crid_match else None,
                     "catalog_collection_name": row.get("collectionName"),
+                    "maturity_query": row.get("_sarguardian_query_maturity"),
                     "maturity": maturity,
+                    "maturity_source": maturity_source,
                     "maturity_evidence": maturity_evidence,
                     "reference_date": reference.isoformat(),
                     "secondary_date": secondary.isoformat(),
                     "expected_source_bytes": size_bytes,
                     "expected_source_bytes_basis": size_basis,
                     "asf_catalog_product_type": row.get("productType"),
-                    "discovery_source": "ASF_search_API_intersectsWith_exact_polygon",
+                    "discovery_source": "ASF_Search_API_exact_polygon_and_dataMaturity_filter",
                 }
                 previous = all_rows.get(name)
                 if previous and previous != record:
                     raise RuntimeError(f"ASF_DUPLICATE_PRODUCT_METADATA_CONFLICT granule={name}")
                 all_rows[name] = record
                 accepted += 1
-            stats["products_in_secondary_date_window"] = accepted
+            stats["products_after_date_and_maturity_policy"] = accepted
             query_summary[family] = stats
             print(
                 "AOI_DISCOVERY_COUNTS "
                 f"family={family} catalog_rows={stats['catalog_rows_returned']} "
+                f"by_maturity={json.dumps(stats['catalog_rows_by_maturity_filter'], separators=(',', ':'))} "
                 f"named_products={stats['named_products']} "
                 f"family_matches={stats['family_name_matches']} "
                 f"parseable_pair_dates={stats['parseable_pair_dates']} "
@@ -443,7 +615,6 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 f"date_window_matches={stats['date_window_matches']} "
                 f"supported_maturity={stats['supported_maturity']} accepted={accepted}"
             )
-            stats["products_after_date_and_maturity_policy"] = accepted
 
     supported_variants = sorted(
         all_rows.values(),
@@ -516,8 +687,9 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             "service": "ASF DAAC Search API",
             "intersects_semantics": "exact supplied WKT polygon; no bbox substitution",
             "maturity_policy": (
-                "Require a recognized CRID maturity; P05023+ is PROVISIONAL and recognized earlier X-release CRIDs are BETA. "
-                "If an explicit ASF collection/dataMaturity label conflicts with CRID policy, reject rather than infer maturity from acquisition date."
+                "Use ASF's explicit dataMaturity filter and matching collection metadata as the maturity class. "
+                "A locally unmapped CRID is accepted only when the ASF filter and collection classification agree, and the CRID-map gap is recorded. "
+                "If a recognized CRID conflicts with ASF maturity metadata, reject; never infer maturity from acquisition date."
             ),
             "families": query_summary,
             "excluded_products": excluded,
@@ -525,9 +697,10 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         },
         "processing_variant_selection": {
             "policy": (
-                "One product per product-family, acquisition-pair geometry/mode, reference-secondary timestamps and CRID. "
-                "Prefer standard PR production, then OD science-on-demand, then UR urgent-response. "
-                "Only if processing type ties, prefer P/M/N/F product-accuracy rank and full frame over partial frame."
+                "One product per product-family, acquisition-pair geometry/mode, and reference-secondary timestamps; CRID is a processing release, not a distinct acquisition. "
+                "Prefer PROVISIONAL over BETA when the same pair has both, then standard PR production, OD science-on-demand and UR urgent-response. "
+                "For equally mature PR variants, prefer a documented P-series CRID over a locally unmapped X-series CRID; within the same CRID family prefer the newer numeric release. "
+                "Then prefer precise/medium/near-real-time/forecast orbit accuracy and full frame over partial frame."
             ),
             "supported_variants_before_deduplication": len(supported_variants),
             "unique_acquisition_pair_products": len(inventory),
