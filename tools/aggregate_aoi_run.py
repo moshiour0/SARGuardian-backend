@@ -163,7 +163,7 @@ function node(tag,cls,txt){var n=document.createElement(tag);if(cls)n.className=
 byId('status').textContent=S.status==='PASS'?'RUN COMPLETE · STRUCTURAL CHECKS PASS':(S.status==='PARTIAL'?'PARTIAL · INSPECT WARNINGS':'PROCESSING FAILED');
 var cards=[['Products selected',S.products_expected,S.gunw_count+' GUNW · '+S.goff_count+' GOFF'],['Artifacts validated',S.products_validated,S.products_missing+' missing or invalid'],['Products with valid pixels',S.products_with_science_pixels,'At least one finite band-1 pixel'],['AOI WKT SHA-256',S.aoi_wkt_sha256.slice(0,12),S.date_start+' → '+S.date_end]];
 cards.forEach(function(c){var d=node('div','card');d.append(node('div','label',c[0]),node('div','metric',fmt(c[1])),node('div','sub',c[2]));byId('metrics').append(d)});
-[['Run ID',S.run_id],['Science commit',S.science_commit],['AOI CRS',S.aoi_crs],['WKT SHA-256',S.aoi_wkt_sha256],['Run profile',S.run_profile],['Retention',S.retention_profile],['Catalog window','2024-01-01 → '+S.date_end],['Baseline comparison','Disabled for custom AOI']].forEach(function(pair){byId('runmeta').append(node('div','key',pair[0]),node('div','mono',fmt(pair[1])))});
+[['Run ID',S.run_id],['Science commit',S.science_commit],['Backend tools commit',S.orchestration_sha],['Dispatcher commit',S.dispatcher_workflow_sha],['AOI CRS',S.aoi_crs],['WKT SHA-256',S.aoi_wkt_sha256],['Run profile',S.run_profile],['Retention',S.retention_profile],['Catalog window','2024-01-01 → '+S.date_end],['Baseline comparison','Disabled for custom AOI']].forEach(function(pair){byId('runmeta').append(node('div','key',pair[0]),node('div','mono',fmt(pair[1])))});
 byId('wkt').textContent=S.aoi_wkt;
 ['ASF catalog searched GUNW and GOFF using the exact WKT polygon, not its bounding box.',
 'Each selected product has a separate grid-intersection report; pixels outside the polygon are excluded.',
@@ -219,6 +219,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             download = json.loads((artifact / "download-manifest.json").read_text(encoding="utf-8"))
             for key, expected in (("id",pid),("granule_name",name),("product_type",family),("maturity",product.get("maturity")),
                                   ("aoi",manifest.get("aoi_name")),("science_commit",manifest.get("science_commit")),
+                                  ("orchestration_branch",manifest.get("orchestration_branch")),
+                                  ("orchestration_sha",manifest.get("orchestration_sha")),
                                   ("retention_profile",manifest.get("retention_profile")),
                                   ("derived_output_validation_status","PASS"),("drive_remote_verification","PASS")):
                 if meta.get(key) != expected:
@@ -286,6 +288,9 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "status":"PASS" if validated==expected and not errors else ("PARTIAL" if validated else "FAIL"),
         "run_id":manifest.get("run_id"),"science_commit":manifest.get("science_commit"),
         "workflow_ref":manifest.get("workflow_ref"),"workflow_sha":manifest.get("workflow_sha"),
+        "orchestration_branch":manifest.get("orchestration_branch"),"orchestration_sha":manifest.get("orchestration_sha"),
+        "dispatcher_workflow_ref":manifest.get("dispatcher_workflow_ref"),
+        "dispatcher_workflow_sha":manifest.get("dispatcher_workflow_sha"),
         "aoi_name":manifest.get("aoi_name"),"aoi_crs":manifest.get("aoi_crs"),
         "aoi_wkt":manifest.get("aoi_wkt"),"aoi_wkt_sha256":manifest.get("aoi_wkt_sha256"),
         "date_start":manifest.get("time_window",{}).get("start_date"),"date_end":manifest.get("time_window",{}).get("end_date"),
