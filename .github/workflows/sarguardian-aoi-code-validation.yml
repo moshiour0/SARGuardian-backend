@@ -49,17 +49,31 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import re
           from pathlib import Path
           source = Path("tools/aggregate_aoi_run.py").read_text(encoding="utf-8")
-          match = re.search(r'\bdoc\s*=\s*r"""(.*?)"""', source, re.S)
-          if not match:
+          marker = 'doc = r"""'
+          start = source.find(marker)
+          if start < 0:
               raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_NOT_FOUND")
-          html = match.group(1)
-          script = re.search(r'<script>\s*(.*?)</script>', html, re.S)
-          if not script:
-              raise SystemExit("ERROR=DASHBOARD_INTERACTIVE_SCRIPT_NOT_FOUND")
-          Path("/tmp/sarguardian-dashboard.js").write_text(script.group(1), encoding="utf-8")
+          start += len(marker)
+          end = source.find('"""', start)
+          if end < 0:
+              raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_UNTERMINATED")
+          html = source[start:end]
+          script_marker = "<script>\\n"
+          script_start = html.find(script_marker)
+          if script_start < 0:
+              script_marker = "<script>"
+              script_start = html.find(script_marker)
+              if script_start < 0:
+                  raise SystemExit("ERROR=DASHBOARD_INTERACTIVE_SCRIPT_NOT_FOUND")
+              script_start += len(script_marker)
+          else:
+              script_start += len(script_marker)
+          script_end = html.find("</script>", script_start)
+          if script_end < 0:
+              raise SystemExit("ERROR=DASHBOARD_INTERACTIVE_SCRIPT_UNTERMINATED")
+          Path("/tmp/sarguardian-dashboard.js").write_text(html[script_start:script_end], encoding="utf-8")
           print("DASHBOARD_JS_EXTRACTED=/tmp/sarguardian-dashboard.js")
           PY
           node --check /tmp/sarguardian-dashboard.js
