@@ -125,9 +125,82 @@ jobs:
       execution_label: initial
     secrets: inherit
 
+  retry-plan:
+    name: Validate product and post-cleanup receipts
+    needs: [manifest, process-products]
+    if: always() && needs.manifest.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      retry_matrix: ${{ steps.plan.outputs.retry_matrix }}
+      retry_count: ${{ steps.plan.outputs.retry_count }}
+    steps:
+      - name: Checkout receipt-check tools
+        uses: actions/checkout@v4
+
+      - name: Download AOI run manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-aoi-run-manifest
+          path: ${{ runner.temp }}/sarguardian-aoi/retry/manifest
+
+      - name: Download product checkpoints
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-granule-*
+          path: ${{ runner.temp }}/sarguardian-aoi/retry/products
+
+      - name: Download cleanup receipts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-cleanup-*
+          path: ${{ runner.temp }}/sarguardian-aoi/retry/cleanups
+
+      - name: Identify only missing or invalid product checkpoints
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-aoi/retry"
+          python tools/plan_aoi_retries.py \
+            --manifest "$root/manifest/manifest.json" \
+            --product-root "$root/products" --cleanup-root "$root/cleanups" \
+            --out "$root/retry-plan.json"
+
+      - name: Preserve retry decision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-aoi-retry-plan
+          path: ${{ runner.temp }}/sarguardian-aoi/retry/retry-plan.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  retry-products:
+    name: Retry AOI product — ${{ matrix.id }}
+    needs: [manifest, retry-plan]
+    if: needs.retry-plan.result == 'success' && needs.retry-plan.outputs.retry_count != '0'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.retry-plan.outputs.retry_matrix) }}
+    uses: ./.github/workflows/sarguardian-aoi-product-worker.yml
+    with:
+      aoi_wkt: ${{ inputs.aoi_wkt }}
+      product_id: ${{ matrix.id }}
+      granule_name: ${{ matrix.granule_name }}
+      product_type: ${{ matrix.product_type }}
+      maturity: ${{ matrix.maturity }}
+      expected_source_bytes: ${{ matrix.expected_source_bytes }}
+      retention_profile: ${{ inputs.retention_profile }}
+      execution_label: retry-1
+    secrets: inherit
+
   dashboard:
     name: Assemble results dashboard and downloadable maps
-    needs: [manifest, process-products]
+    needs: [manifest, process-products, retry-plan, retry-products]
     if: always() && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
