@@ -321,7 +321,7 @@ def product_maturity_evidence(
         value for value in (query_maturity, explicit_maturity, collection_maturity)
         if value in {"BETA", "PROVISIONAL"}
     ]
-    crid_match = re.search(r"_([A-Z]\\d{5})_", granule_name)
+    crid_match = re.search(r"_([A-Z]\d{5})_", granule_name)
     crid = crid_match.group(1) if crid_match else "unparsed"
     if len(set(authoritative_values)) > 1:
         evidence = (
@@ -359,9 +359,14 @@ def product_maturity_evidence(
             f"; maturity_query={query_maturity or 'not_filtered'}"
             f"; collection={collection or 'not_reported'}"
         )
-        source = "ASF_dataMaturity_filter" if query_maturity else (
-            "ASF_dataMaturity_field" if explicit_maturity else "ASF_collectionName"
-        )
+        if query_maturity and collection_maturity:
+            source = "ASF_dataMaturity_filter_plus_collection"
+        elif query_maturity:
+            source = "ASF_dataMaturity_filter"
+        elif explicit_maturity:
+            source = "ASF_dataMaturity_field"
+        else:
+            source = "ASF_collectionName"
         return declared, evidence, None, source
 
     if parsed in {"BETA", "PROVISIONAL"}:
@@ -388,7 +393,7 @@ def processing_variant_rank(product: dict[str, Any]) -> tuple[int, int, int, int
     maturity_rank = {"PROVISIONAL": 0, "BETA": 1}.get(str(product.get("maturity")), 9)
     processing_rank = {"PR": 0, "OD": 1, "UR": 2}.get(product_processing_type(name), 9)
     crid = str(product.get("crid") or "")
-    crid_match = re.fullmatch(r"([A-Z])(\\d{5})", crid)
+    crid_match = re.fullmatch(r"([A-Z])(\d{5})", crid)
     if crid_match and crid_match.group(1) == "P":
         crid_family_rank, crid_version_rank = 0, -int(crid_match.group(2))
     elif crid_match and crid_match.group(1) == "X":
@@ -560,7 +565,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     row, name, maturity_for_name
                 )
                 if maturity_error:
-                    crid_match = re.search(r"_([A-Z]\\d{5})_", name)
+                    crid_match = re.search(r"_([A-Z]\d{5})_", name)
                     excluded.append({
                         "granule_name": name,
                         "reason": maturity_error,
@@ -576,7 +581,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 stats["supported_maturity"] += 1
                 size_bytes, size_basis = product_size_bytes(row, family, name)
                 parts = name.split("_")
-                crid_match = re.search(r"_([A-Z]\\d{5})_", name)
+                crid_match = re.search(r"_([A-Z]\d{5})_", name)
                 record = {
                     "product_type": family,
                     "granule_name": name,
