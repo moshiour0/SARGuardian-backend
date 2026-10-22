@@ -50,6 +50,13 @@ def product_dates(name: str) -> tuple[date, date] | None:
 
 def query_asf_polygon(wkt: str, family: str, end_date: date,
                       *, session: requests.Session | None = None) -> list[dict[str, Any]]:
+    """Query the ASF catalog using the NISAR-specific searchable collection fields.
+
+    NISAR collection attributes such as processingLevel are not consistently
+    searchable in CMR. Use the documented shortName + dataset + platform
+    combination, and the GET-query method already exercised by SARGuardian's
+    acquisition reconnaissance. The exact WKT is passed unchanged.
+    """
     client = session or requests.Session()
     params = {
         "intersectsWith": wkt,
@@ -57,7 +64,6 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
         "maxResults": str(MAX_RESULTS),
         "dataset": "NISAR",
         "platform": "NISAR",
-        "processingLevel": family,
         "shortName": f"NISAR_L2_{family}_V1",
         "start": "2024-01-01T00:00:00Z",
         "end": f"{end_date.isoformat()}T23:59:59Z",
@@ -65,9 +71,9 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
     last_error = None
     for attempt in range(1, 4):
         try:
-            # POST avoids URL-size failures for detailed AOI polygons; ASF supports
-            # POST requests for the intersectsWith query parameter.
-            response = client.post(ASF_API, data=params, timeout=(30, 180))
+            # Match the query transport used by SARGuardian's existing ASF
+            # reconnaissance. The small WKT is safely within URL length limits.
+            response = client.get(ASF_API, params=params, timeout=(30, 180))
             if response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
@@ -101,6 +107,10 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
                     f"ASF_CATALOG_RESULT_CAP_REACHED family={family} limit={MAX_RESULTS}; "
                     "discovery is incomplete, so the run has been stopped"
                 )
+            print(
+                f"ASF_CATALOG_RESPONSE family={family} rows={len(raw)} "
+                f"named_products={sum(bool(record_name(row)) for row in raw)}"
+            )
             return [row for row in raw if isinstance(row, dict)]
         except (requests.RequestException, ValueError) as exc:
             # Keep response bodies, URLs, credentials and long payloads out of logs.
@@ -108,7 +118,6 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
             if attempt < 3:
                 time.sleep(2 ** attempt)
     raise RuntimeError(f"ASF_CATALOG_QUERY_FAILED family={family} diagnostics={last_error}")
-
 def record_name(row: dict[str, Any]) -> str:
     fields = {str(key).lower().replace("_", ""): value for key, value in row.items()}
     value = (fields.get("granulename") or fields.get("filename") or
@@ -164,25 +173,44 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
     with requests.Session() as session:
         for family in ("GUNW", "GOFF"):
             rows = query_asf_polygon(canonical_wkt, family, end, session=session)
+            stats = {
+                "catalog_rows_returned": len(rows),
+                "named_products": 0,
+                "family_name_matches": 0,
+                "parseable_pair_dates": 0,
+                "secondary_dates_in_window": 0,
+                "supported_maturity": 0,
+                "products_in_secondary_date_window": 0,
+                "sample_granule_names": [],
+            }
             accepted = 0
             for row in rows:
                 name = record_name(row)
+                if name and len(stats["sample_granule_names"]) < 3:
+                    stats["sample_granule_names"].append(name)
+                if not name:
+                    continue
+                stats["named_products"] += 1
                 match = PRODUCT_PATTERN.fullmatch(name)
                 if not match or match.group(1) != family:
                     continue
+                stats["family_name_matches"] += 1
                 dates = product_dates(name)
                 if not dates:
                     excluded.append({"granule_name": name, "reason": "UNPARSEABLE_PAIR_DATES"})
                     continue
+                stats["parseable_pair_dates"] += 1
                 reference, secondary = dates
                 if secondary < start or secondary > end:
                     continue
+                stats["secondary_dates_in_window"] += 1
                 maturity = str(row.get("dataMaturity") or row.get("maturity") or "").strip().upper()
                 if maturity not in {"BETA", "PROVISIONAL"}:
                     maturity = maturity_for_name(name)
                 if maturity not in {"BETA", "PROVISIONAL"}:
                     excluded.append({"granule_name": name, "reason": "MATURITY_UNKNOWN_OR_UNSUPPORTED"})
                     continue
+                stats["supported_maturity"] += 1
                 previous = all_rows.get(name)
                 record = {
                     "product_type": family,
@@ -198,11 +226,25 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     raise RuntimeError(f"ASF_DUPLICATE_PRODUCT_METADATA_CONFLICT granule={name}")
                 all_rows[name] = record
                 accepted += 1
-            query_summary[family] = {
-                "catalog_rows_returned": len(rows),
-                "products_in_secondary_date_window": accepted,
-            }
+            stats["products_in_secondary_date_window"] = accepted
+            query_summary[family] = stats
+            print(
+                "AOI_DISCOVERY_COUNTS "
+                f"family={family} catalog_rows={stats['catalog_rows_returned']} "
+                f"named_products={stats['named_products']} "
+                f"family_matches={stats['family_name_matches']} "
+                f"parseable_pair_dates={stats['parseable_pair_dates']} "
+                f"secondary_dates_in_window={stats['secondary_dates_in_window']} "
+                f"supported_maturity={stats['supported_maturity']} accepted={accepted}"
+            )
 
+    inventory = sorted(all_rows.values(), key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    if not inventory:
+        diagnostic = json.dumps(query_summary, ensure_ascii=False, separators=(",", ":"))
+        raise ValueError(
+            "NO_SUPPORTED_NISAR_PRODUCTS_INTERSECT_THE_AOI_AND_SECONDARY_DATE_WINDOW "
+            f"catalog_diagnostics={diagnostic}"
+        )
     inventory = sorted(all_rows.values(), key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
     if not inventory:
         raise ValueError("NO_SUPPORTED_NISAR_PRODUCTS_INTERSECT_THE_AOI_AND_SECONDARY_DATE_WINDOW")
