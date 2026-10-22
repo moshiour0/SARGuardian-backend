@@ -126,14 +126,30 @@ jobs:
                   keys = type(payload).__name__
                 names = []
                 maturity_samples = []
+                crid_counts = {}
+                collection_counts = {}
+                processing_counts = {}
+                unusual_samples = []
                 for row in rows if isinstance(rows, list) else []:
                   if not isinstance(row, dict): continue
                   props = row.get("properties") if isinstance(row.get("properties"), dict) else row
                   name = props.get("granuleName") or props.get("granule_name") or props.get("fileName") or props.get("sceneName") or props.get("fileID") or props.get("productName")
                   if name:
-                    names.append(str(name))
-                    maturity_samples.append({k:props.get(k) for k in ("granuleName","fileName","sceneName","fileID","productName","processingLevel","productionConfiguration","collectionName","crid","dataMaturity","productType","startTime","stopTime") if props.get(k) is not None})
-                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"sample_names":names[:3],"metadata_samples":maturity_samples[:3]},separators=(",",":")))
+                    name = str(name)
+                    names.append(name)
+                    crid = str(props.get("crid") or ("_" + name.rsplit("_",4)[0] if False else ""))
+                    match = __import__("re").search(r"_([A-Z]\\d{5})_[A-Z]_[A-Z]_[A-Z]_\\d{3}(?:\\.h5)?$", name)
+                    crid = str(props.get("crid") or (match.group(1) if match else "unknown"))
+                    collection = str(props.get("collectionName") or "unknown")
+                    ptype = str(props.get("productionConfiguration") or (name.split("_")[2] if len(name.split("_")) > 2 else "unknown"))
+                    crid_counts[crid] = crid_counts.get(crid, 0) + 1
+                    collection_counts[collection] = collection_counts.get(collection, 0) + 1
+                    processing_counts[ptype] = processing_counts.get(ptype, 0) + 1
+                    sample = {k:props.get(k) for k in ("granuleName","fileName","sceneName","fileID","productName","processingLevel","productionConfiguration","collectionName","crid","dataMaturity","productType","startTime","stopTime") if props.get(k) is not None}
+                    if len(maturity_samples) < 3: maturity_samples.append(sample)
+                    if "_X05026_" in name or crid.startswith("X"):
+                      if len(unusual_samples) < 4: unusual_samples.append(sample)
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"sample_names":names[:3],"metadata_samples":maturity_samples,"crid_counts":crid_counts,"collection_counts":collection_counts,"processing_counts":processing_counts,"unusual_crid_samples":unusual_samples},separators=(",",":")))
               except Exception as exc:
                 status = getattr(getattr(exc,"response",None),"status_code",None)
                 print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"error":type(exc).__name__,"http_status":status},separators=(",",":")))
