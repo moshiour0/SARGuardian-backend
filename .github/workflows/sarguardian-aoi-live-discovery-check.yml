@@ -96,15 +96,18 @@ jobs:
           url = "https://api.daac.asf.alaska.edu/services/search/param"
           start = "2024-01-01T00:00:00Z"
           end = os.environ["END_DATE"] + "T23:59:59Z"
-          base = {"output": "json", "maxResults": "50", "dataset": "NISAR", "platform": "NISAR", "start": start, "end": end}
+          base = {"output": "geojson", "maxResults": "50", "start": start, "end": end}
+          user_aoi = os.environ["SARGUARDIAN_AOI_WKT"]
+          known_aoi = os.environ["CONTROL_AOI_WKT"]
           cases = [
-            ("custom_gunw_shortname", {**base, "intersectsWith": os.environ["SARGUARDIAN_AOI_WKT"], "shortName": "NISAR_L2_GUNW_V1"}),
-            ("custom_goff_shortname", {**base, "intersectsWith": os.environ["SARGUARDIAN_AOI_WKT"], "shortName": "NISAR_L2_GOFF_V1"}),
-            ("known_research_aoi_gunw_shortname", {**base, "intersectsWith": os.environ["CONTROL_AOI_WKT"], "shortName": "NISAR_L2_GUNW_V1"}),
-            ("known_research_aoi_goff_shortname", {**base, "intersectsWith": os.environ["CONTROL_AOI_WKT"], "shortName": "NISAR_L2_GOFF_V1"}),
-            ("no_geometry_gunw_shortname", {**base, "shortName": "NISAR_L2_GUNW_V1"}),
-            ("no_geometry_goff_shortname", {**base, "shortName": "NISAR_L2_GOFF_V1"}),
-            ("no_geometry_legacy_levels", {k:v for k,v in {**base, "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"}.items() if k != "dataset"}),
+            ("custom_gunw_dataset_level", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "processingLevel": "GUNW"}),
+            ("custom_goff_dataset_level", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "processingLevel": "GOFF"}),
+            ("known_research_aoi_gunw_dataset_level", {**base, "intersectsWith": known_aoi, "dataset": "NISAR", "processingLevel": "GUNW"}),
+            ("known_research_aoi_goff_dataset_level", {**base, "intersectsWith": known_aoi, "dataset": "NISAR", "processingLevel": "GOFF"}),
+            ("no_geometry_gunw_dataset_level", {**base, "dataset": "NISAR", "processingLevel": "GUNW"}),
+            ("no_geometry_goff_dataset_level", {**base, "dataset": "NISAR", "processingLevel": "GOFF"}),
+            ("no_geometry_gunw_platform_level", {**base, "platform": "NISAR", "processingLevel": "GUNW"}),
+            ("no_geometry_legacy_levels", {**base, "platform": "NISAR", "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"}),
           ]
           with requests.Session() as session:
             for label, params in cases:
@@ -154,7 +157,7 @@ jobs:
             echo
             if [ -f "$RUNNER_TEMP/sarguardian-aoi-diagnostic/discovery.log" ]; then
               echo "### Catalog filter counts / error"
-              grep -E '^(ASF_CATALOG_RESPONSE|ASF_CATALOG_FALLBACK|AOI_DISCOVERY_COUNTS|AOI_WKT_SHA256|AOI_DISCOVERY_INVENTORY|AOI_PRODUCTS_SELECTED|ERROR=|AOI_DIAGNOSTIC_EXIT_CODE)' "$RUNNER_TEMP/sarguardian-aoi-diagnostic/discovery.log" || true
+              grep -E '^(ASF_CATALOG_RESPONSE|ASF_CATALOG_FALLBACK|ASF_CONTROL_QUERY|AOI_DISCOVERY_COUNTS|AOI_WKT_SHA256|AOI_DISCOVERY_INVENTORY|AOI_PRODUCTS_SELECTED|ERROR=|AOI_DIAGNOSTIC_EXIT_CODE)' "$RUNNER_TEMP/sarguardian-aoi-diagnostic/discovery.log" || true
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
