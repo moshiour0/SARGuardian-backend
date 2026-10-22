@@ -9,17 +9,25 @@ on:
         description: "Single-ring WKT POLYGON in EPSG:4326; coordinates are longitude latitude. No holes or MULTIPOLYGON."
         required: true
         type: string
-        default: "POLYGON ((85.464518764495 28.345047192656, 85.466235378264 28.277644183693, 85.48958132553 28.247707190493, 85.535586574553 28.245287672353, 85.556185939788 28.260106359332, 85.550692775725 28.290342185191, 85.54931948471 28.311199899645, 85.535586574553 28.330240328302, 85.510180690764 28.34021252508, 85.496447780608 28.3529030581, 85.464518764495 28.345047192656))"
+        default: "POLYGON ((84.99140223107368 28.499061219892724, 84.945606791564 28.28220804656594, 85.18844724834032 28.270753557383987, 85.20285565607317 28.414428221022945, 85.11305609453537 28.49639181334535, 84.99140223107368 28.499061219892724))"
       start_date:
-        description: "Inclusive start date for secondary acquisitions (YYYY-MM-DD)."
+        description: "Inclusive start date for secondary acquisition dates (YYYY-MM-DD); reference date may predate it."
         required: true
         type: string
-        default: "2025-01-01"
+        default: "2026-06-17"
       end_date:
-        description: "Inclusive end date for secondary acquisitions (YYYY-MM-DD)."
+        description: "Inclusive end date for secondary acquisition dates (YYYY-MM-DD)."
         required: true
         type: string
-        default: "2026-12-31"
+        default: "2026-09-15"
+      date_filter_mode:
+        description: "Default selects by secondary acquisition date; strict mode requires both pair acquisitions inside the interval."
+        required: true
+        type: choice
+        options:
+          - both-acquisitions-in-window
+          - secondary-acquisition-in-window
+        default: secondary-acquisition-in-window
       run_profile:
         description: "Full AOI baseline processes every matching catalog product; validation pilot selects newest matching GUNW and GOFF."
         required: true
@@ -27,7 +35,7 @@ on:
         options:
           - validation-pilot
           - full-aoi-baseline
-        default: validation-pilot
+        default: full-aoi-baseline
       retention_profile:
         description: "Choose derived outputs only or retain a full lossless HDF5 archive as well."
         required: true
@@ -49,6 +57,7 @@ jobs:
       aoi_wkt: ${{ inputs.aoi_wkt }}
       start_date: ${{ inputs.start_date }}
       end_date: ${{ inputs.end_date }}
+      date_filter_mode: ${{ inputs.date_filter_mode }}
       run_profile: ${{ inputs.run_profile }}
       retention_profile: ${{ inputs.retention_profile }}
     secrets: inherit
