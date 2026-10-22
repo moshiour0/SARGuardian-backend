@@ -28,9 +28,24 @@ def plan(manifest: dict[str, Any], product_root: Path, cleanup_root: Path) -> di
         validation=read_json(artifact/"derived-output-validation.json")
         download=read_json(artifact/"download-manifest.json")
         retention=read_json(artifact/"drive-retention-receipt.json")
+        diagnostics=read_json(artifact/"product-run-diagnostics.json")
+        outcomes=(diagnostics or {}).get("step_outcomes", {})
         local_cleanup=read_json(cleanup/"local-cleanup-receipt.json")
         cleanup_upload=read_json(cleanup/"drive-cleanup-upload-receipt.json")
         reasons=[]
+        terminal_reason=None
+        # Repeating a deterministic local failure with the same source bytes and
+        # the same code revision cannot repair it. Retry only acquisition/retention
+        # failures or missing checkpoints without a known terminal processing cause.
+        if (outcomes.get("download") == "success"
+                and outcomes.get("aoi_preflight") == "success"
+                and outcomes.get("reader") == "failure"):
+            terminal_reason="NON_RETRYABLE_READER_FAILURE_AFTER_SUCCESSFUL_DOWNLOAD_AND_AOI_PREFLIGHT"
+        elif (outcomes.get("download") == "success"
+                and outcomes.get("aoi_preflight") == "failure"):
+            terminal_reason="NON_RETRYABLE_AOI_PREFLIGHT_FAILURE_AFTER_SUCCESSFUL_DOWNLOAD"
+        elif (outcomes.get("reader") == "success" and validation and validation.get("status") == "FAIL"):
+            terminal_reason="NON_RETRYABLE_STRUCTURAL_VALIDATION_FAILURE_AFTER_SUCCESSFUL_READER"
         want_aoi=manifest.get("aoi_name")
         want_sha=manifest.get("science_commit")
         want_profile=manifest.get("retention_profile")
@@ -61,17 +76,26 @@ def plan(manifest: dict[str, Any], product_root: Path, cleanup_root: Path) -> di
         if not cleanup_upload or cleanup_upload.get("remote_verification")!="PASS":
             reasons.append("CLEANUP_RECEIPT_REMOTE_UPLOAD_NOT_VERIFIED")
         complete=not reasons
-        decisions.append({"product_id":pid,"granule_name":granule,"status":"PASS" if complete else "RETRY",
+        if complete:
+            status="PASS"
+        elif terminal_reason:
+            status="TERMINAL_FAILURE"
+            reasons.append(terminal_reason)
+        else:
+            status="RETRY"
+        decisions.append({"product_id":pid,"granule_name":granule,"status":status,
+                          "terminal_reason":terminal_reason if status=="TERMINAL_FAILURE" else None,
                           "reasons":[] if complete else sorted(set(reasons))})
-        if not complete:
+        if status=="RETRY":
             retry.append({k:product[k] for k in ("id","granule_name","product_type","maturity","expected_source_bytes")})
     return {
         "schema_version":"sarguardian-aoi-retry-plan/1.0",
         "manifest_run_id":manifest.get("run_id"),
         "aoi_wkt_sha256":manifest.get("aoi_wkt_sha256"),
         "products_expected":len(manifest.get("products",[])),
-        "products_complete":len(manifest.get("products",[]))-len(retry),
+        "products_complete":sum(1 for row in decisions if row["status"]=="PASS"),
         "retry_count":len(retry),
+        "terminal_failure_count":sum(1 for row in decisions if row["status"]=="TERMINAL_FAILURE"),
         "retry_matrix":retry,
         "decisions":decisions,
     }
@@ -93,7 +117,9 @@ def main() -> int:
     with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
         out.write("retry_matrix="+json.dumps(result["retry_matrix"],separators=(",",":"))+"\n")
         out.write("retry_count="+str(result["retry_count"])+"\n")
+        out.write("terminal_failure_count="+str(result["terminal_failure_count"])+"\n")
     print("AOI_RETRY_PRODUCTS={}/{}".format(result["retry_count"],result["products_expected"]))
+    print("AOI_TERMINAL_FAILURES={}".format(result["terminal_failure_count"]))
     for d in result["decisions"]:
         print("AOI_PRODUCT_CHECKPOINT={} status={} reasons={}".format(d["product_id"],d["status"],",".join(d["reasons"]) or "none"))
     return 0
