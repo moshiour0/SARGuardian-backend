@@ -74,3 +74,38 @@ def test_realistic_nisar_provisional_granule_name_is_accepted_and_pair_dates_par
     assert dates is not None
     assert dates[0].isoformat() == "2026-07-02"
     assert dates[1].isoformat() == "2026-07-14"
+
+
+
+class EmptyResponse(FakeResponse):
+    def json(self):
+        return {"type": "FeatureCollection", "features": []}
+
+
+class EmptyPrimaryThenLegacySession:
+    def __init__(self):
+        self.calls = []
+    def get(self, url, params, timeout):
+        self.calls.append((url, params, timeout))
+        if "shortName" in params:
+            return EmptyResponse()
+        return FakeResponse()
+
+
+def test_empty_collection_query_retries_with_sarguardian_legacy_catalog_pattern():
+    session = EmptyPrimaryThenLegacySession()
+    wkt = "POLYGON ((84.9 28.2, 85.2 28.2, 85.2 28.5, 84.9 28.5, 84.9 28.2))"
+    rows = discovery.query_asf_polygon(
+        wkt, "GUNW", discovery.parse_date("2026-09-15", "END_DATE"), session=session
+    )
+    assert len(rows) == 1
+    assert len(session.calls) == 2
+    primary = session.calls[0][1]
+    fallback = session.calls[1][1]
+    assert primary["intersectsWith"] == wkt
+    assert primary["shortName"] == "NISAR_L2_GUNW_V1"
+    assert "processingLevel" not in primary
+    assert fallback["intersectsWith"] == wkt
+    assert fallback["platform"] == "NISAR"
+    assert fallback["processingLevel"] == "GUNW,GOFF,RUNW,ROFF,RIFG"
+    assert "shortName" not in fallback
