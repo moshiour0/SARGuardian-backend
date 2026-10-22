@@ -173,7 +173,7 @@ byId('wkt').textContent=S.aoi_wkt;
 function statusOf(p){if(p.status==='FAIL')return'FAIL';if((p.warnings||[]).length||!p.science_pixel_support)return'WARNING';return'PASS'}
 function medianOf(p){return p.metric_value===null?'—':fmt(p.metric_value)+' '+(p.metric_name||'')}
 function drawChart(products){var box=byId('metricChart');box.replaceChildren();var width=Math.max(580,box.clientWidth||880),height=210,ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 '+width+' '+height);var vals=products.filter(function(p){return p.metric_value!==null});if(!vals.length){var t=document.createElementNS(ns,'text');t.setAttribute('x',width/2);t.setAttribute('y',105);t.setAttribute('text-anchor','middle');t.setAttribute('fill','#9aa9bd');t.textContent='No numeric median metric is available for this selection';svg.append(t);box.append(svg);return}var low=Math.min.apply(null,vals.map(function(p){return p.metric_value})),high=Math.max.apply(null,vals.map(function(p){return p.metric_value})),span=(high-low)||1,pad=35,base=height-35,top=18;for(var i=0;i<5;i++){var y=top+i*(base-top)/4,l=document.createElementNS(ns,'line');l.setAttribute('x1',pad);l.setAttribute('x2',width-15);l.setAttribute('y1',y);l.setAttribute('y2',y);l.setAttribute('stroke','#29384e');svg.append(l)}var step=(width-pad-20)/vals.length;vals.forEach(function(p,i){var x=pad+i*step+step*.16,bw=Math.max(2,step*.68),h=(p.metric_value-low)/span*(base-top-10)+2,y=base-h,r=document.createElementNS(ns,'rect');r.setAttribute('x',x);r.setAttribute('y',y);r.setAttribute('width',bw);r.setAttribute('height',h);r.setAttribute('rx',2);r.setAttribute('fill',p.product_type==='GUNW'?'#7dd3fc':'#fbbf24');var title=document.createElementNS(ns,'title');title.textContent=p.id+' · '+p.metric_name+': '+p.metric_value;r.append(title);svg.append(r);if(vals.length<25){var tx=document.createElementNS(ns,'text');tx.setAttribute('x',x+bw/2);tx.setAttribute('y',base+14);tx.setAttribute('text-anchor','middle');tx.setAttribute('font-size','8');tx.setAttribute('fill','#9aa9bd');tx.textContent=p.id;svg.append(tx)}});box.append(svg)}
-function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var cells=[p.id+'\\n'+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+'\\n'+p.granule_name,p.product_type,medianOf(p),fmt(p.valid_pixels),fmt(p.grid_pixels_inside_aoi)+' AOI grid px · '+fmt(p.export_count)+' raster(s),null,p.source_sha256||'—'];cells.forEach(function(v,i){var td=node('td',i===0||i===7?'mono':'');if(i===5&&p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';td.append(img)}else{td.textContent=v===null?'':String(v)}tr.append(td)});var statusCell=node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p));tr.insertBefore(statusCell,tr.children[6]);byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';drawChart(list)}
+function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var cells=[p.id+'\\n'+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+'\\n'+p.granule_name,p.product_type,medianOf(p),fmt(p.valid_pixels),fmt(p.grid_pixels_inside_aoi)+' grid px · '+fmt(p.export_count)+' raster(s)'];cells.forEach(function(v,i){tr.append(node('td',i===0?'mono':'',v))});var qd=node('td');if(p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';qd.append(img)}tr.append(qd);tr.append(node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p)));tr.append(node('td','mono',p.source_sha256||'—'));byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';drawChart(list)}
 ['search','family','state'].forEach(function(id){byId(id).addEventListener('input',render)});window.addEventListener('resize',function(){drawChart(P)});render();
 })();
 </script></body></html>"""
@@ -239,18 +239,20 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             stats = matching[0]
             metric_key, metric_val = numeric(stats, ("median","median_mm","range_median_mm","median_range_mm"))
             exports = []; valid_pixels = None
-            for item in validation.get("exports", []):
+            validation_exports = validation.get("exports", [])
+            raw_valid_counts = [int(x.get("valid_band1_pixels", 0)) for x in validation_exports
+                                if isinstance(x, dict) and str(x.get("valid_band1_pixels", "")).lstrip("-").isdigit()]
+            valid_pixels = max(raw_valid_counts) if raw_valid_counts else 0
+            record["science_pixel_support"] = any(n > 0 for n in raw_valid_counts)
+            for item in validation_exports:
                 if not isinstance(item, dict): continue
-                source = safe_child(artifact, "derived/" + str(item.get("name","")))
+                source = safe_child(artifact, str(meta.get("export_dir", "derived")) + "/" + str(item.get("name","")))
                 if not source.is_file(): raise ValueError("EXPORT_MISSING name=" + str(item.get("name")))
                 dest = out / "product-data" / pid / source.name
                 dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, dest)
                 preview_target = out / "quicklooks" / (pid + "-" + source.stem + ".png")
                 preview = make_quicklook(dest, preview_target)
                 preview_rel = preview_target.relative_to(out).as_posix() if preview and not preview.get("error") else None
-                if preview and isinstance(preview.get("valid_pixels_preview"), int):
-                    valid_pixels = preview["valid_pixels_preview"]
-                    if valid_pixels > 0: record["science_pixel_support"] = True
                 exports.append({"name": source.name,"relative_path":dest.relative_to(out).as_posix(),
                                 "bytes":dest.stat().st_size,"quicklook":preview_rel,"quicklook_meta":preview})
             if not exports: raise ValueError("NO_STRUCTURALLY_VALIDATED_EXPORTS")
@@ -264,7 +266,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 "warnings":record["warnings"] + list(validation.get("warnings") or []),
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
                 "metric_name":metric_key,"metric_value":metric_val,"valid_pixels":valid_pixels,
-                "grid_pixels_inside_aoi":max(grid_counts) if grid_counts else None,
+                "grid_pixels_inside_aoi":min(grid_counts) if grid_counts else None,
                 "export_count":len(exports),"exports":exports,"quicklook":next((x["quicklook"] for x in exports if x["quicklook"]),None),
                 "stats":json_safe(stats),"preflight_report":json_safe(preflight),
                 "validation_scope":validation.get("validation_scope"),
