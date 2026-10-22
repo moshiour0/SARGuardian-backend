@@ -101,14 +101,13 @@ jobs:
           user_aoi = os.environ["SARGUARDIAN_AOI_WKT"]
           known_aoi = os.environ["CONTROL_AOI_WKT"]
           cases = [
-            ("custom_gunw_dataset_level", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "processingLevel": "GUNW"}),
-            ("custom_goff_dataset_level", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "processingLevel": "GOFF"}),
-            ("known_research_aoi_gunw_dataset_level", {**base, "intersectsWith": known_aoi, "dataset": "NISAR", "processingLevel": "GUNW"}),
-            ("known_research_aoi_goff_dataset_level", {**base, "intersectsWith": known_aoi, "dataset": "NISAR", "processingLevel": "GOFF"}),
-            ("no_geometry_gunw_dataset_level", {**base, "dataset": "NISAR", "processingLevel": "GUNW"}),
-            ("no_geometry_goff_dataset_level", {**base, "dataset": "NISAR", "processingLevel": "GOFF"}),
-            ("no_geometry_gunw_platform_level", {**base, "platform": "NISAR", "processingLevel": "GUNW"}),
-            ("no_geometry_legacy_levels", {**base, "platform": "NISAR", "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"}),
+            ("custom_gunw_provisional_collection", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "shortName": "NISAR_L2_GUNW_PROVISIONAL_V1"}),
+            ("custom_gunw_beta_collection", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "shortName": "NISAR_L2_GUNW_BETA_V1"}),
+            ("custom_goff_provisional_collection", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "shortName": "NISAR_L2_GOFF_PROVISIONAL_V1"}),
+            ("custom_goff_beta_collection", {**base, "intersectsWith": user_aoi, "dataset": "NISAR", "shortName": "NISAR_L2_GOFF_BETA_V1"}),
+            ("known_research_gunw_provisional_collection", {**base, "intersectsWith": known_aoi, "dataset": "NISAR", "shortName": "NISAR_L2_GUNW_PROVISIONAL_V1"}),
+            ("no_geometry_gunw_provisional_collection", {**base, "dataset": "NISAR", "shortName": "NISAR_L2_GUNW_PROVISIONAL_V1"}),
+            ("no_geometry_gunw_beta_collection", {**base, "dataset": "NISAR", "shortName": "NISAR_L2_GUNW_BETA_V1"}),
           ]
           with requests.Session() as session:
             for label, params in cases:
@@ -126,21 +125,15 @@ jobs:
                   rows = []
                   keys = type(payload).__name__
                 names = []
+                maturity_samples = []
                 for row in rows if isinstance(rows, list) else []:
                   if not isinstance(row, dict): continue
-                  props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
-                  name = row.get("granuleName") or row.get("granule_name") or row.get("Granule Name") or row.get("fileName") or row.get("sceneName") or props.get("granuleName") or props.get("granule_name") or props.get("fileName")
-                  if name: names.append(str(name))
-                first = rows[0] if isinstance(rows, list) and rows else None
-                first_keys = sorted(first.keys()) if isinstance(first, dict) else []
-                nested_first = first[0] if isinstance(first, list) and first else None
-                nested_first_keys = sorted(nested_first.keys()) if isinstance(nested_first, dict) else []
-                safe_sample = {}
-                if isinstance(first, dict):
-                  safe_sample = {k:v for k,v in list(first.items())[:12] if not any(s in str(k).lower() for s in ("url","download","token","password","secret","link","cookie"))}
-                elif isinstance(nested_first, dict):
-                  safe_sample = {k:v for k,v in list(nested_first.items())[:12] if not any(s in str(k).lower() for s in ("url","download","token","password","secret","link","cookie"))}
-                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"first_type":type(first).__name__ if first is not None else None,"first_len":len(first) if isinstance(first,(list,dict)) else None,"nested_first_type":type(nested_first).__name__ if nested_first is not None else None,"nested_first_keys":nested_first_keys,"first_keys":first_keys,"first_sample":safe_sample if first is not None else None,"sample_names":names[:3]},separators=(",",":")))
+                  props = row.get("properties") if isinstance(row.get("properties"), dict) else row
+                  name = props.get("granuleName") or props.get("granule_name") or props.get("fileName") or props.get("sceneName") or props.get("fileID") or props.get("productName")
+                  if name:
+                    names.append(str(name))
+                    maturity_samples.append({k:props.get(k) for k in ("granuleName","fileName","sceneName","fileID","productName","processingLevel","productionConfiguration","collectionName","crid","dataMaturity","productType","startTime","stopTime") if props.get(k) is not None})
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"sample_names":names[:3],"metadata_samples":maturity_samples[:3]},separators=(",",":")))
               except Exception as exc:
                 status = getattr(getattr(exc,"response",None),"status_code",None)
                 print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"error":type(exc).__name__,"http_status":status},separators=(",",":")))
