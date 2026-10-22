@@ -24,6 +24,14 @@ on:
         type: string
         required: true
         default: "2026-09-15"
+      date_filter_mode:
+        description: "Default selects by secondary acquisition date; strict mode requires both pair acquisition dates in the interval."
+        type: choice
+        required: true
+        options:
+          - both-acquisitions-in-window
+          - secondary-acquisition-in-window
+        default: secondary-acquisition-in-window
 
 permissions:
   contents: read
@@ -37,6 +45,7 @@ jobs:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt || 'POLYGON ((84.99140223107368 28.499061219892724, 84.945606791564 28.28220804656594, 85.18844724834032 28.270753557383987, 85.20285565607317 28.414428221022945, 85.11305609453537 28.49639181334535, 84.99140223107368 28.499061219892724))' }}
       START_DATE: ${{ inputs.start_date || '2026-06-17' }}
       END_DATE: ${{ inputs.end_date || '2026-09-15' }}
+      DATE_FILTER_MODE: ${{ inputs.date_filter_mode || 'secondary-acquisition-in-window' }}
     steps:
       - name: Checkout isolated AOI orchestration branch
         uses: actions/checkout@v4
@@ -71,12 +80,14 @@ jobs:
           mkdir -p "$root"
           echo "AOI_DIAGNOSTIC_START_DATE=$START_DATE"
           echo "AOI_DIAGNOSTIC_END_DATE=$END_DATE"
+          echo "AOI_DIAGNOSTIC_DATE_FILTER_MODE=$DATE_FILTER_MODE"
           echo "AOI_DIAGNOSTIC_PROFILE=full-aoi-baseline"
           echo "AOI_DIAGNOSTIC_RETENTION=derived-only"
           python tools/discover_aoi_products.py \
             --science-root "$PWD/science-source" \
             --start-date "$START_DATE" \
             --end-date "$END_DATE" \
+            --date-filter-mode "$DATE_FILTER_MODE" \
             --run-profile full-aoi-baseline \
             --retention-profile derived-only \
             --out "$root/manifest.json" 2>&1 | tee "$root/discovery.log"
