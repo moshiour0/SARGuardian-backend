@@ -50,18 +50,16 @@ def product_dates(name: str) -> tuple[date, date] | None:
 
 def query_asf_polygon(wkt: str, family: str, end_date: date,
                       *, session: requests.Session | None = None) -> list[dict[str, Any]]:
-    """Query ASF using current NISAR collection metadata, with a project-tested fallback.
+    """Query ASF with documented NISAR dataset/product-level filters.
 
-    NISAR collection attributes such as processingLevel are not consistently
-    searchable in CMR. The primary query uses documented shortName + dataset +
-    platform fields. If that exact collection query returns zero rows, retry
-    using the platform + comma-separated interferometric processingLevel query
-    already used by SARGuardian's acquisition reconnaissance.
+    ASF Search documents dataset and processingLevel as query fields for NISAR
+    and recommends GeoJSON output. A platform-based query is retained as a
+    fallback for catalog deployments where dataset aliasing differs.
     """
     client = session or requests.Session()
     base = {
         "intersectsWith": wkt,
-        "output": "json",
+        "output": "geojson",
         "maxResults": str(MAX_RESULTS),
         "start": "2024-01-01T00:00:00Z",
         "end": f"{end_date.isoformat()}T23:59:59Z",
@@ -69,16 +67,15 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
     primary_params = {
         **base,
         "dataset": "NISAR",
-        "platform": "NISAR",
-        "shortName": f"NISAR_L2_{family}_V1",
+        "processingLevel": family,
     }
 
     def execute(params: dict[str, str], strategy: str) -> list[dict[str, Any]]:
         last_error = None
         for attempt in range(1, 4):
             try:
-                # Match the GET-query transport used by SARGuardian's acquisition
-                # reconnaissance. The supplied WKT is well within URL limits.
+                # GET is the same transport used by SARGuardian's acquisition
+                # reconnaissance; the actual WKT polygon is never replaced by a bbox.
                 response = client.get(ASF_API, params=params, timeout=(30, 180))
                 if response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < 3:
                     time.sleep(2 ** attempt)
@@ -99,6 +96,7 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
                     raise ValueError("ASF_RESPONSE_ROOT_INVALID")
                 if not isinstance(raw, list):
                     raise ValueError("ASF_RESULTS_NOT_A_LIST")
+                # Normalize GeoJSON properties into the flat representation used below.
                 normalized = []
                 for record in raw:
                     if not isinstance(record, dict):
@@ -115,7 +113,7 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
                     f"rows={len(normalized)} "
                     f"named_products={sum(bool(record_name(row)) for row in normalized)}"
                 )
-                return normalized
+                return [row for row in normalized if isinstance(row, dict)]
             except RuntimeError:
                 raise
             except (requests.RequestException, ValueError) as exc:
@@ -127,22 +125,22 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
             f"ASF_CATALOG_QUERY_FAILED family={family} strategy={strategy} diagnostics={last_error}"
         )
 
-    rows = execute(primary_params, "shortName_dataset_platform")
+    rows = execute(primary_params, "dataset_processingLevel")
     if rows:
         return rows
 
-    # Keep this as a fallback only: a broad result set is still checked against
-    # the exact requested WKT, product family, filename dates and maturity below.
+    # Try the equivalent documented platform form only after a zero-row result.
+    # Keep the AOI, time interval and product family identical during fallback.
     fallback_params = {
         **base,
         "platform": "NISAR",
-        "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG",
+        "processingLevel": family,
     }
     print(
         f"ASF_CATALOG_FALLBACK family={family} "
-        "reason=primary_collection_query_returned_zero_rows"
+        "reason=dataset_processingLevel_returned_zero_rows"
     )
-    return execute(fallback_params, "SARGuardian_platform_processingLevel")
+    return execute(fallback_params, "platform_processingLevel")
 def record_name(row: dict[str, Any]) -> str:
     fields = {str(key).lower().replace("_", ""): value for key, value in row.items()}
     value = (fields.get("granulename") or fields.get("filename") or
