@@ -6,6 +6,9 @@ on:
       aoi_wkt:
         required: true
         type: string
+      orchestration_sha:
+        required: true
+        type: string
       product_id:
         required: true
         type: string
@@ -44,6 +47,8 @@ jobs:
       EXPECTED_SOURCE_BYTES: ${{ inputs.expected_source_bytes }}
       AOI_NAME: custom
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
+      AOI_ORCHESTRATION_SHA: ${{ inputs.orchestration_sha }}
+      AOI_ORCHESTRATION_BRANCH: feat/e2e-aoi-wkt-date-dashboard
       SCIENCE_COMMIT: 39e5a4991fe7bdb0f7a3ae41e5f38c1ba5dc53eb
       RETENTION_PROFILE: ${{ inputs.retention_profile }}
       PRODUCT_EXECUTION_LABEL: ${{ inputs.execution_label }}
@@ -54,10 +59,18 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
     steps:
-      - name: Checkout backend orchestration code from the isolated feature branch
+      - name: Checkout backend orchestration code at the manifest revision
         uses: actions/checkout@v4
         with:
-          ref: feat/e2e-aoi-wkt-date-dashboard
+          ref: ${{ inputs.orchestration_sha }}
+
+      - name: Verify orchestration revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$AOI_ORCHESTRATION_SHA"
+          echo "AOI_ORCHESTRATION_REVISION_VERIFIED=$actual"
 
       - name: Checkout the pinned dynamic-AOI scientific engine
         uses: actions/checkout@v4
@@ -368,7 +381,10 @@ jobs:
               "schema_version": "sarguardian-stream-product/1.1",
               "id": os.environ["PRODUCT_ID"], "product_type": os.environ["PRODUCT_TYPE"],
               "maturity": os.environ["MATURITY"], "granule_name": expected, "aoi": os.environ["AOI_NAME"],
-              "science_commit": os.environ["SCIENCE_COMMIT"], "retention_profile": profile,
+              "science_commit": os.environ["SCIENCE_COMMIT"],
+              "orchestration_branch": os.environ["AOI_ORCHESTRATION_BRANCH"],
+              "orchestration_sha": os.environ["AOI_ORCHESTRATION_SHA"],
+              "retention_profile": profile,
               "source_file_sha256": download["source_sha256"], "source_file_bytes": download["source_bytes"],
               "retained_archive": archive.relative_to(root).as_posix() if archive else None,
               "retained_archive_sha256": sha256(archive) if archive else None,
