@@ -228,8 +228,15 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": "sarguardian-aoi-run-manifest/1.0",
         "run_id": f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}",
         "repository": os.environ.get("GITHUB_REPOSITORY"),
-        "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF"),
-        "workflow_sha": os.environ.get("GITHUB_SHA"),
+        # In a called reusable workflow, github.workflow_ref / github.sha identify
+        # the dispatcher caller. Preserve that identity separately from the exact
+        # feature-branch orchestrator code checked out on the runner.
+        "dispatcher_workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF"),
+        "dispatcher_workflow_sha": os.environ.get("GITHUB_SHA"),
+        "workflow_ref": os.environ.get("AOI_ORCHESTRATION_BRANCH", os.environ.get("GITHUB_WORKFLOW_REF")),
+        "workflow_sha": os.environ.get("AOI_ORCHESTRATION_SHA", os.environ.get("GITHUB_SHA")),
+        "orchestration_branch": os.environ.get("AOI_ORCHESTRATION_BRANCH"),
+        "orchestration_sha": os.environ.get("AOI_ORCHESTRATION_SHA"),
         "run_profile": args.run_profile,
         "requested_run_profile": args.run_profile,
         "aoi_name": "custom",
