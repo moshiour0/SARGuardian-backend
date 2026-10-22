@@ -236,63 +236,6 @@ def product_processing_type(granule_name: str) -> str:
     return parts[2] if len(parts) > 2 and parts[2] in {"PR", "UR", "OD"} else "UNKNOWN"
 
 
-def acquisition_pair_key(granule_name: str) -> tuple[str, ...]:
-    """Key pair variants by sensor, product, track/frame/mode, timestamps and CRID."""
-    parts = granule_name.split("_")
-    if len(parts) >= 20 and parts[2] in {"PR", "UR", "OD"}:
-        # Fields before CRID identify the acquisition-pair geometry; token 2 is
-        # only processing type, while suffix fields after CRID are quality/coverage/
-        # location/counter variants rather than independent acquisitions.
-        normalized = parts[:16]
-        normalized[2] = "<PROCESSING_TYPE>"
-        return tuple(normalized)
-    return (granule_name,)
-
-
-def processing_variant_rank(granule_name: str) -> tuple[int, int, int, str]:
-    """Prefer standard production, then explicit quality/coverage where otherwise tied."""
-    parts = granule_name.split("_")
-    proc_rank = {"PR": 0, "OD": 1, "UR": 2}.get(product_processing_type(granule_name), 9)
-    accuracy_rank = {"P": 0, "M": 1, "N": 2, "F": 3}.get(parts[16] if len(parts) > 16 else "", 9)
-    coverage_rank = {"F": 0, "P": 1}.get(parts[17] if len(parts) > 17 else "", 9)
-    return proc_rank, accuracy_rank, coverage_rank, granule_name
-
-
-def collapse_duplicate_variants(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Retain one declared, mature product per unique acquisition pair."""
-    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
-    for product in products:
-        groups.setdefault(acquisition_pair_key(product["granule_name"]), []).append(product)
-    selected: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    for key, variants in groups.items():
-        ordered = sorted(variants, key=lambda r: processing_variant_rank(r["granule_name"]))
-        chosen = dict(ordered[0])
-        chosen["pair_variant_count"] = len(variants)
-        chosen["pair_variants"] = [
-            {
-                "granule_name": v["granule_name"],
-                "processing_type": product_processing_type(v["granule_name"]),
-                "selected": v["granule_name"] == chosen["granule_name"],
-                "selection_rank": list(processing_variant_rank(v["granule_name"])),
-            }
-            for v in ordered
-        ]
-        selected.append(chosen)
-        for variant in ordered[1:]:
-            rejected.append({
-                "granule_name": variant["granule_name"],
-                "reason": "DUPLICATE_ACQUISITION_PAIR_LOWER_VARIANT_PRIORITY",
-                "selected_granule_name": chosen["granule_name"],
-                "product_type": variant["product_type"],
-                "reference_date": variant["reference_date"],
-                "secondary_date": variant["secondary_date"],
-                "processing_type": product_processing_type(variant["granule_name"]),
-            })
-    selected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
-    rejected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
-    return selected, rejected
-
 def product_maturity_evidence(
     row: dict[str, Any], granule_name: str, maturity_from_crid: Any
 ) -> tuple[str, str, str | None, str]:
@@ -387,6 +330,13 @@ def acquisition_pair_key(granule_name: str) -> tuple[str, ...]:
         return tuple(normalized)
     return (granule_name,)
 
+
+def acquisition_observation_key(granule_name: str) -> tuple[str, ...]:
+    """Group the same reference/secondary acquisition pair across GUNW and GOFF."""
+    parts = list(acquisition_pair_key(granule_name))
+    if len(parts) > 3:
+        parts[3] = "<PRODUCT_FAMILY>"
+    return tuple(parts)
 
 def processing_variant_rank(product: dict[str, Any]) -> tuple[int, int, int, int, int, int, str]:
     """Prefer provisional, standard PR, documented P-series releases, accuracy, then coverage."""
@@ -701,7 +651,10 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 s["date_window_matches"] for s in query_summary.values()
             ),
             "supported_product_variants_after_maturity_policy": len(supported_variants),
-            "unique_acquisition_pair_products_in_window": len(inventory),
+                        "unique_product_family_pair_entries_in_window": len(inventory),
+            "unique_acquisition_pairs_across_families": len({
+                acquisition_observation_key(product["granule_name"]) for product in inventory
+            }),
             "products_with_reference_outside_window": sum(
                 1 for product in inventory if product.get("reference_date_outside_window", False)
             ),
@@ -762,7 +715,7 @@ def main() -> int:
         required=False,
         choices=("both-acquisitions-in-window", "secondary-acquisition-in-window"),
         default=DEFAULT_DATE_FILTER_MODE,
-        help="Use both pair acquisition dates inside the window by default; secondary-only mode is explicit compatibility behavior.",
+        help="Default selects by secondary acquisition date, matching the source-AOI time-window policy; strict mode also requires the reference date inside the interval.",
     )
     p.add_argument("--retention-profile", required=True, choices=("derived-only", "full-lossless"))
     p.add_argument("--out", required=True, type=Path)
