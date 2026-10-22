@@ -45,6 +45,25 @@ jobs:
       - name: Compile every backend Python tool
         run: python -m compileall -q tools
 
+      - name: Syntax-check the generated dashboard JavaScript
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          source = Path("tools/aggregate_aoi_run.py").read_text(encoding="utf-8")
+          match = re.search(r'\\bdoc\\s*=\\s*r"""(.*?)"""', source, re.S)
+          if not match:
+              raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_NOT_FOUND")
+          html = match.group(1)
+          script = re.search(r'<script>\\s*(.*?)</script>', html, re.S)
+          if not script:
+              raise SystemExit("ERROR=DASHBOARD_INTERACTIVE_SCRIPT_NOT_FOUND")
+          Path("/tmp/sarguardian-dashboard.js").write_text(script.group(1), encoding="utf-8")
+          print("DASHBOARD_JS_EXTRACTED=/tmp/sarguardian-dashboard.js")
+          PY
+          node --check /tmp/sarguardian-dashboard.js
+
       - name: Parse workflow YAML syntax
         shell: bash
         run: |
@@ -60,5 +79,5 @@ jobs:
               print(f"YAML_SYNTAX_PASS={path}")
           PY
 
-      - name: Test WKT parser and rejection rules without external network access
-        run: python -m pytest -q science-source/tests/test_aoi_wkt.py tools/tests/test_discover_aoi_products.py
+      - name: Test WKT parser, AOI discovery policy and dashboard integrity without network access
+        run: python -m pytest -q science-source/tests/test_aoi_wkt.py tools/tests/test_discover_aoi_products.py tools/tests/test_aggregate_aoi_run.py
