@@ -702,10 +702,10 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "supported_product_variants_after_maturity_policy": len(supported_variants),
             "unique_acquisition_pair_products_in_window": len(inventory),
-            "reference_outside_window_unique_pairs": sum(
+            "products_with_reference_outside_window": sum(
                 1 for product in inventory if product.get("reference_date_outside_window", False)
             ),
-            "boundary_pairs_included_by_secondary_policy": sum(
+            "boundary_pair_products_included_by_secondary_policy": sum(
                 1 for product in inventory
                 if product.get("boundary_pair_included_by_secondary_date_policy", False)
             ),
