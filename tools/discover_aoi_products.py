@@ -789,6 +789,8 @@ def main() -> int:
     print(f"AOI_SUPPORTED_VARIANTS={manifest['time_window']['supported_product_variants_after_maturity_policy']}")
     print(f"AOI_DUPLICATE_VARIANTS_EXCLUDED={len(manifest['processing_variant_selection']['excluded_duplicate_variants'])}")
     print(f"AOI_PRODUCTS_SELECTED={len(matrix)}")
+    print(f"AOI_PRODUCTS_WITH_REFERENCE_OUTSIDE_WINDOW={manifest['time_window']['products_with_reference_outside_window']}")
+    print(f"AOI_BOUNDARY_PAIR_PRODUCTS_INCLUDED={manifest['time_window']['boundary_pair_products_included_by_secondary_policy']}")
     print(f"AOI_BASELINE_GUNW={manifest['baseline_product_counts']['GUNW']}")
     print(f"AOI_BASELINE_GOFF={manifest['baseline_product_counts']['GOFF']}")
     print("AOI_DISCOVERY_TRUNCATED=false")
