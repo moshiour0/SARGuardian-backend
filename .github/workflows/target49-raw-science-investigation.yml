@@ -106,18 +106,18 @@ jobs:
             cp "$source_manifest" "$manifest"
 
             python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi source --out "$OUT_DIR/diagnostics/$LABEL__source.json"
+              --aoi source --out "${OUT_DIR}/diagnostics/${LABEL}__source.json"
             python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi langtang --out "$OUT_DIR/diagnostics/$LABEL__langtang.json"
+              --aoi langtang --out "${OUT_DIR}/diagnostics/${LABEL}__langtang.json"
 
             # Diagnostic-only sensitivity: tests whether the interpolated ionosphere
             # screen gate is the limiting stage. This is not a recommendation to
             # change the production reader or treat uncorrected phase as equivalent.
             if [[ "$PRODUCT" == "GUNW" ]]; then
               python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-                --aoi source --no-iono --out "$OUT_DIR/diagnostics/$LABEL__source_no_iono_gate.json"
+                --aoi source --no-iono --out "${OUT_DIR}/diagnostics/${LABEL}__source_no_iono_gate.json"
               python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-                --aoi langtang --no-iono --out "$OUT_DIR/diagnostics/$LABEL__langtang_no_iono_gate.json"
+                --aoi langtang --no-iono --out "${OUT_DIR}/diagnostics/${LABEL}__langtang_no_iono_gate.json"
             fi
 
             rm -rf -- "$WORK"
