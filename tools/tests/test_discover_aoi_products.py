@@ -111,3 +111,38 @@ def test_empty_collection_query_retries_with_sarguardian_legacy_catalog_pattern(
     assert fallback["processingLevel"] == "GUNW"
     assert "dataset" not in fallback
     assert "shortName" not in fallback
+
+
+
+class NestedListResponse:
+    status_code = 200
+    def raise_for_status(self):
+        return None
+    def json(self):
+        name = (
+            "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
+            "20260702T233920_20260702T233955_20260714T233920_"
+            "20260714T233954_P05023_F_F_J_001.h5"
+        )
+        return [[{"granuleName": name, "properties": {"productType": "GUNW"}}]]
+
+
+class NestedListSession:
+    def __init__(self):
+        self.calls = []
+    def get(self, url, params, timeout):
+        self.calls.append((url, params, timeout))
+        return NestedListResponse()
+
+
+def test_asf_nested_list_of_records_is_flattened_before_product_filtering():
+    session = NestedListSession()
+    wkt = "POLYGON ((84.9 28.2, 85.2 28.2, 85.2 28.5, 84.9 28.5, 84.9 28.2))"
+    rows = discovery.query_asf_polygon(
+        wkt, "GUNW", discovery.parse_date("2026-09-15", "END_DATE"), session=session
+    )
+    assert len(rows) == 1
+    assert rows[0]["granuleName"].startswith("NISAR_L2_PR_GUNW_024")
+    assert discovery.record_name(rows[0]).startswith("NISAR_L2_PR_GUNW_024")
+    assert session.calls[0][1]["output"] == "geojson"
+    assert session.calls[0][1]["processingLevel"] == "GUNW"
