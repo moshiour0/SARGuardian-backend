@@ -184,6 +184,7 @@ jobs:
     outputs:
       retry_matrix: ${{ steps.plan.outputs.retry_matrix }}
       retry_count: ${{ steps.plan.outputs.retry_count }}
+      terminal_failure_count: ${{ steps.plan.outputs.terminal_failure_count }}
     steps:
       - name: Checkout receipt-check tools at the manifest's exact code revision
         uses: actions/checkout@v4
