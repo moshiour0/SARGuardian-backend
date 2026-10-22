@@ -77,3 +77,16 @@ downstream parity gates are documented in
 [docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md](docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md).
 The two-granule pilot and the 33-product source-baseline replay have now passed. See the run evidence and remaining scientific limits in `docs/STREAMING_BATCH.md` and `docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md`. The artifact-only replay is proven; the distinct full live `resume_from_run_id` recovery mode remains separately unverified.
 
+
+
+## Dynamic AOI WKT processing (isolated feature branch)
+
+The new WKT-driven NISAR acquisition and dashboard flow is documented in
+[docs/DYNAMIC_AOI_WKT_E2E.md](docs/DYNAMIC_AOI_WKT_E2E.md). It lives on
+`feat/e2e-aoi-wkt-date-dashboard` and uses the scientific AOI parser in
+`science/aoi-wkt-dynamic-e2e`. The original
+`feat/e2e-pinned-science-pipeline` workflow remains separate and unchanged.
+
+The default-branch entry point
+`.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` only forwards inputs to
+the isolated workflow; it does not replace or call the original source-AOI run.
