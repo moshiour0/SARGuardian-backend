@@ -597,6 +597,17 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     "maturity_evidence": maturity_evidence,
                     "reference_date": reference.isoformat(),
                     "secondary_date": secondary.isoformat(),
+                    "date_filter_mode": args.date_filter_mode,
+                    "reference_date_in_window": reference_in_window,
+                    "secondary_date_in_window": secondary_in_window,
+                    "reference_date_outside_window": not reference_in_window,
+                    "secondary_date_outside_window": not secondary_in_window,
+                    "reference_predates_window": reference < start,
+                    "secondary_predates_window": secondary < start,
+                    "boundary_pair_included_by_secondary_date_policy": (
+                        args.date_filter_mode == "secondary-acquisition-in-window"
+                        and secondary_in_window and not reference_in_window
+                    ),
                     "expected_source_bytes": size_bytes,
                     "expected_source_bytes_basis": size_basis,
                     "asf_catalog_product_type": row.get("productType"),
@@ -608,6 +619,11 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 all_rows[name] = record
                 accepted += 1
             stats["products_after_date_and_maturity_policy"] = accepted
+            stats["reference_outside_window_after_date_and_maturity_policy"] = sum(
+                1 for name, row in all_rows.items()
+                if row["product_type"] == family
+                and row.get("reference_date_outside_window", False)
+            )
             query_summary[family] = stats
             print(
                 "AOI_DISCOVERY_COUNTS "
@@ -686,6 +702,13 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "supported_product_variants_after_maturity_policy": len(supported_variants),
             "unique_acquisition_pair_products_in_window": len(inventory),
+            "reference_outside_window_unique_pairs": sum(
+                1 for product in inventory if product.get("reference_date_outside_window", False)
+            ),
+            "boundary_pairs_included_by_secondary_policy": sum(
+                1 for product in inventory
+                if product.get("boundary_pair_included_by_secondary_date_policy", False)
+            ),
             "selected_products": len(selected),
             "catalog_search_start": "2024-01-01",
         },
