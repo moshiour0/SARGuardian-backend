@@ -154,7 +154,7 @@ def test_asf_nested_list_of_records_is_flattened_before_product_filtering():
 
 
 
-def test_date_window_default_requires_both_pair_acquisitions_inside_interval():
+def test_strict_date_window_requires_both_pair_acquisitions_inside_interval():
     start = discovery.parse_date("2026-06-17", "START_DATE")
     end = discovery.parse_date("2026-09-15", "END_DATE")
     ref = discovery.parse_date("2026-06-08", "REFERENCE_DATE")
@@ -168,6 +168,24 @@ def test_date_window_default_requires_both_pair_acquisitions_inside_interval():
         ref, sec, start, end, "secondary-acquisition-in-window"
     )
     assert ok and reason is None
+
+
+def test_default_window_mode_selects_by_secondary_date_and_preserves_boundary_pairs():
+    start = discovery.parse_date("2026-06-17", "START_DATE")
+    end = discovery.parse_date("2026-09-15", "END_DATE")
+    reference = discovery.parse_date("2026-06-08", "REFERENCE_DATE")
+    secondary = discovery.parse_date("2026-06-20", "SECONDARY_DATE")
+
+    assert discovery.DEFAULT_DATE_FILTER_MODE == "secondary-acquisition-in-window"
+    included, reason = discovery.date_window_decision(
+        reference, secondary, start, end, discovery.DEFAULT_DATE_FILTER_MODE
+    )
+    assert included and reason is None
+    strict_included, strict_reason = discovery.date_window_decision(
+        reference, secondary, start, end, "both-acquisitions-in-window"
+    )
+    assert not strict_included
+    assert strict_reason == "REFERENCE_ACQUISITION_OUTSIDE_DATE_WINDOW"
 
 
 def test_maturity_uses_asf_data_maturity_for_unmapped_crid_and_records_caveat():
