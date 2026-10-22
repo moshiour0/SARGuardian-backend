@@ -55,28 +55,47 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
         "intersectsWith": wkt,
         "output": "json",
         "maxResults": str(MAX_RESULTS),
+        "dataset": "NISAR",
         "platform": "NISAR",
         "processingLevel": family,
+        "shortName": f"NISAR_L2_{family}_V1",
         "start": "2024-01-01T00:00:00Z",
         "end": f"{end_date.isoformat()}T23:59:59Z",
     }
     last_error = None
     for attempt in range(1, 4):
         try:
-            response = client.get(ASF_API, params=params, timeout=(30, 180))
+            # POST avoids URL-size failures for detailed AOI polygons; ASF supports
+            # POST requests for the intersectsWith query parameter.
+            response = client.post(ASF_API, data=params, timeout=(30, 180))
             if response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
             response.raise_for_status()
             payload = response.json()
             if isinstance(payload, dict):
-                raw = payload.get("results", [])
+                raw = payload.get("results")
+                if raw is None:
+                    raw = payload.get("features")
+                if raw is None and payload.get("type") == "FeatureCollection":
+                    raw = payload.get("features")
+                if raw is None:
+                    raw = []
             elif isinstance(payload, list):
                 raw = payload
             else:
                 raise ValueError("ASF_RESPONSE_ROOT_INVALID")
             if not isinstance(raw, list):
                 raise ValueError("ASF_RESULTS_NOT_A_LIST")
+            # GeoJSON-style outputs nest metadata in properties. Normalize those
+            # records once so field extraction supports both flat JSON and GeoJSON.
+            normalized = []
+            for record in raw:
+                if not isinstance(record, dict):
+                    continue
+                props = record.get("properties")
+                normalized.append({**record, **props} if isinstance(props, dict) else record)
+            raw = normalized
             if len(raw) >= MAX_RESULTS:
                 raise RuntimeError(
                     f"ASF_CATALOG_RESULT_CAP_REACHED family={family} limit={MAX_RESULTS}; "
@@ -91,8 +110,12 @@ def query_asf_polygon(wkt: str, family: str, end_date: date,
     raise RuntimeError(f"ASF_CATALOG_QUERY_FAILED family={family} diagnostics={last_error}")
 
 def record_name(row: dict[str, Any]) -> str:
-    value = row.get("granuleName") or row.get("fileName") or row.get("sceneName") or ""
-    return Path(str(value).strip()).name.removesuffix(".h5")
+    fields = {str(key).lower().replace("_", ""): value for key, value in row.items()}
+    value = (fields.get("granulename") or fields.get("filename") or
+             fields.get("scenename") or fields.get("productname") or
+             fields.get("fileid") or fields.get("productfileid") or "")
+    name = Path(str(value).strip()).name
+    return name[:-3] if name.lower().endswith(".h5") else name
 
 def product_size_bytes(row: dict[str, Any], family: str) -> int:
     for key in ("bytes", "sizeBytes", "fileSize"):
