@@ -129,10 +129,14 @@ jobs:
                   if name: names.append(str(name))
                 first = rows[0] if isinstance(rows, list) and rows else None
                 first_keys = sorted(first.keys()) if isinstance(first, dict) else []
+                nested_first = first[0] if isinstance(first, list) and first else None
+                nested_first_keys = sorted(nested_first.keys()) if isinstance(nested_first, dict) else []
                 safe_sample = {}
                 if isinstance(first, dict):
                   safe_sample = {k:v for k,v in list(first.items())[:12] if not any(s in str(k).lower() for s in ("url","download","token","password","secret","link","cookie"))}
-                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"first_type":type(first).__name__ if first is not None else None,"first_keys":first_keys,"first_sample":safe_sample if first is not None else None,"sample_names":names[:3]},separators=(",",":")))
+                elif isinstance(nested_first, dict):
+                  safe_sample = {k:v for k,v in list(nested_first.items())[:12] if not any(s in str(k).lower() for s in ("url","download","token","password","secret","link","cookie"))}
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"first_type":type(first).__name__ if first is not None else None,"first_len":len(first) if isinstance(first,(list,dict)) else None,"nested_first_type":type(nested_first).__name__ if nested_first is not None else None,"nested_first_keys":nested_first_keys,"first_keys":first_keys,"first_sample":safe_sample if first is not None else None,"sample_names":names[:3]},separators=(",",":")))
               except Exception as exc:
                 status = getattr(getattr(exc,"response",None),"status_code",None)
                 print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"error":type(exc).__name__,"http_status":status},separators=(",",":")))
