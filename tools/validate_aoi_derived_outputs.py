@@ -13,6 +13,11 @@ import math
 from pathlib import Path
 from typing import Any
 
+def canonical_granule_name(value: Any) -> str:
+    """Normalize CSV product paths and manifest granule names to one identity."""
+    name = Path(str(value or "").strip()).name
+    return name[:-3] if name.lower().endswith(".h5") else name
+
 def read_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     with path.open("r", newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
@@ -28,8 +33,12 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
     rows: list[dict[str, str]] = []
     try:
         stats_fields, rows = read_rows(args.stats_csv)
-        granule = Path(args.granule_name).name
-        matched = [r for r in rows if Path((r.get("file") or "").strip()).name == granule]
+        granule = canonical_granule_name(args.granule_name)
+        product_matches = [
+            r for r in rows
+            if canonical_granule_name(r.get("file")) == granule
+        ]
+        matched = product_matches
         if args.product_type == "GOFF":
             matched = [r for r in matched if "layer2" in (r.get("layer") or "").lower()]
         if len(matched) != 1:
@@ -86,13 +95,14 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
         "validation_scope": "structural_and_provenance_not_independent_geophysical_validation",
         "product_id": args.product_id,
         "product_type": args.product_type,
-        "granule_name": Path(args.granule_name).name,
+        "granule_name": canonical_granule_name(args.granule_name),
         "aoi": args.aoi_name,
         "stats_csv": str(args.stats_csv),
         "stats_fields": stats_fields,
         "stats_rows": len(rows),
-        "product_rows": len(rows) if not rows else sum(
-            Path((r.get("file") or "").strip()).name == Path(args.granule_name).name for r in rows
+        "product_rows": sum(
+            canonical_granule_name(r.get("file")) == canonical_granule_name(args.granule_name)
+            for r in rows
         ),
         "exports": raster_records,
         "warnings": warnings,
