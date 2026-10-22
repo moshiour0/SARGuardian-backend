@@ -1,0 +1,117 @@
+name: SARGuardian AOI live catalog discovery diagnostic
+
+on:
+  push:
+    branches:
+      - feat/e2e-aoi-wkt-date-dashboard
+    paths:
+      - ".github/workflows/sarguardian-aoi-live-discovery-check.yml"
+  workflow_dispatch:
+    inputs:
+      aoi_wkt:
+        description: "One WGS84 polygon ring; longitude latitude."
+        type: string
+        required: true
+        default: "POLYGON ((84.99140223107368 28.499061219892724, 84.945606791564 28.28220804656594, 85.18844724834032 28.270753557383987, 85.20285565607317 28.414428221022945, 85.11305609453537 28.49639181334535, 84.99140223107368 28.499061219892724))"
+      start_date:
+        description: "Inclusive secondary acquisition date (YYYY-MM-DD)."
+        type: string
+        required: true
+        default: "2026-06-17"
+      end_date:
+        description: "Inclusive secondary acquisition date (YYYY-MM-DD)."
+        type: string
+        required: true
+        default: "2026-09-15"
+
+permissions:
+  contents: read
+
+jobs:
+  catalog-only:
+    name: Check AOI catalog coverage (no downloads)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt || 'POLYGON ((84.99140223107368 28.499061219892724, 84.945606791564 28.28220804656594, 85.18844724834032 28.270753557383987, 85.20285565607317 28.414428221022945, 85.11305609453537 28.49639181334535, 84.99140223107368 28.499061219892724))' }}
+      START_DATE: ${{ inputs.start_date || '2026-06-17' }}
+      END_DATE: ${{ inputs.end_date || '2026-09-15' }}
+    steps:
+      - name: Checkout isolated AOI orchestration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/e2e-aoi-wkt-date-dashboard
+
+      - name: Checkout pinned scientific WKT parser
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: 39e5a4991fe7bdb0f7a3ae41e5f38c1ba5dc53eb
+          path: science-source
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          check-latest: false
+
+      - name: Install discovery dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
+
+      - name: Query ASF and keep full discovery diagnostics
+        id: discover
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          root="$RUNNER_TEMP/sarguardian-aoi-diagnostic"
+          mkdir -p "$root"
+          echo "AOI_DIAGNOSTIC_START_DATE=$START_DATE"
+          echo "AOI_DIAGNOSTIC_END_DATE=$END_DATE"
+          echo "AOI_DIAGNOSTIC_PROFILE=full-aoi-baseline"
+          echo "AOI_DIAGNOSTIC_RETENTION=derived-only"
+          python tools/discover_aoi_products.py \
+            --science-root "$PWD/science-source" \
+            --start-date "$START_DATE" \
+            --end-date "$END_DATE" \
+            --run-profile full-aoi-baseline \
+            --retention-profile derived-only \
+            --out "$root/manifest.json" 2>&1 | tee "$root/discovery.log"
+          rc=${PIPESTATUS[0]}
+          echo "AOI_DIAGNOSTIC_EXIT_CODE=$rc" | tee -a "$root/discovery.log"
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Write diagnosis summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## AOI live catalog discovery"
+            echo
+            echo "- Date window: $START_DATE through $END_DATE (inclusive secondary date)"
+            echo "- Profile: full-aoi-baseline"
+            echo "- This diagnostic performs catalog search only; it does not download or process products."
+            echo
+            if [ -f "$RUNNER_TEMP/sarguardian-aoi-diagnostic/discovery.log" ]; then
+              echo "### Catalog filter counts / error"
+              grep -E '^(ASF_CATALOG_RESPONSE|ASF_CATALOG_FALLBACK|AOI_DISCOVERY_COUNTS|AOI_WKT_SHA256|AOI_DISCOVERY_INVENTORY|AOI_PRODUCTS_SELECTED|ERROR=|AOI_DIAGNOSTIC_EXIT_CODE)' "$RUNNER_TEMP/sarguardian-aoi-diagnostic/discovery.log" || true
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw diagnostics and manifest if found
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-aoi-live-discovery-diagnostic
+          path: |
+            ${{ runner.temp }}/sarguardian-aoi-diagnostic/discovery.log
+            ${{ runner.temp }}/sarguardian-aoi-diagnostic/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve failure status when discovery fails
+        if: steps.discover.outcome == 'failure'
+        run: exit 1
