@@ -61,4 +61,4 @@ jobs:
           PY
 
       - name: Test WKT parser and rejection rules without external network access
-        run: python -m pytest -q science-source/tests/test_aoi_wkt.py tests/test_discover_aoi_products.py
+        run: python -m pytest -q science-source/tests/test_aoi_wkt.py tools/tests/test_discover_aoi_products.py
