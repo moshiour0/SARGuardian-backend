@@ -125,9 +125,14 @@ jobs:
                 for row in rows if isinstance(rows, list) else []:
                   if not isinstance(row, dict): continue
                   props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
-                  name = row.get("granuleName") or row.get("fileName") or row.get("sceneName") or props.get("granuleName") or props.get("fileName")
+                  name = row.get("granuleName") or row.get("granule_name") or row.get("Granule Name") or row.get("fileName") or row.get("sceneName") or props.get("granuleName") or props.get("granule_name") or props.get("fileName")
                   if name: names.append(str(name))
-                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"sample_names":names[:3]},separators=(",",":")))
+                first = rows[0] if isinstance(rows, list) and rows else None
+                first_keys = sorted(first.keys()) if isinstance(first, dict) else []
+                safe_sample = {}
+                if isinstance(first, dict):
+                  safe_sample = {k:v for k,v in list(first.items())[:12] if not any(s in str(k).lower() for s in ("url","download","token","password","secret","link","cookie"))}
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"first_type":type(first).__name__ if first is not None else None,"first_keys":first_keys,"first_sample":safe_sample if first is not None else None,"sample_names":names[:3]},separators=(",",":")))
               except Exception as exc:
                 status = getattr(getattr(exc,"response",None),"status_code",None)
                 print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"error":type(exc).__name__,"http_status":status},separators=(",",":")))
