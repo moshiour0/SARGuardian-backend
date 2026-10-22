@@ -72,75 +72,88 @@ jobs:
           OUT_DIR="$GITHUB_WORKSPACE/target49_diagnostic"
           mkdir -p "$RAW_DIR" "$OUT_DIR/download_manifests" "$OUT_DIR/diagnostics"
 
-          # Exact basenames from Run #55. Only one raw HDF5 is present locally at a time.
-          labels=(
-            GUNW-006-BETA-control
-            GUNW-007-PROVISIONAL
-            GUNW-009-PROVISIONAL
-            GUNW-010-PROVISIONAL
-            GUNW-011-TARGET4-LOW-SUPPORT
-            GUNW-012-TARGET4-LOW-SUPPORT
-            GUNW-013-PROVISIONAL-FOLLOWUP
-            GOFF-023-BETA-control
-            GOFF-025-PROVISIONAL
-            GOFF-026-PROVISIONAL
-            GOFF-027-PROVISIONAL
-            GOFF-028-PROVISIONAL-MATCHED-DESCENDING
-            GOFF-029-PROVISIONAL
-          )
-
-          for label in "${labels[@]}"; do
-            echo "=== RAW_HDF5_DIAGNOSTIC_START label=$label ==="
-            manifest="$OUT_DIR/download_manifests/$label.json"
+          # Exact product identity and maturity are taken from the successful Run #55 raw-download manifest.
+          # Reuse the backend's tested direct-HTTPS downloader, not ASF exact-granule catalog search.
+          while IFS='|' read -r PRODUCT MATURITY LABEL GRANULE; do
+            [[ -z "$GRANULE" ]] && continue
+            echo "=== RAW_HDF5_DIAGNOSTIC_START label=$LABEL ==="
+            WORK="$RAW_DIR/${GRANULE%.h5}"
+            manifest="$OUT_DIR/download_manifests/$LABEL.json"
+            rm -rf "$WORK"
             rm -f "$manifest"
             attempt=1
-            while ! python scientific/tools/download_target49_products.py \
-                --label "$label" --outdir "$RAW_DIR" --manifest "$manifest"; do
+            while ! python tools/download_nisar_product.py \
+                --product-type "$PRODUCT" --maturity "$MATURITY" \
+                --granule-name "$GRANULE" --science-root "$GITHUB_WORKSPACE/scientific" \
+                --aoi source --out-dir "$WORK"; do
+              rm -rf "$WORK"
               if (( attempt >= 4 )); then
-                echo "::error::Download failed after 4 attempts: $label"
+                echo "::error::Download failed after 4 attempts: $LABEL ($GRANULE)"
                 exit 1
               fi
               sleep_seconds=$((attempt * 15))
-              echo "RETRYING_DOWNLOAD label=$label attempt=$((attempt + 1)) sleep_seconds=$sleep_seconds"
+              echo "RETRYING_DOWNLOAD label=$LABEL attempt=$((attempt + 1)) sleep_seconds=$sleep_seconds"
               sleep "$sleep_seconds"
-              rm -f "$manifest"
               attempt=$((attempt + 1))
             done
 
-            raw_path="$(python -c 'import json,sys; d=json.load(open(sys.argv[1])); p=d.get("products",[]); print(p[0]["path"] if len(p)==1 else "")' "$manifest")"
-            if [[ -z "$raw_path" || ! -s "$raw_path" ]]; then
-              echo "::error::Downloader did not produce one verified raw file for $label"
+            raw_path="$WORK/$GRANULE"
+            source_manifest="$WORK/download-manifest.json"
+            if [[ ! -s "$raw_path" || ! -s "$source_manifest" ]]; then
+              echo "::error::Downloader did not produce one verified raw file plus manifest for $LABEL"
               exit 1
             fi
+            cp "$source_manifest" "$manifest"
 
             python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi source --out "$OUT_DIR/diagnostics/$label__source.json"
+              --aoi source --out "$OUT_DIR/diagnostics/$LABEL__source.json"
             python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi langtang --out "$OUT_DIR/diagnostics/$label__langtang.json"
+              --aoi langtang --out "$OUT_DIR/diagnostics/$LABEL__langtang.json"
 
-            # The production GUNW reader applies the interpolated-ionosphere mask by
-            # default. This diagnostic-only pass isolates that gate; it does not
-            # change source output or endorse dropping the gate.
-            if [[ "$label" == GUNW-* ]]; then
+            # Diagnostic-only sensitivity: tests whether the interpolated ionosphere
+            # screen gate is the limiting stage. This is not a recommendation to
+            # change the production reader or treat uncorrected phase as equivalent.
+            if [[ "$PRODUCT" == "GUNW" ]]; then
               python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-                --aoi source --no-iono --out "$OUT_DIR/diagnostics/$label__source_no_iono_gate.json"
+                --aoi source --no-iono --out "$OUT_DIR/diagnostics/$LABEL__source_no_iono_gate.json"
+              python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
+                --aoi langtang --no-iono --out "$OUT_DIR/diagnostics/$LABEL__langtang_no_iono_gate.json"
             fi
 
-            rm -f -- "$raw_path"
-            echo "RAW_HDF5_DELETED_AFTER_DIAGNOSTIC label=$label"
-            echo "=== RAW_HDF5_DIAGNOSTIC_COMPLETE label=$label ==="
-          done
+            rm -rf -- "$WORK"
+            echo "RAW_HDF5_DELETED_AFTER_DIAGNOSTIC label=$LABEL"
+            echo "=== RAW_HDF5_DIAGNOSTIC_COMPLETE label=$LABEL ==="
+          done <<'PRODUCTS'
+          GUNW|BETA|GUNW-006-BETA-control|NISAR_L2_PR_GUNW_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-007-PROVISIONAL|NISAR_L2_PR_GUNW_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-009-PROVISIONAL|NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-010-PROVISIONAL|NISAR_L2_PR_GUNW_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-011-TARGET4-LOW-SUPPORT|NISAR_L2_PR_GUNW_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-012-TARGET4-LOW-SUPPORT|NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
+          GUNW|PROVISIONAL|GUNW-013-PROVISIONAL-FOLLOWUP|NISAR_L2_PR_GUNW_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
+          GOFF|BETA|GOFF-023-BETA-control|NISAR_L2_PR_GOFF_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
+          GOFF|PROVISIONAL|GOFF-025-PROVISIONAL|NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
+          GOFF|PROVISIONAL|GOFF-026-PROVISIONAL|NISAR_L2_PR_GOFF_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
+          GOFF|PROVISIONAL|GOFF-027-PROVISIONAL|NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
+          GOFF|PROVISIONAL|GOFF-028-PROVISIONAL-MATCHED-DESCENDING|NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
+          GOFF|PROVISIONAL|GOFF-029-PROVISIONAL|NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
+          PRODUCTS
 
-          python - <<'PY'
+          python - <<'PY'          python - <<'PY'
           import csv, json
           from pathlib import Path
           root = Path("target49_diagnostic")
           rows = []
           for path in sorted((root / "diagnostics").glob("*.json")):
               report = json.loads(path.read_text(encoding="utf-8"))
-              aoi = "langtang" if "__langtang" in path.name else "source"
-              if "__source_no_iono_gate" in path.name:
+              if "__langtang_no_iono_gate" in path.name:
+                  aoi = "langtang_no_iono_gate"
+              elif "__source_no_iono_gate" in path.name:
                   aoi = "source_no_iono_gate"
+              elif "__langtang" in path.name:
+                  aoi = "langtang"
+              else:
+                  aoi = "source"
               for item in report.get("results", []):
                   targets = item.get("targets")
                   if targets is not None:
