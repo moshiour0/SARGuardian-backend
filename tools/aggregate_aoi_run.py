@@ -54,6 +54,49 @@ def sha256_file(path: Path) -> str:
             digest.update(block)
     return digest.hexdigest()
 
+def assess_maturity_consistency(
+    catalog_maturity: str | None, reader_maturity: str | None
+) -> tuple[str, list[str], bool]:
+    """Reconcile archive maturity with the science reader's CRID classifier.
+
+    Return (validation label, user-visible warnings, hard-conflict flag). An
+    UNKNOWN local CRID mapping may defer to verified ASF dataMaturity metadata,
+    but must never be silently shown as a fully matched maturity assessment.
+    """
+    catalog = str(catalog_maturity or "").strip().upper()
+    reader = str(reader_maturity or "").strip().upper()
+    supported = {"BETA", "PROVISIONAL"}
+    if catalog in supported and reader == catalog:
+        return "MATCH", [], False
+    if catalog in supported and reader == "UNKNOWN":
+        return (
+            "CATALOG_CLASSIFIED_LOCAL_CRID_MAP_UNKNOWN",
+            [
+                "ASF catalog class is " + catalog + ", but the pinned local CRID classifier reports UNKNOWN; review maturity_evidence before scientific comparison."
+            ],
+            False,
+        )
+    if catalog in supported and reader in supported and reader != catalog:
+        return "CONFLICT", [], True
+    if not reader:
+        return (
+            "READER_MATURITY_NOT_REPORTED",
+            ["Reader CSV does not report maturity; use archived catalog classification and CRID evidence."],
+            False,
+        )
+    if reader in supported and not catalog:
+        return (
+            "CATALOG_MATURITY_NOT_VERIFIED",
+            ["Reader CRID classifier reports " + reader + ", but the manifest has no authoritative catalog maturity label."],
+            False,
+        )
+    return (
+        "MATURITY_UNRESOLVED",
+        ["Catalog and reader maturity could not be reconciled; do not combine this product into maturity-sensitive comparisons."],
+        False,
+    )
+
+
 def numeric(row: dict[str, Any], candidates: tuple[str, ...]) -> tuple[str | None, float | None]:
     lowmap = {str(k).lower(): k for k in row}
     for candidate in candidates:
@@ -252,20 +295,11 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             stats = matching[0]
             science_maturity = str(stats.get("maturity") or "").strip().upper()
             catalog_maturity = str(product.get("maturity") or "").strip().upper()
-            maturity_validation = "NOT_REPORTED"
-            maturity_warnings = []
-            if science_maturity and science_maturity == catalog_maturity:
-                maturity_validation = "MATCH"
-            elif science_maturity == "UNKNOWN" and catalog_maturity in {"PROVISIONAL", "BETA"}:
-                maturity_validation = "CATALOG_CLASSIFIED_LOCAL_CRID_MAP_UNKNOWN"
-                maturity_warnings.append(
-                    "ASF catalog class is " + catalog_maturity + ", but the pinned local CRID classifier reports UNKNOWN; review maturity_evidence before scientific comparison."
-                )
-            elif science_maturity and catalog_maturity and science_maturity != catalog_maturity:
+            maturity_validation, maturity_warnings, maturity_conflict = assess_maturity_consistency(
+                catalog_maturity, science_maturity
+            )
+            if maturity_conflict:
                 raise ValueError("SCIENCE_AND_CATALOG_MATURITY_CONFLICT catalog=" + catalog_maturity + " reader=" + science_maturity)
-            elif not science_maturity:
-                maturity_validation = "READER_MATURITY_NOT_REPORTED"
-                maturity_warnings.append("Reader CSV does not report maturity; use archived catalog classification and CRID evidence.")
             metric_key, metric_val = numeric(stats, ("median","median_mm","range_median_mm","median_range_mm"))
             exports = []; valid_pixels = None
             validation_exports = validation.get("exports", [])
