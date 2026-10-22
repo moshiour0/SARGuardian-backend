@@ -185,7 +185,7 @@ def test_maturity_requires_supported_crid_and_rejects_catalog_crid_conflict():
         unsupported_name, lambda _name: "UNKNOWN"
     )
     assert mat == "UNKNOWN"
-    assert error == "MATURITY_UNKNOWN_OR_UNSUPPORTED_CRID"
+    assert error == "CATALOG_COLLECTION_CLAIMS_MATURITY_BUT_CRID_UNSUPPORTED"
     assert "X05026" in evidence
 
 
