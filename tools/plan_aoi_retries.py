@@ -75,7 +75,7 @@ def plan(manifest: dict[str, Any], product_root: Path, cleanup_root: Path) -> di
             reasons.append("CLEANUP_SOURCE_SHA256_MISMATCH")
         if not cleanup_upload or cleanup_upload.get("remote_verification")!="PASS":
             reasons.append("CLEANUP_RECEIPT_REMOTE_UPLOAD_NOT_VERIFIED")
-        complete=not reasons
+        complete=not reasons and terminal_reason is None
         if complete:
             status="PASS"
         elif terminal_reason:
