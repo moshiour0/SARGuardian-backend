@@ -52,11 +52,11 @@ jobs:
           import re
           from pathlib import Path
           source = Path("tools/aggregate_aoi_run.py").read_text(encoding="utf-8")
-          match = re.search(r'\\bdoc\\s*=\\s*r"""(.*?)"""', source, re.S)
+          match = re.search(r'\bdoc\s*=\s*r"""(.*?)"""', source, re.S)
           if not match:
               raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_NOT_FOUND")
           html = match.group(1)
-          script = re.search(r'<script>\\s*(.*?)</script>', html, re.S)
+          script = re.search(r'<script>\s*(.*?)</script>', html, re.S)
           if not script:
               raise SystemExit("ERROR=DASHBOARD_INTERACTIVE_SCRIPT_NOT_FOUND")
           Path("/tmp/sarguardian-dashboard.js").write_text(script.group(1), encoding="utf-8")
