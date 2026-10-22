@@ -146,3 +146,89 @@ def test_asf_nested_list_of_records_is_flattened_before_product_filtering():
     assert discovery.record_name(rows[0]).startswith("NISAR_L2_PR_GUNW_024")
     assert session.calls[0][1]["output"] == "geojson"
     assert session.calls[0][1]["processingLevel"] == "GUNW"
+
+
+
+def test_date_window_default_requires_both_pair_acquisitions_inside_interval():
+    start = discovery.parse_date("2026-06-17", "START_DATE")
+    end = discovery.parse_date("2026-09-15", "END_DATE")
+    ref = discovery.parse_date("2026-06-08", "REFERENCE_DATE")
+    sec = discovery.parse_date("2026-06-20", "SECONDARY_DATE")
+    ok, reason = discovery.date_window_decision(
+        ref, sec, start, end, "both-acquisitions-in-window"
+    )
+    assert not ok
+    assert reason == "REFERENCE_ACQUISITION_OUTSIDE_DATE_WINDOW"
+    ok, reason = discovery.date_window_decision(
+        ref, sec, start, end, "secondary-acquisition-in-window"
+    )
+    assert ok and reason is None
+
+
+def test_maturity_requires_supported_crid_and_rejects_catalog_crid_conflict():
+    provisional_name = (
+        "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
+        "20260702T233920_20260702T233955_20260714T233920_"
+        "20260714T233954_P05023_N_F_J_001"
+    )
+    mat, evidence, error = discovery.product_maturity_evidence(
+        {"collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1"},
+        provisional_name, lambda _name: "PROVISIONAL"
+    )
+    assert mat == "PROVISIONAL"
+    assert error is None
+    assert "P05023" in evidence
+
+    unsupported_name = provisional_name.replace("P05023", "X05026")
+    mat, evidence, error = discovery.product_maturity_evidence(
+        {"collectionName": "NISAR_L2_GUNW_PROVISIONAL_V1"},
+        unsupported_name, lambda _name: "UNKNOWN"
+    )
+    assert mat == "UNKNOWN"
+    assert error == "MATURITY_UNKNOWN_OR_UNSUPPORTED_CRID"
+    assert "X05026" in evidence
+
+
+def test_catalog_exact_hdf5_byte_map_is_used_for_download_planning():
+    granule = (
+        "NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_"
+        "20260702T233920_20260702T233955_20260714T233920_"
+        "20260714T233954_P05023_N_F_J_001"
+    )
+    expected = 2_214_592_512
+    row = {
+        "bytes": {
+            granule + ".h5": {"bytes": expected, "format": "HDF5"},
+            granule + "_LATLON.png": {"bytes": 2429011, "format": "PNG"},
+        }
+    }
+    size, basis = discovery.product_size_bytes(row, "GUNW", granule)
+    assert size == expected
+    assert basis == "ASF_catalog_bytes_map_exact_granule_HDF5"
+
+
+def test_duplicate_ur_variant_is_replaced_by_standard_pr_for_same_pair():
+    base = (
+        "NISAR_L2_{ptype}_GUNW_028_098_A_016_029_4000_SH_"
+        "20260819T233918_20260819T233953_20260831T233918_"
+        "20260831T233952_P05023_{accuracy}_F_J_001"
+    )
+    def product(ptype, accuracy):
+        name = base.format(ptype=ptype, accuracy=accuracy)
+        return {
+            "product_type": "GUNW",
+            "granule_name": name,
+            "reference_date": "2026-08-19",
+            "secondary_date": "2026-08-31",
+            "maturity": "PROVISIONAL",
+            "expected_source_bytes": 100,
+        }
+    selected, rejected = discovery.collapse_duplicate_variants([
+        product("UR", "F"),
+        product("PR", "N"),
+    ])
+    assert len(selected) == 1
+    assert selected[0]["granule_name"].split("_")[2] == "PR"
+    assert selected[0]["pair_variant_count"] == 2
+    assert len(rejected) == 1
+    assert rejected[0]["reason"] == "DUPLICATE_ACQUISITION_PAIR_LOWER_VARIANT_PRIORITY"
