@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from tools.aggregate_aoi_run import assess_maturity_consistency
+from tools.aggregate_aoi_run import assess_maturity_consistency, matching_product_stats_rows
 
 
 def test_matching_catalog_and_reader_maturity_is_passable():
@@ -39,3 +39,19 @@ def test_dashboard_chart_groups_metric_by_family_and_exact_column():
     assert "vals=all.filter(function(p){return seriesKey(p)===key})" in source
     assert "Maturity (ASF / reader)" in source
     assert '"science_maturity","maturity_validation"' in source
+
+
+def test_gunw_stats_row_matches_manifest_name_without_h5_suffix():
+    rows = [{"file": "NISAR_L2_PR_GUNW_EXAMPLE.h5", "layer": ""}]
+
+    assert matching_product_stats_rows(rows, "NISAR_L2_PR_GUNW_EXAMPLE", "GUNW") == rows
+
+
+def test_goff_stats_match_granule_without_suffix_and_keep_only_layer2():
+    rows = [
+        {"file": "NISAR_L2_PR_GOFF_EXAMPLE.h5", "layer": "HH/layer1"},
+        {"file": "NISAR_L2_PR_GOFF_EXAMPLE.h5", "layer": "HH/layer2"},
+        {"file": "NISAR_L2_PR_GOFF_OTHER.h5", "layer": "HH/layer2"},
+    ]
+
+    assert matching_product_stats_rows(rows, "NISAR_L2_PR_GOFF_EXAMPLE", "GOFF") == [rows[1]]

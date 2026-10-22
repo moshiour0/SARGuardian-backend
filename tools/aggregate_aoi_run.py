@@ -47,6 +47,26 @@ def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
             raise ValueError("CSV_HEADER_MISSING:" + path.name)
         return list(reader.fieldnames), list(reader)
 
+def canonical_granule_name(value: Any) -> str:
+    """Compare archive granule identifiers consistently with reader CSV paths."""
+    name = Path(str(value or "").strip()).name
+    return name[:-3] if name.lower().endswith(".h5") else name
+
+
+def matching_product_stats_rows(
+    stats_rows: list[dict[str, str]], granule_name: str, family: str
+) -> list[dict[str, str]]:
+    """Match one product row when the manifest omits the reader's .h5 suffix."""
+    expected = canonical_granule_name(granule_name)
+    matching = [
+        row for row in stats_rows
+        if canonical_granule_name(row.get("file")) == expected
+    ]
+    if family.upper() == "GOFF":
+        matching = [row for row in matching if "layer2" in (row.get("layer") or "").lower()]
+    return matching
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -287,9 +307,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 raise ValueError("SOURCE_SHA256_MISSING_OR_INVALID")
             stats_path = safe_child(artifact, str(meta["stats_csv"]))
             _fields, stats_rows = read_csv(stats_path)
-            matching = [r for r in stats_rows if Path((r.get("file") or "").strip()).name == name]
-            if family == "GOFF":
-                matching = [r for r in matching if "layer2" in (r.get("layer") or "").lower()]
+            # Catalog/manifest identifiers omit .h5; the scientific reader CSV includes it.
+            matching = matching_product_stats_rows(stats_rows, name, family)
             if len(matching) != 1:
                 raise ValueError("EXPECTED_ONE_PRODUCT_STATS_ROW got=" + str(len(matching)))
             stats = matching[0]
