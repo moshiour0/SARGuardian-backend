@@ -50,74 +50,99 @@ def product_dates(name: str) -> tuple[date, date] | None:
 
 def query_asf_polygon(wkt: str, family: str, end_date: date,
                       *, session: requests.Session | None = None) -> list[dict[str, Any]]:
-    """Query the ASF catalog using the NISAR-specific searchable collection fields.
+    """Query ASF using current NISAR collection metadata, with a project-tested fallback.
 
     NISAR collection attributes such as processingLevel are not consistently
-    searchable in CMR. Use the documented shortName + dataset + platform
-    combination, and the GET-query method already exercised by SARGuardian's
-    acquisition reconnaissance. The exact WKT is passed unchanged.
+    searchable in CMR. The primary query uses documented shortName + dataset +
+    platform fields. If that exact collection query returns zero rows, retry
+    using the platform + comma-separated interferometric processingLevel query
+    already used by SARGuardian's acquisition reconnaissance.
     """
     client = session or requests.Session()
-    params = {
+    base = {
         "intersectsWith": wkt,
         "output": "json",
         "maxResults": str(MAX_RESULTS),
-        "dataset": "NISAR",
-        "platform": "NISAR",
-        "shortName": f"NISAR_L2_{family}_V1",
         "start": "2024-01-01T00:00:00Z",
         "end": f"{end_date.isoformat()}T23:59:59Z",
     }
-    last_error = None
-    for attempt in range(1, 4):
-        try:
-            # Match the query transport used by SARGuardian's existing ASF
-            # reconnaissance. The small WKT is safely within URL length limits.
-            response = client.get(ASF_API, params=params, timeout=(30, 180))
-            if response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < 3:
-                time.sleep(2 ** attempt)
-                continue
-            response.raise_for_status()
-            payload = response.json()
-            if isinstance(payload, dict):
-                raw = payload.get("results")
-                if raw is None:
-                    raw = payload.get("features")
-                if raw is None and payload.get("type") == "FeatureCollection":
-                    raw = payload.get("features")
-                if raw is None:
-                    raw = []
-            elif isinstance(payload, list):
-                raw = payload
-            else:
-                raise ValueError("ASF_RESPONSE_ROOT_INVALID")
-            if not isinstance(raw, list):
-                raise ValueError("ASF_RESULTS_NOT_A_LIST")
-            # GeoJSON-style outputs nest metadata in properties. Normalize those
-            # records once so field extraction supports both flat JSON and GeoJSON.
-            normalized = []
-            for record in raw:
-                if not isinstance(record, dict):
+    primary_params = {
+        **base,
+        "dataset": "NISAR",
+        "platform": "NISAR",
+        "shortName": f"NISAR_L2_{family}_V1",
+    }
+
+    def execute(params: dict[str, str], strategy: str) -> list[dict[str, Any]]:
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                # Match the GET-query transport used by SARGuardian's acquisition
+                # reconnaissance. The supplied WKT is well within URL limits.
+                response = client.get(ASF_API, params=params, timeout=(30, 180))
+                if response.status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < 3:
+                    time.sleep(2 ** attempt)
                     continue
-                props = record.get("properties")
-                normalized.append({**record, **props} if isinstance(props, dict) else record)
-            raw = normalized
-            if len(raw) >= MAX_RESULTS:
-                raise RuntimeError(
-                    f"ASF_CATALOG_RESULT_CAP_REACHED family={family} limit={MAX_RESULTS}; "
-                    "discovery is incomplete, so the run has been stopped"
+                response.raise_for_status()
+                payload = response.json()
+                if isinstance(payload, dict):
+                    raw = payload.get("results")
+                    if raw is None:
+                        raw = payload.get("features")
+                    if raw is None and payload.get("type") == "FeatureCollection":
+                        raw = payload.get("features")
+                    if raw is None:
+                        raw = []
+                elif isinstance(payload, list):
+                    raw = payload
+                else:
+                    raise ValueError("ASF_RESPONSE_ROOT_INVALID")
+                if not isinstance(raw, list):
+                    raise ValueError("ASF_RESULTS_NOT_A_LIST")
+                normalized = []
+                for record in raw:
+                    if not isinstance(record, dict):
+                        continue
+                    props = record.get("properties")
+                    normalized.append({**record, **props} if isinstance(props, dict) else record)
+                if len(normalized) >= MAX_RESULTS:
+                    raise RuntimeError(
+                        f"ASF_CATALOG_RESULT_CAP_REACHED family={family} "
+                        f"strategy={strategy} limit={MAX_RESULTS}; discovery is incomplete"
+                    )
+                print(
+                    f"ASF_CATALOG_RESPONSE family={family} strategy={strategy} "
+                    f"rows={len(normalized)} "
+                    f"named_products={sum(bool(record_name(row)) for row in normalized)}"
                 )
-            print(
-                f"ASF_CATALOG_RESPONSE family={family} rows={len(raw)} "
-                f"named_products={sum(bool(record_name(row)) for row in raw)}"
-            )
-            return [row for row in raw if isinstance(row, dict)]
-        except (requests.RequestException, ValueError) as exc:
-            # Keep response bodies, URLs, credentials and long payloads out of logs.
-            last_error = f"{type(exc).__name__}:{getattr(exc, 'response', None).status_code if getattr(exc, 'response', None) is not None else 'no-http-status'}"
-            if attempt < 3:
-                time.sleep(2 ** attempt)
-    raise RuntimeError(f"ASF_CATALOG_QUERY_FAILED family={family} diagnostics={last_error}")
+                return normalized
+            except RuntimeError:
+                raise
+            except (requests.RequestException, ValueError) as exc:
+                status = getattr(exc, "response", None)
+                last_error = f"{type(exc).__name__}:{status.status_code if status is not None else 'no-http-status'}"
+                if attempt < 3:
+                    time.sleep(2 ** attempt)
+        raise RuntimeError(
+            f"ASF_CATALOG_QUERY_FAILED family={family} strategy={strategy} diagnostics={last_error}"
+        )
+
+    rows = execute(primary_params, "shortName_dataset_platform")
+    if rows:
+        return rows
+
+    # Keep this as a fallback only: a broad result set is still checked against
+    # the exact requested WKT, product family, filename dates and maturity below.
+    fallback_params = {
+        **base,
+        "platform": "NISAR",
+        "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG",
+    }
+    print(
+        f"ASF_CATALOG_FALLBACK family={family} "
+        "reason=primary_collection_query_returned_zero_rows"
+    )
+    return execute(fallback_params, "SARGuardian_platform_processingLevel")
 def record_name(row: dict[str, Any]) -> str:
     fields = {str(key).lower().replace("_", ""): value for key, value in row.items()}
     value = (fields.get("granulename") or fields.get("filename") or
