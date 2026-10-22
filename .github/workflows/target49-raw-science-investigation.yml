@@ -139,7 +139,7 @@ jobs:
           GOFF|PROVISIONAL|GOFF-029-PROVISIONAL|NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
           PRODUCTS
 
-          python - <<'PY'          python - <<'PY'
+          python - <<'PY'
           import csv, json
           from pathlib import Path
           root = Path("target49_diagnostic")
