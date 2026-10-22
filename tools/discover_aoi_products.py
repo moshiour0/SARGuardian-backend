@@ -301,6 +301,8 @@ def product_maturity_evidence(
         f"; parsed={parsed}; catalog_maturity={declared or 'not_explicit'}"
         f"; collection={collection or 'not_reported'}"
     )
+    if declared and parsed not in {"BETA", "PROVISIONAL"}:
+        return "UNKNOWN", evidence, "CATALOG_COLLECTION_CLAIMS_MATURITY_BUT_CRID_UNSUPPORTED"
     if parsed not in {"BETA", "PROVISIONAL"}:
         return "UNKNOWN", evidence, "MATURITY_UNKNOWN_OR_UNSUPPORTED_CRID"
     if declared and declared != parsed:
@@ -393,8 +395,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     excluded.append({
                         "granule_name": name,
                         "reason": maturity_error,
-                        "crid": (re.search(r"_([A-Z]\\d{5})_", name).group(1)
-                                 if re.search(r"_([A-Z]\\d{5})_", name) else "unparsed"),
+                        "crid": (re.search(r"_([A-Z]\d{5})_", name).group(1)
+                                 if re.search(r"_([A-Z]\d{5})_", name) else "unparsed"),
                         "catalog_collection_name": row.get("collectionName"),
                         "catalog_data_maturity": row.get("dataMaturity") or row.get("maturity"),
                         "maturity_evidence": maturity_evidence,
@@ -411,8 +413,8 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     "processing_type": product_processing_type(name),
                     "product_accuracy": parts[16] if len(parts) > 16 else None,
                     "frame_coverage": parts[17] if len(parts) > 17 else None,
-                    "crid": re.search(r"_([A-Z]\\d{5})_", name).group(1)
-                            if re.search(r"_([A-Z]\\d{5})_", name) else None,
+                    "crid": re.search(r"_([A-Z]\d{5})_", name).group(1)
+                            if re.search(r"_([A-Z]\d{5})_", name) else None,
                     "catalog_collection_name": row.get("collectionName"),
                     "maturity": maturity,
                     "maturity_evidence": maturity_evidence,
