@@ -1,0 +1,64 @@
+name: SARGuardian AOI branch code validation
+
+on:
+  push:
+    branches:
+      - feat/e2e-aoi-wkt-date-dashboard
+    paths:
+      - "tools/**"
+      - ".github/workflows/sarguardian-aoi-*.yml"
+      - ".github/workflows/sarguardian-aoi-*.yaml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tools/**"
+      - ".github/workflows/sarguardian-aoi-*.yml"
+      - ".github/workflows/sarguardian-aoi-*.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-parser-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout backend feature branch
+        uses: actions/checkout@v4
+
+      - name: Checkout dynamic-WKT scientific parser
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: science/aoi-wkt-dynamic-e2e
+          path: science-source
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          check-latest: false
+
+      - name: Install static test tools
+        run: python -m pip install --disable-pip-version-check pytest pyyaml requests
+
+      - name: Compile every backend Python tool
+        run: python -m compileall -q tools
+
+      - name: Parse workflow YAML syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          files = sorted(Path(".github/workflows").glob("sarguardian-aoi-*.yml"))
+          if not files:
+              raise SystemExit("ERROR=AOI_WORKFLOW_FILES_MISSING")
+          for path in files:
+              with path.open(encoding="utf-8") as handle:
+                  yaml.compose(handle, Loader=yaml.BaseLoader)
+              print(f"YAML_SYNTAX_PASS={path}")
+          PY
+
+      - name: Test WKT parser and rejection rules without external network access
+        run: python -m pytest -q science-source/tests/test_aoi_wkt.py
