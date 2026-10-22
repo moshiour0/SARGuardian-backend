@@ -7,7 +7,7 @@ Run the default-branch workflow **SARGuardian AOI WKT E2E (safe branch dispatche
 Inputs:
 
 - **AOI WKT**: one `POLYGON ((lon lat, ...))` exterior ring, coordinates in EPSG:4326 and in longitude/latitude order. An open ring is closed automatically. Holes, `MULTIPOLYGON`, 3-D coordinates and other SRIDs are rejected.
-- **Start / end date**: inclusive acquisition interval. The default `both-acquisitions-in-window` mode requires both the reference and secondary acquisitions represented in each GUNW/GOFF pair to fall inside the interval. This is the scientifically conservative meaning for a bounded full-baseline run. The optional `secondary-acquisition-in-window` compatibility mode filters only on the timestamp labelled secondary and can admit a pair whose reference acquisition is before the requested start. That is an explicit boundary-pair choice, not a generic date-window interpretation. The catalog search starts in 2024 so pair products can be retrieved before the exact in-window test is applied.
+- **Start / end date**: inclusive interval applied by default to the **secondary acquisition date** in each GUNW/GOFF pair. This is practical when the requested window refers to the pair's secondary-time endpoint: a pair whose reference acquisition was a few days earlier can still be selected if its secondary acquisition is inside the interval. The manifest retains both dates and flags reference dates outside the interval. Choose `both-acquisitions-in-window` for a stricter interpretation requiring both dates to fall inside. ASF catalog search begins in 2024 so a valid pair can be found even when its reference acquisition predates the requested start.
 - **validation-pilot**: newest supported GUNW and newest supported GOFF intersecting the AOI/window. A quick operational check, not a full baseline.
 - **full-aoi-baseline**: all supported GUNW and GOFF granules discovered for the exact polygon/window. Discovery stops on an incomplete ASF result set or more than 200 selected products; narrow the dates/AOI instead of silently truncating.
 - **derived-only**: store derived maps, metrics and provenance; raw worker copies can be deleted only after remote storage verification.
@@ -37,6 +37,7 @@ Inputs:
 ## Scientific policy sources
 
 - NISAR naming convention identifies GUNW and GOFF as products generated from a **pair** of acquisitions: https://nisar-docs.asf.alaska.edu/naming-conventions/
-- ASF/NISAR data availability documents P05023 for the PROVISIONAL release, PROVISIONAL acquisitions beginning June 17, 2026, the earlier BETA window, and warns that processor changes across maturities can mimic landscape change: https://nisar-docs.asf.alaska.edu/availability-overview/
+- ASF/NISAR data availability documents P05023+ for PROVISIONAL, acquisitions beginning June 17, 2026, and warns that processor changes across maturities can mimic landscape change: https://nisar-docs.asf.alaska.edu/availability-overview/
+- ASF Search documents `dataMaturity=PROVISIONAL` and `dataMaturity=BETA` as calibration/validation classification filters: https://nisar-docs.asf.alaska.edu/asf-search/
 - ASF's Search guide explicitly documents `dataMaturity=PROVISIONAL` and `dataMaturity=BETA` as the calibration/validation filter: https://nisar-docs.asf.alaska.edu/asf-search/
 - PROVISIONAL means calibrated and partially validated, not fully validated. Known issues and ongoing processing improvements remain: https://nisar-docs.asf.alaska.edu/provisional-known-issues/
