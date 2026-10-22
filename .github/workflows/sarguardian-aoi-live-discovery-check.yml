@@ -84,6 +84,54 @@ jobs:
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit "$rc"
 
+      - name: Compare custom AOI with known research AOI and no-geometry catalog controls
+        if: always()
+        shell: bash
+        env:
+          CONTROL_AOI_WKT: "POLYGON ((85.46451876449485 28.345047192655944, 85.46623537826439 28.277644183693493, 85.48958132553001 28.247707190492925, 85.53558657455345 28.245287672353218, 85.55618593978782 28.260106359331573, 85.55069277572532 28.290342185190823, 85.54931948470970 28.311199899644855, 85.53558657455345 28.330240328302096, 85.51018069076439 28.340212525080158, 85.49644778060814 28.352903058100104, 85.46451876449485 28.345047192655944))"
+        run: |
+          python - <<'PY'
+          import json, os
+          import requests
+          url = "https://api.daac.asf.alaska.edu/services/search/param"
+          start = "2024-01-01T00:00:00Z"
+          end = os.environ["END_DATE"] + "T23:59:59Z"
+          base = {"output": "json", "maxResults": "50", "dataset": "NISAR", "platform": "NISAR", "start": start, "end": end}
+          cases = [
+            ("custom_gunw_shortname", {**base, "intersectsWith": os.environ["SARGUARDIAN_AOI_WKT"], "shortName": "NISAR_L2_GUNW_V1"}),
+            ("custom_goff_shortname", {**base, "intersectsWith": os.environ["SARGUARDIAN_AOI_WKT"], "shortName": "NISAR_L2_GOFF_V1"}),
+            ("known_research_aoi_gunw_shortname", {**base, "intersectsWith": os.environ["CONTROL_AOI_WKT"], "shortName": "NISAR_L2_GUNW_V1"}),
+            ("known_research_aoi_goff_shortname", {**base, "intersectsWith": os.environ["CONTROL_AOI_WKT"], "shortName": "NISAR_L2_GOFF_V1"}),
+            ("no_geometry_gunw_shortname", {**base, "shortName": "NISAR_L2_GUNW_V1"}),
+            ("no_geometry_goff_shortname", {**base, "shortName": "NISAR_L2_GOFF_V1"}),
+            ("no_geometry_legacy_levels", {k:v for k,v in {**base, "processingLevel": "GUNW,GOFF,RUNW,ROFF,RIFG"}.items() if k != "dataset"}),
+          ]
+          with requests.Session() as session:
+            for label, params in cases:
+              try:
+                response = session.get(url, params=params, timeout=(20, 90))
+                response.raise_for_status()
+                payload = response.json()
+                if isinstance(payload, list):
+                  rows = payload
+                  keys = "list"
+                elif isinstance(payload, dict):
+                  rows = payload.get("results", payload.get("features", []))
+                  keys = ",".join(sorted(payload.keys()))
+                else:
+                  rows = []
+                  keys = type(payload).__name__
+                names = []
+                for row in rows if isinstance(rows, list) else []:
+                  if not isinstance(row, dict): continue
+                  props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+                  name = row.get("granuleName") or row.get("fileName") or row.get("sceneName") or props.get("granuleName") or props.get("fileName")
+                  if name: names.append(str(name))
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"status":response.status_code,"rows":len(rows) if isinstance(rows,list) else -1,"root_keys":keys,"sample_names":names[:3]},separators=(",",":")))
+              except Exception as exc:
+                status = getattr(getattr(exc,"response",None),"status_code",None)
+                print("ASF_CONTROL_QUERY " + json.dumps({"case":label,"error":type(exc).__name__,"http_status":status},separators=(",",":")))
+          PY
       - name: Write diagnosis summary
         if: always()
         shell: bash
