@@ -257,6 +257,38 @@ def collapse_duplicate_variants(products: list[dict[str, Any]]) -> tuple[list[di
     rejected.sort(key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
     return selected, rejected
 
+def product_maturity_evidence(
+    row: dict[str, Any], granule_name: str, maturity_from_crid: Any
+) -> tuple[str, str, str | None]:
+    """Require recognized CRID maturity and reject catalog/CRID contradictions.
+
+    Date and processing-type tokens are not maturity labels. ASF documents
+    P05023+ as PROVISIONAL and the earlier X-release CRIDs as BETA; unknown
+    CRIDs are not relabelled from acquisition dates alone.
+    """
+    parsed = str(maturity_from_crid(granule_name) or "UNKNOWN").upper()
+    explicit = str(row.get("dataMaturity") or row.get("maturity") or "").strip().upper()
+    collection = str(row.get("collectionName") or row.get("shortName") or "").strip()
+    collection_upper = collection.upper()
+    collection_maturity = (
+        "PROVISIONAL" if "PROVISIONAL" in collection_upper
+        else "BETA" if "BETA" in collection_upper
+        else ""
+    )
+    explicit_maturity = explicit if explicit in {"BETA", "PROVISIONAL"} else ""
+    declared = explicit_maturity or collection_maturity
+    evidence = (
+        f"CRID={re.search(r'_[A-Z]\\d{5}_', granule_name).group(0).strip('_') if re.search(r'_[A-Z]\\d{5}_', granule_name) else 'unparsed'}"
+        f"; parsed={parsed}; catalog_maturity={declared or 'not_explicit'}"
+        f"; collection={collection or 'not_reported'}"
+    )
+    if parsed not in {"BETA", "PROVISIONAL"}:
+        return "UNKNOWN", evidence, "MATURITY_UNKNOWN_OR_UNSUPPORTED_CRID"
+    if declared and declared != parsed:
+        return "UNKNOWN", evidence, "CATALOG_COLLECTION_CRID_MATURITY_CONFLICT"
+    return parsed, evidence, None
+
+
 def discover(args: argparse.Namespace) -> dict[str, Any]:
     start = parse_date(args.start_date, "START_DATE")
     end = parse_date(args.end_date, "END_DATE")
@@ -290,9 +322,11 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 "named_products": 0,
                 "family_name_matches": 0,
                 "parseable_pair_dates": 0,
+                "reference_dates_in_window": 0,
                 "secondary_dates_in_window": 0,
+                "date_window_matches": 0,
                 "supported_maturity": 0,
-                "products_in_secondary_date_window": 0,
+                "products_after_date_and_maturity_policy": 0,
                 "sample_granule_names": [],
             }
             accepted = 0
@@ -313,24 +347,69 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     continue
                 stats["parseable_pair_dates"] += 1
                 reference, secondary = dates
-                if secondary < start or secondary > end:
+                reference_in_window = start <= reference <= end
+                secondary_in_window = start <= secondary <= end
+                if reference_in_window:
+                    stats["reference_dates_in_window"] += 1
+                if secondary_in_window:
+                    stats["secondary_dates_in_window"] += 1
+                if args.date_filter_mode == "both-acquisitions-in-window":
+                    date_matches = reference_in_window and secondary_in_window
+                elif args.date_filter_mode == "secondary-acquisition-in-window":
+                    date_matches = secondary_in_window
+                else:
+                    raise ValueError("DATE_FILTER_MODE_INVALID")
+                if not date_matches:
+                    if not reference_in_window and not secondary_in_window:
+                        reason = "BOTH_ACQUISITIONS_OUTSIDE_DATE_WINDOW"
+                    elif not reference_in_window:
+                        reason = "REFERENCE_ACQUISITION_OUTSIDE_DATE_WINDOW"
+                    else:
+                        reason = "SECONDARY_ACQUISITION_OUTSIDE_DATE_WINDOW"
+                    excluded.append({
+                        "granule_name": name,
+                        "reason": reason,
+                        "reference_date": reference.isoformat(),
+                        "secondary_date": secondary.isoformat(),
+                        "date_filter_mode": args.date_filter_mode,
+                    })
                     continue
-                stats["secondary_dates_in_window"] += 1
-                maturity = str(row.get("dataMaturity") or row.get("maturity") or "").strip().upper()
-                if maturity not in {"BETA", "PROVISIONAL"}:
-                    maturity = maturity_for_name(name)
-                if maturity not in {"BETA", "PROVISIONAL"}:
-                    excluded.append({"granule_name": name, "reason": "MATURITY_UNKNOWN_OR_UNSUPPORTED"})
+                stats["date_window_matches"] += 1
+
+                maturity, maturity_evidence, maturity_error = product_maturity_evidence(
+                    row, name, maturity_for_name
+                )
+                if maturity_error:
+                    excluded.append({
+                        "granule_name": name,
+                        "reason": maturity_error,
+                        "crid": (re.search(r"_([A-Z]\\d{5})_", name).group(1)
+                                 if re.search(r"_([A-Z]\\d{5})_", name) else "unparsed"),
+                        "catalog_collection_name": row.get("collectionName"),
+                        "catalog_data_maturity": row.get("dataMaturity") or row.get("maturity"),
+                        "maturity_evidence": maturity_evidence,
+                        "reference_date": reference.isoformat(),
+                        "secondary_date": secondary.isoformat(),
+                    })
                     continue
                 stats["supported_maturity"] += 1
-                previous = all_rows.get(name)
+                size_bytes, size_basis = product_size_bytes(row, family, name)
+                parts = name.split("_")
                 record = {
                     "product_type": family,
                     "granule_name": name,
+                    "processing_type": product_processing_type(name),
+                    "product_accuracy": parts[16] if len(parts) > 16 else None,
+                    "frame_coverage": parts[17] if len(parts) > 17 else None,
+                    "crid": re.search(r"_([A-Z]\\d{5})_", name).group(1)
+                            if re.search(r"_([A-Z]\\d{5})_", name) else None,
+                    "catalog_collection_name": row.get("collectionName"),
                     "maturity": maturity,
+                    "maturity_evidence": maturity_evidence,
                     "reference_date": reference.isoformat(),
                     "secondary_date": secondary.isoformat(),
-                    "expected_source_bytes": product_size_bytes(row, family),
+                    "expected_source_bytes": size_bytes,
+                    "expected_source_bytes_basis": size_basis,
                     "asf_catalog_product_type": row.get("productType"),
                     "discovery_source": "ASF_search_API_intersectsWith_exact_polygon",
                 }
@@ -346,20 +425,24 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                 f"named_products={stats['named_products']} "
                 f"family_matches={stats['family_name_matches']} "
                 f"parseable_pair_dates={stats['parseable_pair_dates']} "
+                f"reference_dates_in_window={stats['reference_dates_in_window']} "
                 f"secondary_dates_in_window={stats['secondary_dates_in_window']} "
+                f"date_window_matches={stats['date_window_matches']} "
                 f"supported_maturity={stats['supported_maturity']} accepted={accepted}"
             )
+            stats["products_after_date_and_maturity_policy"] = accepted
 
-    inventory = sorted(all_rows.values(), key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
+    supported_variants = sorted(
+        all_rows.values(),
+        key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"])
+    )
+    inventory, duplicate_variants_excluded = collapse_duplicate_variants(supported_variants)
     if not inventory:
         diagnostic = json.dumps(query_summary, ensure_ascii=False, separators=(",", ":"))
         raise ValueError(
-            "NO_SUPPORTED_NISAR_PRODUCTS_INTERSECT_THE_AOI_AND_SECONDARY_DATE_WINDOW "
+            "NO_SUPPORTED_NISAR_PRODUCTS_INTERSECT_THE_AOI_AND_DATE_POLICY "
             f"catalog_diagnostics={diagnostic}"
         )
-    inventory = sorted(all_rows.values(), key=lambda r: (r["secondary_date"], r["product_type"], r["granule_name"]))
-    if not inventory:
-        raise ValueError("NO_SUPPORTED_NISAR_PRODUCTS_INTERSECT_THE_AOI_AND_SECONDARY_DATE_WINDOW")
     if args.run_profile == "validation-pilot":
         selected = []
         for family in ("GUNW", "GOFF"):
@@ -401,18 +484,41 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
         "time_window": {
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
-            "date_basis": "secondary_acquisition_date_from_granule_identifier",
+            "date_filter_mode": args.date_filter_mode,
+            "date_basis": (
+                "both_reference_and_secondary_acquisition_dates_in_inclusive_window"
+                if args.date_filter_mode == "both-acquisitions-in-window"
+                else "secondary_acquisition_date_from_granule_identifier"
+            ),
             "inclusive": True,
-            "inventory_products_in_window": len(inventory),
+            "catalog_products_matching_date_policy_before_maturity": sum(
+                s["date_window_matches"] for s in query_summary.values()
+            ),
+            "supported_product_variants_after_maturity_policy": len(supported_variants),
+            "unique_acquisition_pair_products_in_window": len(inventory),
             "selected_products": len(selected),
             "catalog_search_start": "2024-01-01",
         },
         "catalog_query": {
             "service": "ASF DAAC Search API",
             "intersects_semantics": "exact supplied WKT polygon; no bbox substitution",
+            "maturity_policy": (
+                "Require a recognized CRID maturity; P05023+ is PROVISIONAL and recognized earlier X-release CRIDs are BETA. "
+                "If an explicit ASF collection/dataMaturity label conflicts with CRID policy, reject rather than infer maturity from acquisition date."
+            ),
             "families": query_summary,
             "excluded_products": excluded,
             "results_truncated": False,
+        },
+        "processing_variant_selection": {
+            "policy": (
+                "One product per product-family, acquisition-pair geometry/mode, reference-secondary timestamps and CRID. "
+                "Prefer standard PR production, then OD science-on-demand, then UR urgent-response. "
+                "Only if processing type ties, prefer P/M/N/F product-accuracy rank and full frame over partial frame."
+            ),
+            "supported_variants_before_deduplication": len(supported_variants),
+            "unique_acquisition_pair_products": len(inventory),
+            "excluded_duplicate_variants": duplicate_variants_excluded,
         },
         "baseline_policy": {
             "committed_source_aoi_csv_comparison": False,
@@ -436,6 +542,13 @@ def main() -> int:
     p.add_argument("--start-date", required=True)
     p.add_argument("--end-date", required=True)
     p.add_argument("--run-profile", required=True, choices=("validation-pilot", "full-aoi-baseline"))
+    p.add_argument(
+        "--date-filter-mode",
+        required=False,
+        choices=("both-acquisitions-in-window", "secondary-acquisition-in-window"),
+        default="both-acquisitions-in-window",
+        help="Use both pair acquisition dates inside the window by default; secondary-only mode is explicit compatibility behavior.",
+    )
     p.add_argument("--retention-profile", required=True, choices=("derived-only", "full-lossless"))
     p.add_argument("--out", required=True, type=Path)
     a = p.parse_args()
@@ -457,7 +570,9 @@ def main() -> int:
         output.write(f"aoi_wkt_sha256={manifest['aoi_wkt_sha256']}\n")
         output.write(f"run_profile={manifest['run_profile']}\n")
     print(f"AOI_WKT_SHA256={manifest['aoi_wkt_sha256']}")
-    print(f"AOI_DISCOVERY_INVENTORY={manifest['time_window']['inventory_products_in_window']}")
+    print(f"AOI_DISCOVERY_INVENTORY={manifest['time_window']['unique_acquisition_pair_products_in_window']}")
+    print(f"AOI_SUPPORTED_VARIANTS={manifest['time_window']['supported_product_variants_after_maturity_policy']}")
+    print(f"AOI_DUPLICATE_VARIANTS_EXCLUDED={len(manifest['processing_variant_selection']['excluded_duplicate_variants'])}")
     print(f"AOI_PRODUCTS_SELECTED={len(matrix)}")
     print(f"AOI_BASELINE_GUNW={manifest['baseline_product_counts']['GUNW']}")
     print(f"AOI_BASELINE_GOFF={manifest['baseline_product_counts']['GOFF']}")
