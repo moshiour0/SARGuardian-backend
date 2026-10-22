@@ -48,6 +48,25 @@ def product_dates(name: str) -> tuple[date, date] | None:
     except ValueError:
         return None
 
+def date_window_decision(
+    reference: date, secondary: date, start: date, end: date, mode: str
+) -> tuple[bool, str | None]:
+    """Evaluate a pair against the declared interval, never silently guessing semantics."""
+    reference_in_window = start <= reference <= end
+    secondary_in_window = start <= secondary <= end
+    if mode == "both-acquisitions-in-window":
+        if reference_in_window and secondary_in_window:
+            return True, None
+        if not reference_in_window and not secondary_in_window:
+            return False, "BOTH_ACQUISITIONS_OUTSIDE_DATE_WINDOW"
+        if not reference_in_window:
+            return False, "REFERENCE_ACQUISITION_OUTSIDE_DATE_WINDOW"
+        return False, "SECONDARY_ACQUISITION_OUTSIDE_DATE_WINDOW"
+    if mode == "secondary-acquisition-in-window":
+        return (True, None) if secondary_in_window else (False, "SECONDARY_ACQUISITION_OUTSIDE_DATE_WINDOW")
+    raise ValueError("DATE_FILTER_MODE_INVALID")
+
+
 def query_asf_polygon(wkt: str, family: str, end_date: date,
                       *, session: requests.Session | None = None) -> list[dict[str, Any]]:
     """Query ASF with documented NISAR dataset/product-level filters.
@@ -278,7 +297,7 @@ def product_maturity_evidence(
     explicit_maturity = explicit if explicit in {"BETA", "PROVISIONAL"} else ""
     declared = explicit_maturity or collection_maturity
     evidence = (
-        f"CRID={re.search(r'_[A-Z]\\d{5}_', granule_name).group(0).strip('_') if re.search(r'_[A-Z]\\d{5}_', granule_name) else 'unparsed'}"
+        f"CRID={re.search(r'_[A-Z]\d{5}_', granule_name).group(0).strip('_') if re.search(r'_[A-Z]\d{5}_', granule_name) else 'unparsed'}"
         f"; parsed={parsed}; catalog_maturity={declared or 'not_explicit'}"
         f"; collection={collection or 'not_reported'}"
     )
@@ -353,22 +372,13 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     stats["reference_dates_in_window"] += 1
                 if secondary_in_window:
                     stats["secondary_dates_in_window"] += 1
-                if args.date_filter_mode == "both-acquisitions-in-window":
-                    date_matches = reference_in_window and secondary_in_window
-                elif args.date_filter_mode == "secondary-acquisition-in-window":
-                    date_matches = secondary_in_window
-                else:
-                    raise ValueError("DATE_FILTER_MODE_INVALID")
+                date_matches, date_reason = date_window_decision(
+                    reference, secondary, start, end, args.date_filter_mode
+                )
                 if not date_matches:
-                    if not reference_in_window and not secondary_in_window:
-                        reason = "BOTH_ACQUISITIONS_OUTSIDE_DATE_WINDOW"
-                    elif not reference_in_window:
-                        reason = "REFERENCE_ACQUISITION_OUTSIDE_DATE_WINDOW"
-                    else:
-                        reason = "SECONDARY_ACQUISITION_OUTSIDE_DATE_WINDOW"
                     excluded.append({
                         "granule_name": name,
-                        "reason": reason,
+                        "reason": date_reason,
                         "reference_date": reference.isoformat(),
                         "secondary_date": secondary.isoformat(),
                         "date_filter_mode": args.date_filter_mode,
@@ -413,6 +423,7 @@ def discover(args: argparse.Namespace) -> dict[str, Any]:
                     "asf_catalog_product_type": row.get("productType"),
                     "discovery_source": "ASF_search_API_intersectsWith_exact_polygon",
                 }
+                previous = all_rows.get(name)
                 if previous and previous != record:
                     raise RuntimeError(f"ASF_DUPLICATE_PRODUCT_METADATA_CONFLICT granule={name}")
                 all_rows[name] = record
