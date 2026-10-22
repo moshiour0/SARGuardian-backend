@@ -13,9 +13,14 @@ on:
         required: true
         type: string
       end_date:
-        description: "Inclusive secondary-acquisition date end."
+        description: "Inclusive end date (YYYY-MM-DD)."
         required: true
         type: string
+      date_filter_mode:
+        description: "both-acquisitions-in-window is the scientific default; secondary-only is explicit compatibility behavior."
+        required: false
+        type: string
+        default: both-acquisitions-in-window
       run_profile:
         description: "validation-pilot or full-aoi-baseline."
         required: true
@@ -37,10 +42,18 @@ on:
         type: string
         default: "2025-01-01"
       end_date:
-        description: "Inclusive upper bound for the secondary acquisition date (YYYY-MM-DD)."
+        description: "Inclusive end date for the two acquisition dates (YYYY-MM-DD)."
         required: true
         type: string
-        default: "2026-12-31"
+        default: "2026-09-15"
+      date_filter_mode:
+        description: "Both pair acquisitions must be in the window by default; choose secondary-only only when intentionally including boundary pairs."
+        required: true
+        type: choice
+        options:
+          - both-acquisitions-in-window
+          - secondary-acquisition-in-window
+        default: both-acquisitions-in-window
       run_profile:
         description: "Pilot runs the newest intersecting GUNW plus GOFF; full-aoi-baseline runs every discovered supported product."
         required: true
@@ -119,6 +132,7 @@ jobs:
         env:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
+          DATE_FILTER_MODE: ${{ inputs.date_filter_mode || 'both-acquisitions-in-window' }}
           RUN_PROFILE: ${{ inputs.run_profile }}
           RETENTION_PROFILE: ${{ inputs.retention_profile }}
         shell: bash
@@ -128,6 +142,7 @@ jobs:
           python tools/discover_aoi_products.py \
             --science-root "$PWD/science-source" \
             --start-date "$START_DATE" --end-date "$END_DATE" \
+            --date-filter-mode "$DATE_FILTER_MODE" \
             --run-profile "$RUN_PROFILE" --retention-profile "$RETENTION_PROFILE" \
             --out "$RUNNER_TEMP/sarguardian-aoi/manifest/manifest.json"
 
@@ -335,7 +350,8 @@ jobs:
           print("- **GUNW / GOFF:** {} / {}".format(x.get("gunw_count"),x.get("goff_count")))
           print("- **Products with valid pixels:** "+str(x.get("products_with_science_pixels")))
           print("- **AOI WKT SHA-256:** `"+str(x.get("aoi_wkt_sha256"))+"`")
-          print("- **Date window (secondary acquisition, inclusive):** {} to {}".format(x.get("date_start"),x.get("date_end")))
+          print("- **Date window mode:** `" + str(x.get("date_filter_mode")) + "`")
+          print("- **Date window:** {} to {}".format(x.get("date_start"),x.get("date_end")))
           print("")
           print("Download the **sarguardian-aoi-dashboard-${{ github.run_id }}-${{ github.run_attempt }}** artifact and open `index.html`.")
           print("")
