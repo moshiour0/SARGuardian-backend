@@ -128,7 +128,8 @@ jobs:
           set -euo pipefail
           log="$RUNNER_TEMP/sarguardian-download-$PRODUCT_ID.log"
           : > "$log"
-          max_attempts=4
+          # Do not redownload a multi-GB product after a failed whole-product attempt.
+          max_attempts=1
           attempt=1
           download_ok=0
           download_status=1
@@ -153,7 +154,7 @@ jobs:
               break
             fi
             if (( attempt >= max_attempts )); then
-              echo "ERROR=DOWNLOAD_RETRIES_EXHAUSTED attempts=$max_attempts" | tee -a "$log"
+              echo "ERROR=DOWNLOAD_ATTEMPTS_EXHAUSTED attempts=$max_attempts" | tee -a "$log"
               break
             fi
             delay=$((15 * (2 ** (attempt - 1))))
