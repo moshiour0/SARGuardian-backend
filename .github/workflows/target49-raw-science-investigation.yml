@@ -6,6 +6,8 @@ on:
       - science/target4-9-raw-investigation
     paths:
       - ".github/workflows/target49-raw-science-investigation.yml"
+      - "tools/target49_products.tsv"
+      - "tools/summarize_target49_diagnostics.py"
   workflow_dispatch:
 
 permissions:
@@ -20,29 +22,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
-      - name: Checkout backend orchestration repository
+      - name: Checkout isolated backend investigation branch
         uses: actions/checkout@v4
 
-      - name: Checkout isolated scientific-validation branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --depth 1 --single-branch --branch science/valid-pixel-target4-9-audit \
-            https://github.com/moshiour0/SARGuardian.git scientific
+      - name: Checkout scientific diagnostic implementation
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: 0f9b9328db4ddd14c38180d05e9dad9ca10f64cb
+          path: scientific
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: scientific/requirements.txt
 
-      - name: Install pinned scientific dependencies
+      - name: Install scientific dependencies
         run: python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r scientific/requirements.txt
 
-      - name: Validate diagnostic tooling without network access
+      - name: Validate diagnostic and downloader tooling before network calls
         run: |
-          python -m pytest scientific/tests/test_target49_gate_diagnostic.py scientific/tests/test_target49_downloader.py -q
+          set -euo pipefail
+          python -m pytest scientific/tests/test_target49_gate_diagnostic.py scientific/tests/test_target49_downloader.py scientific/tests/test_local_floor.py scientific/tests/test_scar_map.py -q
           python scientific/tools/download_target49_products.py --label GUNW-009-PROVISIONAL --dry-run
 
       - name: Require Earthdata credentials
@@ -58,9 +59,9 @@ jobs:
             exit 2
           fi
           echo "EARTHDATA_AUTH_CONFIGURED=yes" >> "$GITHUB_STEP_SUMMARY"
-          echo "Credentials are available to the download step; secret values are not printed."
+          echo "Credentials are available to the download step; secret values are never printed."
 
-      - name: Download one exact product, diagnose both AOIs, then remove raw HDF5
+      - name: Download exact Run #55 products, diagnose both AOIs, and delete raw HDF5
         shell: bash
         env:
           EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
@@ -70,23 +71,33 @@ jobs:
           set -euo pipefail
           RAW_DIR="$RUNNER_TEMP/target49-one-at-a-time"
           OUT_DIR="$GITHUB_WORKSPACE/target49_diagnostic"
+          PRODUCT_LIST="$GITHUB_WORKSPACE/tools/target49_products.tsv"
           mkdir -p "$RAW_DIR" "$OUT_DIR/download_manifests" "$OUT_DIR/diagnostics"
+          ACTIVE_WORK=""
 
-          # Exact product identity and maturity are taken from the successful Run #55 raw-download manifest.
-          # Reuse the backend's tested direct-HTTPS downloader, not ASF exact-granule catalog search.
+          cleanup_raw() {
+            if [[ -n "${ACTIVE_WORK:-}" ]]; then
+              rm -rf -- "$ACTIVE_WORK"
+            fi
+          }
+          trap cleanup_raw EXIT
+
           while IFS='|' read -r PRODUCT MATURITY LABEL GRANULE; do
-            [[ -z "$GRANULE" ]] && continue
+            [[ -z "${PRODUCT:-}" || "$PRODUCT" == "# product_type" ]] && continue
             echo "=== RAW_HDF5_DIAGNOSTIC_START label=$LABEL ==="
-            WORK="$RAW_DIR/${GRANULE%.h5}"
-            manifest="$OUT_DIR/download_manifests/$LABEL.json"
-            rm -rf "$WORK"
-            rm -f "$manifest"
+            STEM="${GRANULE%.h5}"
+            WORK="$RAW_DIR/$STEM"
+            ACTIVE_WORK="$WORK"
+            MANIFEST="$OUT_DIR/download_manifests/$LABEL.json"
+            rm -rf -- "$WORK"
+            rm -f -- "$MANIFEST"
+
             attempt=1
             while ! python tools/download_nisar_product.py \
                 --product-type "$PRODUCT" --maturity "$MATURITY" \
                 --granule-name "$GRANULE" --science-root "$GITHUB_WORKSPACE/scientific" \
                 --aoi source --out-dir "$WORK"; do
-              rm -rf "$WORK"
+              rm -rf -- "$WORK"
               if (( attempt >= 4 )); then
                 echo "::error::Download failed after 4 attempts: $LABEL ($GRANULE)"
                 exit 1
@@ -97,112 +108,40 @@ jobs:
               attempt=$((attempt + 1))
             done
 
-            raw_path="$WORK/$GRANULE"
-            source_manifest="$WORK/download-manifest.json"
-            if [[ ! -s "$raw_path" || ! -s "$source_manifest" ]]; then
-              echo "::error::Downloader did not produce one verified raw file plus manifest for $LABEL"
+            RAW="$WORK/$GRANULE"
+            SOURCE_MANIFEST="$WORK/download-manifest.json"
+            if [[ ! -s "$RAW" || ! -s "$SOURCE_MANIFEST" ]]; then
+              echo "::error::Downloader did not produce one verified HDF5 and manifest for $LABEL"
               exit 1
             fi
-            cp "$source_manifest" "$manifest"
+            cp -- "$SOURCE_MANIFEST" "$MANIFEST"
 
-            python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi source --out "${OUT_DIR}/diagnostics/${LABEL}__source.json"
-            python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-              --aoi langtang --out "${OUT_DIR}/diagnostics/${LABEL}__langtang.json"
+            python scientific/tools/target49_gate_diagnostic.py "$RAW" \
+              --aoi source --out "$OUT_DIR/diagnostics/${LABEL}__source.json"
+            python scientific/tools/target49_gate_diagnostic.py "$RAW" \
+              --aoi langtang --out "$OUT_DIR/diagnostics/${LABEL}__langtang.json"
 
-            # Diagnostic-only sensitivity: tests whether the interpolated ionosphere
-            # screen gate is the limiting stage. This is not a recommendation to
-            # change the production reader or treat uncorrected phase as equivalent.
             if [[ "$PRODUCT" == "GUNW" ]]; then
-              python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-                --aoi source --no-iono --out "${OUT_DIR}/diagnostics/${LABEL}__source_no_iono_gate.json"
-              python scientific/tools/target49_gate_diagnostic.py "$raw_path" \
-                --aoi langtang --no-iono --out "${OUT_DIR}/diagnostics/${LABEL}__langtang_no_iono_gate.json"
+              # Diagnostic-only sensitivities, not production output changes.
+              python scientific/tools/target49_gate_diagnostic.py "$RAW" \
+                --aoi source --no-iono --out "$OUT_DIR/diagnostics/${LABEL}__source_no_iono_gate.json"
+              python scientific/tools/target49_gate_diagnostic.py "$RAW" \
+                --aoi langtang --no-iono --out "$OUT_DIR/diagnostics/${LABEL}__langtang_no_iono_gate.json"
             fi
 
             rm -rf -- "$WORK"
+            ACTIVE_WORK=""
             echo "RAW_HDF5_DELETED_AFTER_DIAGNOSTIC label=$LABEL"
             echo "=== RAW_HDF5_DIAGNOSTIC_COMPLETE label=$LABEL ==="
-          done <<'PRODUCTS'
-          GUNW|BETA|GUNW-006-BETA-control|NISAR_L2_PR_GUNW_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-007-PROVISIONAL|NISAR_L2_PR_GUNW_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-009-PROVISIONAL|NISAR_L2_PR_GUNW_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-010-PROVISIONAL|NISAR_L2_PR_GUNW_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-011-TARGET4-LOW-SUPPORT|NISAR_L2_PR_GUNW_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-012-TARGET4-LOW-SUPPORT|NISAR_L2_PR_GUNW_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
-          GUNW|PROVISIONAL|GUNW-013-PROVISIONAL-FOLLOWUP|NISAR_L2_PR_GUNW_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
-          GOFF|BETA|GOFF-023-BETA-control|NISAR_L2_PR_GOFF_009_098_A_016_010_4000_SH_20260103T233921_20260103T233956_20260115T233922_20260115T233956_X05010_N_F_J_001.h5
-          GOFF|PROVISIONAL|GOFF-025-PROVISIONAL|NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5
-          GOFF|PROVISIONAL|GOFF-026-PROVISIONAL|NISAR_L2_PR_GOFF_025_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001.h5
-          GOFF|PROVISIONAL|GOFF-027-PROVISIONAL|NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5
-          GOFF|PROVISIONAL|GOFF-028-PROVISIONAL-MATCHED-DESCENDING|NISAR_L2_PR_GOFF_026_048_D_074_028_4000_SH_20260723T125813_20260723T125848_20260816T125812_20260816T125846_P05023_N_F_J_001.h5
-          GOFF|PROVISIONAL|GOFF-029-PROVISIONAL|NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5
-          PRODUCTS
+          done < "$PRODUCT_LIST"
 
-          python - <<'PY'
-          import csv, json
-          from pathlib import Path
-          root = Path("target49_diagnostic")
-          rows = []
-          for path in sorted((root / "diagnostics").glob("*.json")):
-              report = json.loads(path.read_text(encoding="utf-8"))
-              if "__langtang_no_iono_gate" in path.name:
-                  aoi = "langtang_no_iono_gate"
-              elif "__source_no_iono_gate" in path.name:
-                  aoi = "source_no_iono_gate"
-              elif "__langtang" in path.name:
-                  aoi = "langtang"
-              else:
-                  aoi = "source"
-              for item in report.get("results", []):
-                  targets = item.get("targets")
-                  if targets is not None:
-                      for tid, t in targets.items():
-                          rows.append({
-                              "diagnostic_file": path.name, "product": item["file"],
-                              "type": item["type"], "aoi_run": aoi, "target": tid,
-                              "crid": item.get("crid"), "maturity": item.get("maturity"),
-                              "sha256": item.get("sha256"), "bytes": item.get("bytes"),
-                              "inside_grid_extent": t.get("inside_grid_extent"),
-                              "inside_requested_aoi_polygon": t.get("inside_requested_aoi_polygon"),
-                              "nearest_grid_cell_distance_m": t.get("nearest_grid_cell_distance_m"),
-                              "window_cell_count": t.get("window_cell_count"),
-                              "cumulative_stage_counts": json.dumps(t.get("cumulative_stage_counts", {}), sort_keys=True),
-                              "warnings": " | ".join(report.get("warnings", [])),
-                          })
-                  for layer in item.get("layers", []):
-                      for tid, t in layer.get("targets", {}).items():
-                          rows.append({
-                              "diagnostic_file": path.name, "product": item["file"],
-                              "type": item["type"], "layer": layer.get("group"), "aoi_run": aoi,
-                              "target": tid, "sha256": item.get("sha256"), "bytes": item.get("bytes"),
-                              "inside_grid_extent": t.get("inside_grid_extent"),
-                              "inside_requested_aoi_polygon": t.get("inside_requested_aoi_polygon"),
-                              "nearest_grid_cell_distance_m": t.get("nearest_grid_cell_distance_m"),
-                              "window_cell_count": t.get("window_cell_count"),
-                              "cumulative_stage_counts": json.dumps(t.get("cumulative_stage_counts", {}), sort_keys=True),
-                              "warnings": " | ".join(report.get("warnings", [])),
-                          })
-          if not rows:
-              raise SystemExit("No target rows were generated; refuse to publish an empty success report.")
-          with (root / "target4_9_summary.csv").open("w", newline="", encoding="utf-8") as f:
-              writer = csv.DictWriter(f, fieldnames=sorted({k for row in rows for k in row}))
-              writer.writeheader()
-              writer.writerows(rows)
-          (root / "diagnostic_status.json").write_text(json.dumps({
-              "status": "completed",
-              "source_run": "SARGuardian-backend Run #55 / 39657764262",
-              "science_branch": "science/valid-pixel-target4-9-audit",
-              "raw_hdf5_retained": False,
-              "raw_products_diagnosed": len({r["product"] for r in rows}),
-              "diagnostic_rows": len(rows),
-              "notes": [
-                  "Both source and langtang AOIs were evaluated.",
-                  "GUNW source-AOI no-ionosphere-gate output is diagnostic-only, not a recommendation to change production filtering.",
-                  "All raw HDF5 files are deleted after diagnostic; per-file SHA-256, size and gate summaries remain."
-              ]
-          }, indent=2) + "\n", encoding="utf-8")
-          print(f"TARGET49_DIAGNOSTIC_SUMMARY products={len({r['product'] for r in rows})} rows={len(rows)}")
+      - name: Verify identity and summarize every diagnostic report
+        run: |
+          set -euo pipefail
+          python tools/summarize_target49_diagnostics.py \
+            --root "$GITHUB_WORKSPACE/target49_diagnostic" \
+            --manifest "$GITHUB_WORKSPACE/tools/target49_products.tsv" \
+            --expected-products 13
 
       - name: Upload only manifests and diagnostic summaries (never raw HDF5)
         if: ${{ always() }}
