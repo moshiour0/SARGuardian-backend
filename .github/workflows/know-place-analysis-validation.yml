@@ -93,6 +93,7 @@ jobs:
           tools/tests/test_know_place_motion_features.py
           tools/tests/test_know_place_author_reference_data.py
           tools/tests/test_know_place_author_catalog.py
+          tools/tests/test_know_place_author_archive.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash

@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-10-24  
 **Working branch:** `feat/know-place-analysis`  
-**Paper reproduction status:** `BLOCKED_AUTHOR_CODE_GOLDEN_RASTERS_AND_EXACT_FIRST_GRANULE_VARIANT_UNVERIFIED`  
+**Current paper reproduction status:** `BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`  
 **Hazard-detection status:** `NOT_EVALUATED`
 
 ## 1. Sources received and provenance
@@ -21,7 +21,7 @@ The source-derived CSV is preserved in the repository at `docs/know-place/refere
 
 **Manuscript-version caution:** the pre-existing `KNOW_PLACE_ANALYSIS_BLUEPRINT.md` cites a differently titled EGUsphere preprint, DOI `10.5194/egusphere-2026-5462`. A formal cross-version identity/content comparison has not been completed. The exact product IDs and table values transcribed in this audit refer only to the uploaded Research Square PDF and its supplied supplement; do not silently assume the two records are identical or mix their source manifests.
 
-The uploaded DOCX is the supplementary information, not the separate Zenodo code/data archive. I have not verified the Zenodo archive payload or its checksum in this run. Therefore script-level parity and pixelwise golden-data comparison are still blocked; this is not evidence that the archive is absent. The article and supplement describe CC BY 4.0 terms, except Supplementary Figure 1 and Supplementary Table 5, identified as third-party CC BY-NC 4.0 material. Those exceptions are not copied into the repository.
+At the time of the supplement-only review, the DOCX was available but the separate Zenodo archive had not yet been supplied. The user has now supplied that archive; its hashes and payload checks are documented in `ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md`. Script-level parity and exact raw-source replay remain blocked for the reasons in that later audit. The article and supplement describe CC BY 4.0 terms, except Supplementary Figure 1 and Supplementary Table 5, identified as third-party CC BY-NC 4.0 material. Those exceptions are not copied into the repository.
 
 ## 2. Exact facts now resolved from the supplied supplement
 
@@ -93,17 +93,17 @@ These match the rounded source-zone values in the main paper. This is author-der
 
 ## 3. What remains blocked
 
-- The code/statistics/raster archive cited by the paper at Zenodo DOI `10.5281/zenodo.22730419` has not yet been downloaded and hash-verified in this run.
+- Superseded archive-retrieval note: the Zenodo code/statistics/processed-field ZIP is now downloaded and hash-verified; see `ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md`. Raw GOFF HDF5 and full-footprint per-pair rasters are not in the ZIP.
 - A live ASF query confirmed four of five author P05023 granules by trusted collection URL, but the exact 20 June–2 July P05023 identifier was not found (Run 40035193088). The separate historical-candidate query confirms X05026 for that same interval. No raw source was downloaded during either gate; preserve X05026 only as historical evidence and do not call it author-identical.
 - Pixelwise comparison against author east/north/magnitude/coherence rasters and exact equality/tolerance checks for all five pairs are not complete.
 - The published crown pixel counts differ from the historical replay at least for the 24-day target pair (296 versus 298). Exact rasterization, geometry lookup, sample policy, and processing differences must be isolated before declaring parity.
 - The site's constant 5151.0 m HAE query is not proven equivalent to the author's crown-local geometry sampling: the paper confirms one crown-local geometry for the site series, but exact height/datum and sampling code are not stated in the PDF/supplement text.
 - The exact random-region generator and acceptance rules and the exact 5×5 coherence missing/edge policy must be taken from the author scripts, not guessed.
-- The supplied files include the full Supplementary Information document (Figs. 1–3 and Tables 1–6) plus Supplementary Data 1's 101-zone CSV. They do not include the separate full-footprint raster layers, original author source code, or the archive's complete numeric/golden-output assets.
+- At the time of the original supplement-only review, only the paper, DOCX and CSV had been supplied. The later Zenodo archive includes original analysis code, numeric tables, site fields and footprint screen rasters, but omits raw GOFF HDF5 payloads and full-footprint per-pair offset rasters.
 
 ## 4. Acceptance plan
 
-1. Obtain the Zenodo record/archive linked by the paper; save original filenames, metadata, archive SHA-256 and extracted-file SHA-256 values.
+1. [x] Obtain the Zenodo archive, save original filenames and SHA-256/MD5 values, and verify included manifest-listed payloads; see the later Zenodo archive audit.
 2. Compare the archive README and source metadata with the failed live lookup for the exact first-pair P05023 ID. If the author archive includes that granule or a retrievable direct object reference, verify bytes and SHA-256 before any new run. If it remains unavailable, document the source-version mismatch and ask the corresponding archive/author for clarification; never substitute, rename or relabel X05026 as P05023.
 3. Extract the author's actual scripts and reproduce their environment/commands. Use the author crown WKT now recorded in the reference manifest.
 4. Compare source rasters and all Table 4 values pair-by-pair. Record pixelwise tolerances, valid masks, crown cell counts, scalar values, null distributions, and any known grid/resampling differences.
@@ -111,3 +111,8 @@ These match the rounded source-zone values in the main paper. This is author-der
 6. Leave paper reproduction `BLOCKED` and hazard detection `NOT_EVALUATED` until exact inputs and independent golden-output comparisons pass.
 
 The historic raw files/arrays should be reused wherever they remain applicable; do not re-download the four matching granules merely to re-check their IDs.
+
+
+## Superseding update
+
+The archive was subsequently supplied and verified on 2026-10-24. Archive identity, file-profile discrepancy, TableS7 equality, exact site-series code details, and remaining implementation/source blockers are documented in [ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md](ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md). This document preserves the earlier supplement-only findings but does not claim the current calculation is a faithful reproduction.

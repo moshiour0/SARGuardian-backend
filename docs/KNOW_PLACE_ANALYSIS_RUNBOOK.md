@@ -4,7 +4,7 @@ This guide applies only to branch `feat/know-place-analysis`. Do not run the exi
 
 ## Current phase
 
-The pure kernels, strict raw-HDF5 reader, metadata-cube interpolation, five-pair orchestration and synthetic integration tests are implemented. The supplied paper and Supplementary Information now establish the crown bounds and exact five author granule IDs. This remains an **exploratory paper-method path**, not a validated landslide detector: the historical raw replay's first pair is X05026 rather than author P05023, and the separate code/golden-raster archive has not yet been verified.
+The pure kernels, strict raw-HDF5 reader, metadata-cube interpolation, five-pair orchestration and synthetic integration tests are implemented. The supplied paper and Supplementary Information now establish the crown bounds and exact five author granule IDs. This remains an **exploratory paper-method path**, not a validated landslide detector: the historical raw replay's first pair is X05026 rather than author P05023, and the separate Zenodo code/output archive is now hash-verified. However, source HDF5 payloads are not in the archive and exact author-method parity has not been implemented; this remains an exploratory path, not a validated detector.
 
 ## Five-pair product candidates observed in Dynamic AOI Run 39942529304
 
@@ -18,7 +18,7 @@ The table below records the **historical raw replay inputs** from Dynamic AOI Ru
 | 2026-07-26 → 2026-08-19 | `NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001` | GOFF-015 |
 | 2026-08-19 → 2026-08-31 | `NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001` | GOFF-019 |
 
-The author series uses ascending T098, L-SAR HH, PR GOFF layer2 products. The isolated live-catalog workflow contacts ASF for the five **historical candidates** and does not download raw data; its pass does not establish the author-exact P05023 first-pair identity. That live check must be updated or separately run for the exact first P05023 granule. The four other historic IDs match Supplementary Table 1.
+The author series uses ascending T098, L-SAR HH, PR GOFF layer2 products. The archived TableS1 manifest confirms five exact P05023 IDs, but the archive does not contain their raw HDF5 bytes. The isolated live-catalog check confirmed four trusted collection routes and returned NOT_FOUND for the first P05023 pair. Do not relabel historical X05026 as P05023; keep raw replay blocked until exact source bytes are pinned.
 
 ## Reference box and crown
 
@@ -119,7 +119,7 @@ The runner first inspects only the five files' grid axes and metadata, checks th
 - Scientific comparison: for 26 July–19 August, crown median horizontal magnitude was 0.966 m, mean-vector magnitude 1.722 m, azimuth 277.79°. On the pointwise 0.17–2.75 m window, R was 0.869 for 150 crown centres; the preprint reports about 0.869 for 147 centres. Background R/count and control statistics remain different.
 - The original min-25-valid-neighbours condition is no longer the primary R rule: the preprint does not specify it. The primary result uses at least one valid vector and emits sensitivity for min valid counts 1/5/10/15/20/25.
 - The current circular-control result (median ~0.128 m; ~96.08th percentile) is **not comparable** with the paper's ~0.14 m / 94.7th percentile because exact crown geometry, source variants and author control sampling are not verified. It must not trigger an alarm.
-- Current gate is `PAPER_REPRODUCTION_STATUS=BLOCKED_AUTHOR_GEOMETRY_VARIANT_AND_GOLDEN_OUTPUTS_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. Evidence table, raw/source hashes, R-policy comparison and acceptance gaps: [RAW_REPLAY_40006999011_R_POLICY_AUDIT.md](know-place/evidence/RAW_REPLAY_40006999011_R_POLICY_AUDIT.md).
+- Current gate is `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. The Zenodo archive payload is integrity-verified; see `know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md`. Evidence table, raw/source hashes, R-policy comparison and acceptance gaps: [RAW_REPLAY_40006999011_R_POLICY_AUDIT.md](know-place/evidence/RAW_REPLAY_40006999011_R_POLICY_AUDIT.md).
 - Validation: [Run 40015371603](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015371603) passed 46 tests, parsed all three isolated workflows and passed actionlint. All files remain on `feat/know-place-analysis`; `main` was not changed.
 
 
@@ -172,4 +172,4 @@ The result also records `motion_dynamics` features. Changes in mean-vector rate 
 - Generic mode preserves and flags displacement above the configurable review threshold by default because rapid failures can be real high-magnitude motion. The Bhote Koshi paper-method example explicitly chooses `reject_above_threshold`; that method-specific setting must never be adopted as a universal “real movement” rule.
 - Constant HAE is still an approximation, not DEM-derived per-pixel terrain height. Operational monitoring remains blocked until terrain-dependent geometry and independent validation are implemented and tested.
 
-For event-level thresholds and a separate multi-event holdout strategy see [MULTI_EVENT_VALIDATION_PLAN.md](know-place/validation/MULTI_EVENT_VALIDATION_PLAN.md). Current author-supplement, exact-crown and paper-golden-output blockers remain documented in [AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md](know-place/evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md).
+For event-level thresholds and a separate multi-event holdout strategy see [MULTI_EVENT_VALIDATION_PLAN.md](know-place/validation/MULTI_EVENT_VALIDATION_PLAN.md). Current author-supplement and method-parity blockers are documented in [AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md](know-place/evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md) and the later [Zenodo archive/method audit](know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md).
