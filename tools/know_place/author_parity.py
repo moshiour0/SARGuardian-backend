@@ -1,6 +1,6 @@
 """Author-source-compatible kernels kept separate from the exploratory runner.
 
-Adapted from Sansar Raj Meena (2026), "Bhote Koshi 2026 ice-rock avalanche:
+Adapted from Sansar Raj Meena (2026), "Bhote Koshi 2026 ice–rock avalanche:
 NISAR L2 GOFF site series and footprint-wide offset-tracking screen — data and
 code", Zenodo, https://doi.org/10.5281/zenodo.22730419, CC BY 4.0.
 Changes: extracted kernels into typed, independently testable functions and
