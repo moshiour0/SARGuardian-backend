@@ -228,6 +228,11 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             f"ASF catalog query failed ({type(exc).__name__}); no product downloads were attempted",
         ) from None
 
+    if len(results) >= 2000:
+        raise AOIRunError(
+            "ASF_CATALOG_RESULT_CAP_REACHED",
+            "ASF returned the configured maximum of 2000 products; narrow the AOI/date range rather than risk a truncated series",
+        )
     accepted: list[dict[str, Any]] = []
     all_rows: list[dict[str, Any]] = []
     allowed_maturities = set(request.allowed_maturities)
