@@ -44,6 +44,7 @@ class AOIRequest:
     allowed_maturities: tuple[str, ...]
     reference_wkt: str | None
     reference_buffer_m: float
+    geometry_height_m: float | None
     min_snr: float
     max_horizontal_magnitude_m: float
     coherence_window: int
@@ -71,6 +72,11 @@ class AOIRequest:
                 if self.reference_wkt else "no_background_correction",
                 "polygon_wkt": self.reference_wkt,
                 "fallback_buffer_m": self.reference_buffer_m,
+            },
+            "geometry_policy": {
+                "constant_hae_m": self.geometry_height_m,
+                "source": "explicit_user_constant_hae" if self.geometry_height_m is not None else "product_height_axis_midpoint_approximation",
+                "warning": "A constant height is an approximation, not a DEM-derived per-pixel terrain height.",
             },
             "quality_policy": {
                 "name": "nisar_goff_exploratory_v1",
@@ -197,6 +203,21 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
     if reference_wkt is None and reference_buffer_m <= 0:
         raise AOIRequestError("POSITIVE_REFERENCE_BUFFER_REQUIRED_WITHOUT_REFERENCE_POLYGON")
 
+    geometry = payload.get("geometry_policy", {})
+    if not isinstance(geometry, dict):
+        raise AOIRequestError("GEOMETRY_POLICY_MUST_BE_OBJECT")
+    raw_height = geometry.get("constant_hae_m")
+    geometry_height_m = None
+    if raw_height is not None:
+        try:
+            geometry_height_m = float(raw_height)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise AOIRequestError("GEOMETRY_HEIGHT_MUST_BE_NUMERIC") from exc
+        if not math.isfinite(geometry_height_m):
+            raise AOIRequestError("GEOMETRY_HEIGHT_MUST_BE_FINITE")
+    if analysis_mode == "operational_monitoring" and geometry_height_m is None:
+        raise AOIRequestError("OPERATIONAL_MODE_REQUIRES_DEM_OR_EXPLICIT_HAE")
+
     quality = payload.get("quality_policy", {})
     if not isinstance(quality, dict):
         raise AOIRequestError("QUALITY_POLICY_MUST_BE_OBJECT")
@@ -230,6 +251,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "polarization": polarization,
         "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_maturities": list(allowed_maturities)},
         "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction", "fallback_buffer_m": reference_buffer_m},
+        "geometry_policy": {"constant_hae_m": geometry_height_m},
         "quality_policy": {"minimum_snr": min_snr, "maximum_horizontal_magnitude_m": max_magnitude},
         "coherence_policy": {"window_size": window, "minimum_valid_neighbours": neighbours},
     }
@@ -252,6 +274,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         allowed_maturities=allowed_maturities,
         reference_wkt=reference_wkt,
         reference_buffer_m=reference_buffer_m,
+        geometry_height_m=geometry_height_m,
         min_snr=min_snr,
         max_horizontal_magnitude_m=max_magnitude,
         coherence_window=window,
