@@ -48,7 +48,7 @@ jobs:
       AOI_NAME: custom
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
       AOI_ORCHESTRATION_SHA: ${{ inputs.orchestration_sha }}
-      AOI_ORCHESTRATION_BRANCH: feat/e2e-aoi-wkt-date-dashboard
+      AOI_ORCHESTRATION_BRANCH: feat/final-aoi-science-integration
       SCIENCE_COMMIT: 10639a916c9829850775410b3ed7de62e527770d
       RETENTION_PROFILE: ${{ inputs.retention_profile }}
       PRODUCT_EXECUTION_LABEL: ${{ inputs.execution_label }}
