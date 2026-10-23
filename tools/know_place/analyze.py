@@ -218,7 +218,20 @@ def _report_controls(
         )
         magnitude_distribution = np.asarray(controls.pop("mag_distribution_for_percentile"), dtype=float)
         r_distribution = np.asarray(controls.pop("R_distribution_for_percentile"), dtype=float)
-        # Internal arrays used for percentiles are omitted from JSON; draw values are retained.
+        magnitude_draws = list(controls.get("displacement_control_values_m", []))
+        coherence_draws = list(controls.get("directional_coherence_control_values_R", []))
+        valid_counts = list(controls.get("valid_pixel_counts", []))
+        # Hash the actual ordered control sample, not the summary statistic.
+        controls["spatial_control_sample_sha256"] = _sha256_text(json.dumps(
+            _json_safe({
+                "seed": controls.get("seed"),
+                "prng": controls.get("prng"),
+                "displacement_m": magnitude_draws,
+                "coherence_R": coherence_draws,
+                "valid_pixel_counts": valid_counts,
+            }),
+            sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ))
         magnitude_percentile = empirical_percentile(magnitude_distribution, crown_median)
         coherence_percentile = None
         if crown_R is not None and r_distribution.size:
@@ -232,10 +245,6 @@ def _report_controls(
         controls.pop("displacement_control_values_m", None)
         controls.pop("directional_coherence_control_values_R", None)
         controls.pop("valid_pixel_counts", None)
-        controls["displacement_control_values_sha256"] = _sha256_text(
-            json.dumps(_json_safe(controls.get("control_median_of_median_displacement_m")),
-                       sort_keys=True)
-        )
         return controls
     except (ScientificInputError, ValueError) as exc:
         return {
