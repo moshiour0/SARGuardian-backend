@@ -238,11 +238,10 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         raise AOIRequestError("MINIMUM_SNR_INVALID")
     if not math.isfinite(max_magnitude) or max_magnitude <= 0:
         raise AOIRequestError("MAXIMUM_HORIZONTAL_MAGNITUDE_INVALID")
-    default_magnitude_policy = (
-        "reject_above_threshold"
-        if analysis_mode == "retrospective_validation"
-        else "flag_above_threshold_keep"
-    )
+    # A >10 m vector may be either a GOFF blunder or real rapid movement.
+    # Generic requests preserve and flag it; method-specific paper replay must
+    # explicitly choose reject_above_threshold in its versioned request.
+    default_magnitude_policy = "flag_above_threshold_keep"
     magnitude_policy = str(quality.get("magnitude_policy", default_magnitude_policy))
     if magnitude_policy not in {"reject_above_threshold", "flag_above_threshold_keep"}:
         raise AOIRequestError("MAGNITUDE_POLICY_UNSUPPORTED")
