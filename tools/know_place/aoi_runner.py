@@ -44,6 +44,7 @@ from .paper_method import (
     summarize_crown,
 )
 from .series import SeriesPlanError, build_pairwise_series_plan
+from .uncertainty import spatial_block_bootstrap_summary
 
 ENGINE_VERSION = "1.0.0"
 TRUSTED_ASF_HOSTS = ("asf.alaska.edu", ".asf.earthdatacloud.nasa.gov")
@@ -724,6 +725,10 @@ def run_aoi_analysis(
                 corrected_east, corrected_north, valid, roi.crown_mask,
                 coherence, interval_days=max(1, (raw.identity.secondary_start.date() - raw.identity.reference_start.date()).days),
             )
+            uncertainty = spatial_block_bootstrap_summary(
+                corrected_east, corrected_north, valid, roi.crown_mask,
+                block_size_cells=5, replicates=1000, seed=260826, minimum_blocks=8,
+            )
             controls = None
             try:
                 from .paper_method import empirical_percentile, size_matched_spatial_controls
@@ -770,6 +775,7 @@ def run_aoi_analysis(
             base.update({
                 "status": "METRICS_COMPUTED",
                 "statistics": summary,
+                "spatial_block_bootstrap_uncertainty": uncertainty,
                 "exploratory_control_comparison": controls,
                 "geotiff_file": "../" + geotiff_relative,
                 "diagnostic_arrays_file": npz_relative,
