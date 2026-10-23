@@ -597,8 +597,8 @@ def run_aoi_analysis(
             }
             (run_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             (run_dir / "README.txt").write_text(
-                "SARGuardian Know Place Analysis — catalog/series dry run\\n"
-                "No source HDF5 products were downloaded and no displacement metrics were computed.\\n",
+                "SARGuardian Know Place Analysis — catalog/series dry run\n"
+                "No source HDF5 products were downloaded and no displacement metrics were computed.\n",
                 encoding="utf-8",
             )
             write_dashboard(result, run_dir / "visuals" / "dashboard.html")
@@ -613,7 +613,7 @@ def run_aoi_analysis(
                 "dry_run": True,
                 "sources": [],
                 "files": [
-                    {"path": str(file.relative_to(run_dir)).replace("\\\\", "/"),
+                    {"path": str(file.relative_to(run_dir)).replace("\\", "/"),
                      "bytes": file.stat().st_size, "sha256": _sha256(file)}
                     for file in output_files
                 ],
@@ -624,7 +624,7 @@ def run_aoi_analysis(
                 },
             }
             (run_dir / "manifest.json").write_text(
-                json.dumps(manifest, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8"
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
             )
             result["output_manifest"] = "manifest.json"
             result["output_files"] = len(manifest["files"])
