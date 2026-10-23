@@ -148,7 +148,7 @@ jobs:
               break
             fi
             if (( attempt >= max_attempts )); then
-              echo "ERROR=DOWNLOAD_RETRIES_EXHAUSTED attempts=$max_attempts" | tee -a "$log"
+              echo "ERROR=DOWNLOAD_ATTEMPTS_EXHAUSTED attempts=$max_attempts" | tee -a "$log"
               break
             fi
             delay=$((15 * (2 ** (attempt - 1))))
