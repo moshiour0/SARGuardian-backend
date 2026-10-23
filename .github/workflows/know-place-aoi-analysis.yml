@@ -154,9 +154,6 @@ jobs:
                   "polygon_wkt": reference,
                   "fallback_buffer_m": 2000.0,
               }
-          else:
-              request["reference"] = {"fallback_buffer_m": 2000.0}
-
           Path("know-place-request.json").write_text(
               json.dumps(request, indent=2, ensure_ascii=False) + "\n",
               encoding="utf-8",
