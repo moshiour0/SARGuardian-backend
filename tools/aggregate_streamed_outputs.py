@@ -961,6 +961,61 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
             })
             return
 
+    # The two source scripts that were not yet connected to this workflow are
+    # now run against the retained, AOI-clipped products. This adapter measures
+    # target windows from exported GeoTIFFs rather than redownloading raw HDF5.
+    backend_tool = Path(__file__).resolve().parent / "run_export_science_diagnostics.py"
+    diagnostics_root = out_root / "logs" / "export-science-diagnostics"
+    diagnostics_argv = [
+        sys.executable, str(backend_tool),
+        "--science-root", str(science_root),
+        "--exports-root", str(science_root / "outputs" / "export_src"),
+        "--out-root", str(diagnostics_root),
+        "--expected-science-commit", str(report.get("science_commit") or ""),
+        "--aoi", "source",
+        "--stats-csv", str(science_root / "outputs" / "gunw_stats_source.csv"),
+        "--candidates-csv", str(science_root / "outputs" / "scar_candidates_source.csv"),
+        "--run-candidate-check",
+    ]
+    diagnostics_done = subprocess.run(
+        diagnostics_argv, cwd=science_root, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=2400,
+    )
+    diagnostics_log = out_root / "logs" / "export_science_diagnostics_runner.log"
+    diagnostics_log.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_log.write_text(diagnostics_done.stdout or "", encoding="utf-8")
+    diagnostics_path = diagnostics_root / "science-diagnostics.json"
+    if diagnostics_path.is_file():
+        try:
+            report["export_science_diagnostics"] = json.loads(
+                diagnostics_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            report["export_science_diagnostics"] = {
+                "status": "FAIL", "problem": "DIAGNOSTICS_REPORT_INVALID",
+                "detail": str(exc)[:300],
+            }
+    else:
+        report["export_science_diagnostics"] = {
+            "status": "FAIL", "problem": "DIAGNOSTICS_REPORT_MISSING",
+        }
+    report["commands"].append({
+        "name": "pixel_stack and candidate_check on retained GUNW exports",
+        "argv": diagnostics_argv[1:],
+        "exit_code": diagnostics_done.returncode,
+        "log": str(diagnostics_log.relative_to(out_root)),
+        "status": report["export_science_diagnostics"].get("status"),
+        "source": "unchanged scripts from the exact pinned SARGuardian source commit",
+    })
+    if diagnostics_done.returncode != 0 or report["export_science_diagnostics"].get("status") == "FAIL":
+        report["errors"].append({
+            "problem": "EXPORT_SCIENCE_DIAGNOSTICS_FAILED",
+            "exit_code": diagnostics_done.returncode,
+            "diagnostics_status": report["export_science_diagnostics"].get("status"),
+            "log": str(diagnostics_log.relative_to(out_root)),
+        })
+        return
+
     # Keep the pre-event cutoff explicit to prevent the event and post-event
     # observations from leaking into an alleged warning-time estimate.
     argv = [
