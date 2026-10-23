@@ -29,7 +29,8 @@ def _finite_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _midpoint_seconds(granule_name: str) -> float:
+def _acquisition_midpoints(granule_name: str):
+    """Return reference, secondary, and pair midpoints from exact filename times."""
     try:
         identity = parse_granule_identity(granule_name)
     except GoffReadError as exc:
@@ -40,10 +41,11 @@ def _midpoint_seconds(granule_name: str) -> float:
     secondary_midpoint = identity.secondary_start + (
         identity.secondary_end - identity.secondary_start
     ) / 2
-    seconds = (secondary_midpoint - reference_midpoint).total_seconds()
-    if not math.isfinite(seconds) or seconds <= 0:
+    interval_seconds = (secondary_midpoint - reference_midpoint).total_seconds()
+    if not math.isfinite(interval_seconds) or interval_seconds <= 0:
         raise MotionFeatureError(f"FEATURE_INTERVAL_DURATION_INVALID:{granule_name}")
-    return seconds
+    pair_midpoint = reference_midpoint + (secondary_midpoint - reference_midpoint) / 2
+    return reference_midpoint, secondary_midpoint, pair_midpoint
 
 
 def _feature_row(pair: dict[str, Any]) -> dict[str, Any]:
@@ -52,9 +54,10 @@ def _feature_row(pair: dict[str, Any]) -> dict[str, Any]:
     status = pair.get("status", "UNKNOWN")
     name = str(pair.get("granule_name", ""))
     interval_days = _finite_number(pair.get("interval_days"))
-    identity_seconds = _midpoint_seconds(name) if name else None
-    if identity_seconds is not None:
-        identity_days = identity_seconds / 86400.0
+    midpoints = _acquisition_midpoints(name) if name else None
+    if midpoints is not None:
+        reference_midpoint, secondary_midpoint, _ = midpoints
+        identity_days = (secondary_midpoint - reference_midpoint).total_seconds() / 86400.0
         # The exact duration is recomputed from granule endpoints. A recorded
         # interval field must agree within 1 ms in time, otherwise stop.
         if interval_days is not None and not math.isclose(
@@ -199,9 +202,11 @@ def build_motion_dynamics_features(
                 reasons.append("VECTOR_RATE_UNAVAILABLE")
 
             if not reasons:
-                prev_seconds = _midpoint_seconds(str(prev_granule))
-                curr_seconds = _midpoint_seconds(str(current_granule))
-                midpoint_delta_days = abs(curr_seconds - prev_seconds) / 86400.0
+                _, _, previous_pair_midpoint = _acquisition_midpoints(str(prev_granule))
+                _, _, current_pair_midpoint = _acquisition_midpoints(str(current_granule))
+                midpoint_delta_days = abs(
+                    (current_pair_midpoint - previous_pair_midpoint).total_seconds()
+                ) / 86400.0
                 if not math.isfinite(midpoint_delta_days) or midpoint_delta_days <= 0:
                     reasons.append("PAIR_MIDPOINT_ORDER_INVALID")
                 else:
