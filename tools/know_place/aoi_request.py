@@ -66,7 +66,7 @@ class AOIRequest:
             "analysis_mode": self.analysis_mode,
             "source_adapters": list(self.source_adapters),
             "polarization": self.polarization,
-            "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules)},
+            "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules), "allowed_maturities": list(self.allowed_maturities)},
             "reference": {
                 "policy": "external_reference_polygon_component_median"
                 if self.reference_wkt else "no_background_correction",
