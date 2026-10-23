@@ -48,7 +48,7 @@ def test_request_normalizes_dates_polygon_selection_and_hash_deterministically()
     assert len(first.request_sha256) == 64
     normalized = first.to_dict()
     assert normalized["date_range"]["inclusive"] is True
-    assert normalized["quality_policy"]["gross_outlier_policy"] == "reject_not_clip"
+    assert normalized["quality_policy"]["gross_outlier_policy"] == "preserve_but_flag_above_threshold"
 
 
 @pytest.mark.parametrize("dates,code", [
@@ -130,3 +130,16 @@ def test_operational_monitoring_fails_closed_until_dem_backed_geometry_is_availa
 
     with pytest.raises(AOIRequestError, match="OPERATIONAL_MODE_BLOCKED_DEM_BACKED_GEOMETRY_REQUIRED"):
         validate_aoi_request(payload)
+
+
+def test_generic_mode_preserves_large_motion_by_default_but_paper_policy_is_explicit():
+    payload = request()
+    payload["analysis_mode"] = "exploratory"
+    generic = validate_aoi_request(payload)
+    assert generic.magnitude_policy == "flag_above_threshold_keep"
+    assert generic.to_dict()["quality_policy"]["maximum_horizontal_magnitude_m"] == 10.0
+
+    payload["quality_policy"]["magnitude_policy"] = "reject_above_threshold"
+    paper_policy = validate_aoi_request(payload)
+    assert paper_policy.magnitude_policy == "reject_above_threshold"
+    assert paper_policy.to_dict()["quality_policy"]["gross_outlier_policy"] == "reject_above_threshold_not_clip"
