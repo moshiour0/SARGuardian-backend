@@ -41,7 +41,7 @@ jobs:
             {
               echo "## Know Place Analysis trigger gate"
               echo
-              echo "This feature-branch update did not include `[run-know-place]` and no explicit manual-run consent was supplied."
+              echo "This feature-branch update did not include the [run-know-place] marker, so no analysis was requested."
               echo "No raw NISAR products were downloaded."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -63,8 +63,6 @@ jobs:
       CROWN_GEOMETRY_KIND: bounding-box-approximation
       GEOMETRY_HEIGHT_M: '5151'
       CONTROL_DRAWS: '1000'
-      RUN_ROOT: ${{ runner.temp }}/know-place-analysis
-      OUT_ROOT: ${{ runner.temp }}/know-place-analysis-output
 
     steps:
       - name: Require an explicit trigger and required credentials before any product download
@@ -80,6 +78,10 @@ jobs:
             echo "ERROR=EARTHDATA_TOKEN_OR_USERNAME_PASSWORD_REQUIRED"
             exit 1
           fi
+          RUN_ROOT="$RUNNER_TEMP/know-place-analysis"
+          OUT_ROOT="$RUNNER_TEMP/know-place-analysis-output"
+          echo "RUN_ROOT=$RUN_ROOT" >> "$GITHUB_ENV"
+          echo "OUT_ROOT=$OUT_ROOT" >> "$GITHUB_ENV"
           mkdir -p "$RUN_ROOT/raw" "$RUN_ROOT/download-receipts" "$OUT_ROOT"
           chmod 700 "$RUN_ROOT" "$RUN_ROOT/raw" "$OUT_ROOT"
           echo "CREDENTIAL_PREFLIGHT=PASS"
@@ -97,13 +99,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          backend_sha="$(git rev-parse HEAD)"
+          science_sha="$(git -C science-source rev-parse HEAD)"
           {
-            echo "## Know Place Analysis — exact five-pair replay"
+            echo "## Know Place Analysis - exact five-pair replay"
             echo
-            echo "- Backend branch: `$GITHUB_REF_NAME`"
-            echo "- Backend commit: `$(git rev-parse HEAD)`"
-            echo "- Science commit: `$(git -C science-source rev-parse HEAD)`"
-            echo "- Previous input run: [39942529304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39942529304)"
+            echo "- Backend branch: $GITHUB_REF_NAME"
+            echo "- Backend commit: $backend_sha"
+            echo "- Science commit: $science_sha"
+            echo "- Previous input run: https://github.com/moshiour0/SARGuardian-backend/actions/runs/39942529304"
             echo "- Main branch was not changed by this workflow."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -252,9 +256,11 @@ jobs:
           json.dump(provenance,open(provenance_path,"w",encoding="utf-8"),indent=2,ensure_ascii=False)
           with open(provenance_path,"a",encoding="utf-8") as f: f.write("\n")
           PY
-          echo "CROWN_GEOMETRY_KIND=$CROWN_GEOMETRY_KIND" >> "$GITHUB_STEP_SUMMARY"
-          echo "CROWN_WKT=$CROWN_WKT" >> "$GITHUB_STEP_SUMMARY"
-          echo "Input manifest created; exact author crown geometry remains unverified." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "CROWN_GEOMETRY_KIND=$CROWN_GEOMETRY_KIND"
+            echo "CROWN_WKT=$CROWN_WKT"
+            echo "Input manifest created; exact author crown geometry remains unverified."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run the five-pair exploratory paper-method analysis
         id: analysis
