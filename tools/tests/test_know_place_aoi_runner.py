@@ -14,6 +14,8 @@ from tools.know_place.aoi_runner import (
     AOIRunError,
     _download_exact_product,
     _exact_bytes,
+    _magnitude_gate_limit,
+    _high_magnitude_review_flag,
     _maturity,
     _product_name,
     _preview,
@@ -125,3 +127,43 @@ def test_preview_is_downsampled_visual_only_and_keeps_nodata_explicit():
     assert max(preview["width"], preview["height"]) <= 72
     assert preview["description"].startswith("Median magnitude per block")
     assert len(preview["aoi_ring_xy"]) == 5
+
+
+def test_generic_large_displacement_is_retained_and_flagged_but_paper_policy_rejects_it():
+    from tools.know_place.paper_method import apply_paper_quality_gates
+
+    east = np.array([[25.0, 0.5]], dtype=float)
+    north = np.array([[0.0, 0.0]], dtype=float)
+    snr = np.array([[8.0, 8.0]], dtype=float)
+    input_valid = np.array([[True, True]])
+
+    generic = request()  # generic default: preserve high magnitude and flag it
+    assert generic.magnitude_policy == "flag_above_threshold_keep"
+    generic_valid, generic_counts, magnitude = apply_paper_quality_gates(
+        east, north, snr, input_valid=input_valid,
+        minimum_snr=generic.min_snr,
+        maximum_horizontal_magnitude_m=_magnitude_gate_limit(generic),
+    )
+    generic_flags = _high_magnitude_review_flag(magnitude, snr, input_valid, generic)
+    assert generic_valid.tolist() == [[True, True]]
+    assert generic_counts.rejected_magnitude == 0
+    assert generic_flags.tolist() == [[True, False]]
+
+    payload = {
+        "schema_version": REQUEST_SCHEMA,
+        "aoi": {"type": "Polygon", "wkt": "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))", "crs": "EPSG:4326"},
+        "date_range": {"start": "2026-06-20", "end": "2026-07-14", "inclusive": True},
+        "hazard_mode": "ice_rock_avalanche",
+        "analysis_mode": "retrospective_validation",
+        "quality_policy": {"minimum_snr": 5, "maximum_horizontal_magnitude_m": 10, "magnitude_policy": "reject_above_threshold"},
+    }
+    paper_policy = validate_aoi_request(payload)
+    paper_valid, paper_counts, _ = apply_paper_quality_gates(
+        east, north, snr, input_valid=input_valid,
+        minimum_snr=paper_policy.min_snr,
+        maximum_horizontal_magnitude_m=_magnitude_gate_limit(paper_policy),
+    )
+    paper_flags = _high_magnitude_review_flag(magnitude, snr, input_valid, paper_policy)
+    assert paper_valid.tolist() == [[False, True]]
+    assert paper_counts.rejected_magnitude == 1
+    assert paper_flags.tolist() == [[True, False]]
