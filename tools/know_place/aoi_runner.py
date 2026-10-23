@@ -46,6 +46,7 @@ from .paper_method import (
     summarize_crown,
 )
 from .series import SeriesPlanError, build_pairwise_series_plan
+from .motion_features import MotionFeatureError, build_motion_dynamics_features
 from .uncertainty import spatial_block_bootstrap_sensitivity, spatial_block_bootstrap_summary
 
 ENGINE_VERSION = "1.0.0"
@@ -1263,6 +1264,11 @@ def run_aoi_analysis(
                 "GOFF horizontal displacement assumes zero vertical motion and uses product geometry; it does not measure 3-D displacement.",
             ],
         }
+        result["motion_dynamics"] = build_motion_dynamics_features(
+            pairs,
+            pairwise_series_plan=plan,
+            global_grid_compatibility_status=result["grid_compatibility_status"],
+        )
         _write_pair_csv(run_dir / "timeseries.csv", pairs)
         (run_dir / "result.json").write_text(json.dumps(_safe_json(result), indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
         (run_dir / "README.txt").write_text(
@@ -1313,7 +1319,7 @@ def run_aoi_analysis(
         }
         (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
-    except (AOIRunError, AOIRequestError, SeriesPlanError, GoffReadError, ScientificInputError) as exc:
+    except (AOIRunError, AOIRequestError, SeriesPlanError, MotionFeatureError, GoffReadError, ScientificInputError) as exc:
         for pending_path in list(locals().get("ephemeral_pending_paths", [])):
             try:
                 _cleanup_ephemeral_source(pending_path, locals()["ephemeral_pending_paths"])
