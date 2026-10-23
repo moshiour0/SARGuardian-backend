@@ -35,7 +35,7 @@ def help_has_exact_option(help_text: str, option: str) -> bool:
     argparse accepts abbreviated long options by default, so passing
     --aoi source can otherwise overwrite the required --aoi-csv value.
     """
-    return re.search(rf"(?m)^\\s*{re.escape(option)}(?:[\\s,]|$)", help_text) is not None
+    return re.search(rf"(?m)^\s*{re.escape(option)}(?:[\s,]|$)", help_text) is not None
 
 
 def file_sha256(path: Path) -> str:
