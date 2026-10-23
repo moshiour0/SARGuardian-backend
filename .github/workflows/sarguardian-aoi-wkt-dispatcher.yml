@@ -29,13 +29,13 @@ on:
           - secondary-acquisition-in-window
         default: secondary-acquisition-in-window
       run_profile:
-        description: "Full AOI baseline processes every matching catalog product; validation pilot selects newest matching GUNW and GOFF."
+        description: "Start with validation pilot; full AOI baseline processes every matching catalog product."
         required: true
         type: choice
         options:
           - validation-pilot
           - full-aoi-baseline
-        default: full-aoi-baseline
+        default: validation-pilot
       retention_profile:
         description: "Choose derived outputs only or retain a full lossless HDF5 archive as well."
         required: true
@@ -51,8 +51,8 @@ permissions:
 
 jobs:
   run-isolated-aoi-pipeline:
-    name: Run AOI workflow from the isolated feature branch
-    uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@feat/e2e-aoi-wkt-date-dashboard
+    name: Run AOI workflow from the isolated science-integration branch
+    uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@feat/final-aoi-science-integration
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
       start_date: ${{ inputs.start_date }}
