@@ -1,0 +1,228 @@
+{
+  "schema_version": "know-place-author-archive-audit/1.0",
+  "audit_date": "2026-10-24",
+  "source": {
+    "title": "Bhote Koshi 2026 ice–rock avalanche: NISAR L2 GOFF site series and footprint-wide offset-tracking screen — data and code",
+    "author": "Sansar Raj Meena",
+    "zenodo_doi": "https://doi.org/10.5281/zenodo.22730419",
+    "record_license": "CC BY 4.0 except extent_CC-BY-NC-4.0/",
+    "caveat": "The separately licensed CC BY-NC 4.0 mapped runout extent is not included in this ZIP and has not been copied into this repository."
+  },
+  "uploaded_files": {
+    "readme": {
+      "filename": "README.md",
+      "bytes": 6473,
+      "md5": "f6d057f28c3dbccb62f32e98e41bf594",
+      "sha256": "d20f8eb894afffc2ae469c110fb69028caef8360fc1b8039f56863eeebf11199"
+    },
+    "archive": {
+      "filename": "bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip",
+      "bytes": 183389034,
+      "md5": "b07b7eb3b3178d3f69d5bca009cb0db4",
+      "sha256": "002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3",
+      "zip_integrity": "PASS"
+    }
+  },
+  "manifest_audit": {
+    "declared_files": 97,
+    "declared_total_bytes": 184636871,
+    "zip_entries_including_manifest": 91,
+    "manifest_listed_payload_entries_present_and_exact_size_md5": 90,
+    "size_or_md5_mismatches": 0,
+    "manifest_paths_missing_from_zip": [
+      "README.md",
+      "extent_CC-BY-NC-4.0/LICENSE.txt",
+      "extent_CC-BY-NC-4.0/flow_extent.cpg",
+      "extent_CC-BY-NC-4.0/flow_extent.dbf",
+      "extent_CC-BY-NC-4.0/flow_extent.prj",
+      "extent_CC-BY-NC-4.0/flow_extent.shp",
+      "extent_CC-BY-NC-4.0/flow_extent.shx"
+    ],
+    "zip_entries_not_self_listed_in_manifest": [
+      "MANIFEST.json"
+    ],
+    "interpretation": "README.md was supplied separately, the six CC BY-NC extent components are separate record components, and MANIFEST.json does not hash itself."
+  },
+  "archive_inventory": {
+    "python_code_files": 33,
+    "site_field_geotiffs": 5,
+    "inventory_files": 15,
+    "table_files": 30,
+    "footprint_screen_rasters": 3,
+    "terrain_rasters": 3,
+    "raw_goff_h5_granules_in_zip": false,
+    "full_footprint_per_pair_offset_rasters_in_zip": false,
+    "site_field_geotiff_profile": {
+      "shape_pixels": [
+        73,
+        80
+      ],
+      "crs": "EPSG:4326",
+      "band_count": 3,
+      "bands": [
+        "dE_m ground-referenced east displacement",
+        "dN_m ground-referenced north displacement",
+        "R directional coherence, 5x5 window"
+      ],
+      "source": "Raster profiles inspected from all five fields/*.tif"
+    },
+    "readme_profile_mismatch": {
+      "readme_describes": "EPSG:32645, 80 m posting, east/north/magnitude/coherence (four bands)",
+      "observed_geotiffs": "EPSG:4326, 73x80, three bands (dE, dN, R); magnitude is derivable from dE/dN but is not stored as a band",
+      "classification": "Documentation inconsistency to preserve and report, not silently normalize."
+    },
+    "table_s7_inventory": {
+      "path": "tables/TableS7_all_validated_zones.csv",
+      "rows": 101,
+      "columns": 15,
+      "bytes": 9085,
+      "sha256": "b800d90bd6e7322ef2f8548370de0fb922ef057cbdce2d0c2caa681ae76a42a8",
+      "identical_to_user_supplied_csv_byte_for_byte": true,
+      "glacier_intersecting": 93,
+      "off_glacier": 8
+    }
+  },
+  "author_method_facts": {
+    "exact_granule_ids": [
+      "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001",
+      "NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001",
+      "NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001",
+      "NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001",
+      "NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001"
+    ],
+    "site_series_geometry": "make_pot_figure.py selects the nearest radarGrid XY sample at the declared crown coordinate and uses the median along the geometry height axis for each scalar geometry component. This differs from the current branch's per-pixel geometry sampled at a fixed configured height.",
+    "quality_gates": "finite SNR, SNR >= 5, and projected horizontal magnitude <= 10 m. The site-series source does not use correlationSurfacePeak as an input-validity gate.",
+    "reference": "component-wise median dE/dN in the WIDE box outside the rectangular AOI mask; the mask is built from transformed mid-row/mid-column coordinate axes.",
+    "coherence": "5x5 mean resultant length via scipy.ndimage.uniform_filter defaults (reflect edges), normalized by finite-vector count, retained only where finite support fraction > 0.5 (at least 13 of 25). Site-series P1 crown R is computed after cropping to the crown slice; P1 background R is computed on the full WIDE box. Polygon-null R is a separate estimator.",
+    "polygon_null": "seed 20260907; 1200 unique candidate centres sampled without replacement from all finite-R cells; circular radius sqrt(npx/pi); accept >=60% of target valid cells; crown percentile counts strict draws < crown, resolved-against-box fraction counts strict draws > box.",
+    "missing_script": "The deposit plan lists displacement_null.py, but this script is absent; tables/displacement_null.json and summaries are present.",
+    "scripts_portability": "make_pot_figure.py contains a workstation-specific I:\\nisar\\nepal_bhotekoshi_t098 root; no environment lock/requirements file is included."
+  },
+  "archived_site_series": [
+    {
+      "interval": "20260620->20260702",
+      "days": 12,
+      "crown_disp_m": 0.99,
+      "crown_rate_cm_per_day": 8.3,
+      "P1_R_crown": 0.75,
+      "P1_R_bg": 0.641,
+      "P1_resolved": true,
+      "P2_R_crown": 0.669,
+      "P2_R_bg": 0.678,
+      "P2_resolved": false,
+      "polynull_R_crown": 0.739,
+      "polynull_R_box": 0.641,
+      "polynull_crown_pctile": 77.2,
+      "polynull_pct_beat_box": 47.5,
+      "polynull_n_draw": 857,
+      "dispnull_crown_m": 0.99,
+      "dispnull_null_med_m": 0.17,
+      "dispnull_pctile": 94.9,
+      "corescale_R_zone": 0.969,
+      "corescale_zone_pctile": 99,
+      "corescale_npx": 30
+    },
+    {
+      "interval": "20260702->20260714",
+      "days": 12,
+      "crown_disp_m": 0.54,
+      "crown_rate_cm_per_day": 4.5,
+      "P1_R_crown": 0.612,
+      "P1_R_bg": 0.719,
+      "P1_resolved": false,
+      "P2_R_crown": 0.679,
+      "P2_R_bg": 0.667,
+      "P2_resolved": true,
+      "polynull_R_crown": 0.583,
+      "polynull_R_box": 0.719,
+      "polynull_crown_pctile": 23.3,
+      "polynull_pct_beat_box": 37.7,
+      "polynull_n_draw": 887,
+      "dispnull_crown_m": 0.54,
+      "dispnull_null_med_m": 0.21,
+      "dispnull_pctile": 87.5,
+      "corescale_R_zone": 0.978,
+      "corescale_zone_pctile": 97,
+      "corescale_npx": 30
+    },
+    {
+      "interval": "20260714->20260726",
+      "days": 12,
+      "crown_disp_m": 0.3,
+      "crown_rate_cm_per_day": 2.5,
+      "P1_R_crown": 0.611,
+      "P1_R_bg": 0.757,
+      "P1_resolved": false,
+      "P2_R_crown": 0.726,
+      "P2_R_bg": 0.697,
+      "P2_resolved": true,
+      "polynull_R_crown": 0.594,
+      "polynull_R_box": 0.757,
+      "polynull_crown_pctile": 39.8,
+      "polynull_pct_beat_box": 37.2,
+      "polynull_n_draw": 920,
+      "dispnull_crown_m": 0.3,
+      "dispnull_null_med_m": 0.14,
+      "dispnull_pctile": 81,
+      "corescale_R_zone": 0.962,
+      "corescale_zone_pctile": 89.2,
+      "corescale_npx": 30
+    },
+    {
+      "interval": "20260726->20260819",
+      "days": 24,
+      "crown_disp_m": 0.96,
+      "crown_rate_cm_per_day": 4,
+      "P1_R_crown": 0.871,
+      "P1_R_bg": 0.687,
+      "P1_resolved": true,
+      "P2_R_crown": 0.775,
+      "P2_R_bg": 0.795,
+      "P2_resolved": false,
+      "polynull_R_crown": 0.848,
+      "polynull_R_box": 0.687,
+      "polynull_crown_pctile": 85.2,
+      "polynull_pct_beat_box": 46.7,
+      "polynull_n_draw": 916,
+      "dispnull_crown_m": 0.96,
+      "dispnull_null_med_m": 0.14,
+      "dispnull_pctile": 94.7,
+      "corescale_R_zone": 0.973,
+      "corescale_zone_pctile": 97.7,
+      "corescale_npx": 30
+    },
+    {
+      "interval": "20260819->20260831",
+      "days": 12,
+      "crown_disp_m": 0.33,
+      "crown_rate_cm_per_day": 2.7,
+      "P1_R_crown": 0.551,
+      "P1_R_bg": 0.592,
+      "P1_resolved": false,
+      "P2_R_crown": 0.666,
+      "P2_R_bg": 0.661,
+      "P2_resolved": true,
+      "polynull_R_crown": 0.511,
+      "polynull_R_box": 0.592,
+      "polynull_crown_pctile": 29.1,
+      "polynull_pct_beat_box": 50.2,
+      "polynull_n_draw": 996,
+      "dispnull_crown_m": 0.33,
+      "dispnull_null_med_m": 0.09,
+      "dispnull_pctile": 81.3,
+      "corescale_R_zone": 0.867,
+      "corescale_zone_pctile": 92.6,
+      "corescale_npx": 30
+    }
+  ],
+  "branch_method_mismatches": [
+    "Current analysis samples geometry per pixel at configured height, unlike site-series crown-local median geometry.",
+    "Current analysis requires finite correlation as input_valid; author site-series gate does not use correlationSurfacePeak.",
+    "Current coherence kernel zero-pads edges and defaults to minimum_valid_cells=1; author site-series uses reflected edges and finite-window fraction >0.5.",
+    "Current projected polygon-centre masks do not match author transformed-axis rectangle mask/crown_slice; historical raw replay had 296 valid crown cells versus 298 published for 26 Jul–19 Aug.",
+    "Current controls choose centres outside crown and exclude crown from control masks; author polygon_null samples unique centres from all finite-R cells and disks can overlap the crown.",
+    "Author P1 crown R is computed after cropping to crown; current generic summary computes neighbourhood field before selecting crown centres, closer to the separate polygon-null estimate. P1, P2 and polygon-null columns are distinct estimands."
+  ],
+  "raw_replay_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
+  "hazard_detection_status": "NOT_EVALUATED"
+}
