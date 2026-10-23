@@ -274,7 +274,7 @@ def build_pairwise_series_plan(
             },
             "pair_count": len(chain_rows),
             "pairs": chain_rows,
-            "continuous_chain_eligible": bool(chain_rows) and continuous,
+            "continuous_chain_eligible": len(chain_rows) > 1 and continuous,
             "cumulative_displacement_status": (
                 "ELIGIBLE_FOR_SEPARATE_REVIEW"
                 if len(chain_rows) > 1 and continuous
@@ -291,7 +291,7 @@ def build_pairwise_series_plan(
         )
     )
     one_chain = len(chains) == 1
-    all_continuous = one_chain and chains[0]["continuous_chain_eligible"]
+    all_continuous = one_chain and len(flattened_pairs) > 1 and chains[0]["continuous_chain_eligible"]
     return {
         "schema_version": "know-place-pairwise-series-plan/1.0",
         "status": "PAIRWISE_SERIES_PLANNED",
@@ -322,8 +322,10 @@ def build_pairwise_series_plan(
             gap
             for gap in KNOWN_NISAR_DATA_GAPS
             if any(
-                pair["reference_start_utc"] < gap["end_utc"]
-                and pair["secondary_start_utc"] > gap["start_utc"]
+                datetime.fromisoformat(pair["reference_start_utc"].replace("Z", "+00:00"))
+                < datetime.fromisoformat(gap["end_utc"].replace("Z", "+00:00"))
+                and datetime.fromisoformat(pair["secondary_start_utc"].replace("Z", "+00:00"))
+                > datetime.fromisoformat(gap["start_utc"].replace("Z", "+00:00"))
                 for pair in flattened_pairs
             )
         ],
