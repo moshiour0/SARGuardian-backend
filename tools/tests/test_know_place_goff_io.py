@@ -202,3 +202,22 @@ def test_raw_reader_reads_only_requested_hdf5_window_and_checks_grid(tmp_path):
     assert product.metadata["read_window"] == {
         "row_start": 1, "row_stop": 3, "column_start": 2, "column_stop": 5
     }
+
+def test_raw_reader_masks_hdf5_creation_property_fill_without_attribute(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    with h5py.File(path, "a") as h:
+        layer = h[f"{BASE}/grids/frequencyA/pixelOffsets/HH/layer2"]
+        del layer["slantRangeOffset"]
+        ds = layer.create_dataset(
+            "slantRangeOffset", shape=(4, 5), dtype=np.float32, fillvalue=-9999.0
+        )
+        ds[...] = np.arange(20, dtype=np.float32).reshape(4, 5) / 100
+        ds[0, 0] = -9999.0
+        ds.attrs["units"] = "m"
+    product = read_raw_goff(path)
+    assert np.isnan(product.slant_range_m[0, 0])
+    assert product.fill_evidence["slant_range"] == [-9999.0]
+    # Zero can be a real offset, so the HDF5 default fill value must not be guessed.
+    assert product.along_track_m[0, 0] == pytest.approx(0.0)
+    assert product.fill_evidence["along_track"] == []
