@@ -627,6 +627,7 @@ def run_aoi_analysis(
                 "request_sha256": request.request_sha256,
                 "request": request.to_dict(),
                 "source_adapters": list(request.source_adapters),
+                "output_manifest": "manifest.json",
                 "source_candidates": len(catalog_rows),
                 "pairwise_series_plan": plan,
                 "pairs": [],
@@ -639,6 +640,14 @@ def run_aoi_analysis(
                 encoding="utf-8",
             )
             write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+            output_files = sorted(
+                file for file in run_dir.rglob("*")
+                if file.is_file() and file.name != "manifest.json"
+            )
+            result["output_files"] = len(output_files)
+            (run_dir / "result.json").write_text(
+                json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
             output_files = sorted(
                 file for file in run_dir.rglob("*")
                 if file.is_file() and file.name != "manifest.json"
@@ -663,8 +672,6 @@ def run_aoi_analysis(
             (run_dir / "manifest.json").write_text(
                 json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
             )
-            result["output_manifest"] = "manifest.json"
-            result["output_files"] = len(manifest["files"])
             return result
 
         session = _session_from_environment()
