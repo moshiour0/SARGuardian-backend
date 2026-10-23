@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +12,7 @@ from tools.know_place.event_validation import (
     REGISTRY_SCHEMA,
     THRESHOLD_SCHEMA,
     evaluate_heldout_events,
+    main,
     seal_threshold_policy,
     validate_event_registry,
 )
@@ -224,3 +227,31 @@ def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
     )
     assert result["uncertainty"]["status"] == "INSUFFICIENT_INDEPENDENT_SITES"
     assert result["uncertainty"]["intervals"]["recall"] is None
+
+
+def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
+    reg = registry()
+    policy = threshold_policy(reg)
+    registry_path = tmp_path / "registry.json"
+    predictions_path = tmp_path / "predictions.json"
+    policy_path = tmp_path / "threshold-policy.json"
+    output_path = tmp_path / "out" / "evaluation.json"
+    registry_path.write_text(json.dumps(reg), encoding="utf-8")
+    predictions_path.write_text(json.dumps(prediction_payload()), encoding="utf-8")
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    code = main([
+        "--registry", str(registry_path),
+        "--predictions", str(predictions_path),
+        "--threshold-policy", str(policy_path),
+        "--out", str(output_path),
+        "--bootstrap-replicates", "100",
+        "--minimum-independent-sites-for-ci", "4",
+    ])
+
+    assert code == 0
+    result = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result["test_only"] is True
+    assert result["registry_sha256"] == validate_event_registry(reg)["registry_sha256"]
+    output = capsys.readouterr().out
+    assert "EVENT_VALIDATION_STATUS=EVALUATED_EXPLORATORY_HELDOUT_TEST" in output
