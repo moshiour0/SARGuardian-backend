@@ -127,7 +127,7 @@ The measurement runner deliberately does not emit a hazard score. To make later 
 
 Each case must have a stable `case_id`, `site_id`, `split` (development/validation/test), independent event label, hazard type, WGS84 AOI WKT, source URL/DOI and method for the independent label, observation-window UTC bounds, monitoring exposure in AOI-months, and each source granule's exact SHA-256. Positive event cases also carry the best independently supported event timestamp. Site is the resampling unit because cases from the same site are correlated. The normalized registry has its own checksum; changing any case invalidates a threshold policy bound to that registry.
 
-A case without enough valid data must have `state=NO_RESULT), **not** `NO_ALERT). The evaluator reports usable coverage separately. It excludes `NO_RESULT) from conditional confusion-matrix metrics, while the conservative recall over all labelled events treats an event with no alert/result as not detected. Thus a failed measurement cannot silently become proof of safety.
+A case without enough valid data must have `state=NO_RESULT`, **not** `NO_ALERT`. The evaluator reports usable coverage separately. It excludes `NO_RESULT` from conditional confusion-matrix metrics, while the conservative recall over all labelled events treats an event with no alert/result as not detected. Thus a failed measurement cannot silently become proof of safety.
 
 ### Threshold policy
 
@@ -155,7 +155,7 @@ python -m tools.know_place.select_threshold \
   --threshold-policy-out threshold-policy.json
 ```
 
-The score file uses schema `know-place-validation-scores/1.0`, with one `SCORED` record and finite score (or `NO_RESULT` and null score) for each validation case. The threshold selector accepts a predeclared `max_youden_j`, `max_f1), or `max_recall_at_min_specificity) objective. Use the last objective only when the minimum-specificity constraint was chosen before inspecting validation scores. Record the chosen objective, score units and detector version in the experiment log.
+The score file uses schema `know-place-validation-scores/1.0`, with one `SCORED` record and finite score (or `NO_RESULT` and null score) for each validation case. The threshold selector accepts a predeclared `max_youden_j`, `max_f1`, or `max_recall_at_min_specificity` objective. Use the last objective only when the minimum-specificity constraint was chosen before inspecting validation scores. Record the chosen objective, score units and detector version in the experiment log.
 
 Then run:
 
