@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from pyproj import Transformer
+
+from tools.know_place.goff_io import GoffReadError
+from tools.know_place.geometry import build_analysis_roi, parse_polygon_wkt, points_in_ring
+
+
+BOX_WKT = (
+    "POLYGON ((85.500000 28.265000, 85.565000 28.265000, "
+    "85.565000 28.318000, 85.500000 28.318000, 85.500000 28.265000))"
+)
+CROWN_WKT = (
+    "POLYGON ((85.525000 28.285000, 85.540000 28.285000, "
+    "85.540000 28.297000, 85.525000 28.297000, 85.525000 28.285000))"
+)
+
+
+def test_wkt_parser_closes_ring_and_preserves_lon_lat_order():
+    ring = parse_polygon_wkt("POLYGON ((85.5 28.2, 85.6 28.2, 85.6 28.3, 85.5 28.3))")
+    assert ring[0] == ring[-1]
+    assert ring[0] == (85.5, 28.2)
+    assert len(ring) == 5
+
+
+def test_wkt_parser_rejects_holes_and_self_intersections():
+    with pytest.raises(GoffReadError, match="SINGLE_RING"):
+        parse_polygon_wkt(
+            "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28), "
+            "(85.2 28.2, 85.3 28.2, 85.3 28.3, 85.2 28.3, 85.2 28.2))"
+        )
+    with pytest.raises(GoffReadError, match="SELF_INTERSECTING"):
+        parse_polygon_wkt(
+            "POLYGON ((85 28, 86 29, 85 29, 86 28, 85 28))"
+        )
+
+
+def test_point_in_ring_uses_grid_cell_centres():
+    ring = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0))
+    x = np.array([[2.0, 12.0], [3.0, 4.0]])
+    y = np.array([[3.0, 3.0], [11.0, 4.0]])
+    assert points_in_ring(x, y, ring).tolist() == [[True, False], [False, True]]
+
+
+def test_build_roi_crops_to_reference_box_and_rasterizes_crown():
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
+    ring = parse_polygon_wkt(BOX_WKT)
+    px, py = transformer.transform([p[0] for p in ring], [p[1] for p in ring])
+    xs = np.arange(np.floor(min(px) / 80) * 80, np.ceil(max(px) / 80) * 80 + 1, 80.0)
+    ys = np.arange(np.floor(min(py) / 80) * 80, np.ceil(max(py) / 80) * 80 + 1, 80.0)
+    roi = build_analysis_roi(xs, ys, 32645, box_wkt=BOX_WKT, crown_wkt=CROWN_WKT)
+    assert roi.box_mask.any()
+    assert roi.crown_mask.any()
+    assert not np.any(roi.crown_mask & ~roi.box_mask)
+    assert roi.box_mask.shape == (len(roi.y_coordinates_m), len(roi.x_coordinates_m))
+    assert roi.crown_mask.sum() < roi.box_mask.sum()
+    assert len(roi.crown_ring_projected) == 5
+
+
+def test_build_roi_rejects_crown_outside_reference_box():
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
+    ring = parse_polygon_wkt(BOX_WKT)
+    px, py = transformer.transform([p[0] for p in ring], [p[1] for p in ring])
+    xs = np.arange(np.floor(min(px) / 80) * 80, np.ceil(max(px) / 80) * 80 + 1, 80.0)
+    ys = np.arange(np.floor(min(py) / 80) * 80, np.ceil(max(py) / 80) * 80 + 1, 80.0)
+    outside = (
+        "POLYGON ((85.560 28.290, 85.570 28.290, 85.570 28.300, "
+        "85.560 28.300, 85.560 28.290))"
+    )
+    with pytest.raises(GoffReadError):
+        build_analysis_roi(xs, ys, 32645, box_wkt=BOX_WKT, crown_wkt=outside)
