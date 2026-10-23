@@ -4,11 +4,11 @@ This guide applies only to branch `feat/know-place-analysis`. Do not run the exi
 
 ## Current phase
 
-The pure kernels, strict raw-HDF5 reader, metadata-cube interpolation, separate WKT box/crown geometry, five-pair orchestration and synthetic integration tests are implemented. The code is an **exploratory paper-method path**, not a validated landslide detector. No analysis of real HDF5 inputs is considered a paper reproduction until exact crown geometry, product variant identity and author golden outputs have been verified.
+The pure kernels, strict raw-HDF5 reader, metadata-cube interpolation, five-pair orchestration and synthetic integration tests are implemented. The supplied paper and Supplementary Information now establish the crown bounds and exact five author granule IDs. This remains an **exploratory paper-method path**, not a validated landslide detector: the historical raw replay's first pair is X05026 rather than author P05023, and the separate code/golden-raster archive has not yet been verified.
 
 ## Five-pair product candidates observed in Dynamic AOI Run 39942529304
 
-The last Dynamic AOI run manifest selected the following GOFF products for the five target date intervals. These names are **available candidate IDs**, not yet confirmed against the paper's original supplementary inputs. The 20 June–2 July pair was listed as CRID X05026 with ASF PROVISIONAL evidence, while the other four pairs selected P05023. Do not silently substitute variants or call them paper-identical.
+The table below records the **historical raw replay inputs** from Dynamic AOI Run 39942529304, not the author-exact five-product manifest. Supplementary Table 1 specifies P05023 for every pair; the first historic input is X05026. Keep that source/hash as historical evidence and do not silently substitute or relabel it as the author input. Exact five author IDs and published scalar results are transcribed in [`docs/know-place/reference/author_benchmark_v1.json`](know-place/reference/author_benchmark_v1.json).
 
 | Reference → secondary | Granule identifier without `.h5` | Previous run ID |
 |---|---|---|
@@ -18,7 +18,7 @@ The last Dynamic AOI run manifest selected the following GOFF products for the f
 | 2026-07-26 → 2026-08-19 | `NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001` | GOFF-015 |
 | 2026-08-19 → 2026-08-31 | `NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001` | GOFF-019 |
 
-All five must be the correct ascending T098, L-SAR HH, PR GOFF layer2 products. The analysis checks identity from the filename; it records ASF maturity evidence supplied in the manifest but does not independently contact ASF. Before interpreting scientific results, save the exact source checksums and confirm each variant against the author's supplementary input list, if available.
+The author series uses ascending T098, L-SAR HH, PR GOFF layer2 products. The isolated live-catalog workflow contacts ASF for the five **historical candidates** and does not download raw data; its pass does not establish the author-exact P05023 first-pair identity. That live check must be updated or separately run for the exact first P05023 granule. The four other historic IDs match Supplementary Table 1.
 
 ## Reference box and crown
 
@@ -28,7 +28,7 @@ Reference box (the user's GEE polygon):
 POLYGON ((85.500000 28.265000, 85.565000 28.265000, 85.565000 28.318000, 85.500000 28.318000, 85.500000 28.265000))
 ```
 
-The paper's published crown bounding coordinates do not identify its exact irregular polygon. This rectangle is a **bounding-box approximation**, only for exploratory testing:
+The paper and Supplementary Fig. 2 specify these crown bounds, area 2.07 km²; the same rectangular bounds are used in the current WKT. This resolves the coordinate-geometry uncertainty. Exact raster mask inclusion / pixel-centre and edge rules must still be checked against the author golden raster; the historic target-pair replay has 296 valid crown cells whereas Supplementary Table 4 reports 298:
 
 ```text
 POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))
