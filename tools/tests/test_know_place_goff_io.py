@@ -125,7 +125,7 @@ def test_geometry_reader_fails_on_ambiguous_metadata_groups(tmp_path):
     path = tmp_path / TARGET_NAME
     write_synthetic_goff(path, add_duplicate_geometry=True)
     with pytest.raises(GoffReadError, match="GOFF_GEOMETRY_CUBE_AMBIGUOUS"):
-        read_geometry_cubes(path)
+        read_geometry_cubes(path, expected_epsg=32645)
 
 
 def test_geometry_reader_fails_when_incidence_units_are_unknown(tmp_path):
@@ -134,13 +134,13 @@ def test_geometry_reader_fails_when_incidence_units_are_unknown(tmp_path):
     with h5py.File(path, "a") as h:
         del h[f"{BASE}/metadata/radarGrid/incidenceAngle"].attrs["units"]
     with pytest.raises(GoffReadError, match="INCIDENCE_ANGLE_UNIT_MISSING"):
-        read_geometry_cubes(path)
+        read_geometry_cubes(path, expected_epsg=32645)
 
 
 def test_geometry_sampling_refuses_extrapolation(tmp_path):
     path = tmp_path / TARGET_NAME
     write_synthetic_goff(path)
-    cubes = read_geometry_cubes(path)
+    cubes = read_geometry_cubes(path, expected_epsg=32645)
     with pytest.raises(GoffReadError, match="GEOMETRY_QUERY_X_OUTSIDE"):
         sample_geometry(cubes, x_m=np.array([500.0]), y_m=np.array([250.0]), height_m=5151.0,
                     expected_epsg=32645)
