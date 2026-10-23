@@ -117,3 +117,39 @@ Record time of acquisition, product publication time, actual download/processing
 - **G4 — operational research pilot:** per-pixel DEM-backed geometry, temporal latency/cadence policy, calibration/drift monitoring, quality-based “no result” behavior, and documented human review are verified end to end.
 
 Current branch is below G2: author supplement and exact author inputs are still unresolved. Current hazard detection remains `NOT_EVALUATED`, and operational monitoring is blocked.
+
+
+## Executable held-out event evaluator
+
+The measurement runner deliberately does not emit a hazard score. To make later detector claims auditable, `tools/know_place/event_validation.py` now implements a separate event-level scoring contract. This module evaluates externally produced predictions; it does **not** derive a score from displacement or certify a detector.
+
+### Case registry requirements
+
+Each case must have a stable `case_id`, `site_id`, `split` (development/validation/test), independent event label, hazard type, WGS84 AOI WKT, source URL/DOI and method for the independent label, observation-window UTC bounds, monitoring exposure in AOI-months, and each source granule's exact SHA-256. Positive event cases also carry the best independently supported event timestamp. Site is the resampling unit because cases from the same site are correlated. The normalized registry has its own checksum; changing any case invalidates a threshold policy bound to that registry.
+
+A case without enough valid data must have `state=NO_RESULT), **not** `NO_ALERT). The evaluator reports usable coverage separately. It excludes `NO_RESULT) from conditional confusion-matrix metrics, while the conservative recall over all labelled events treats an event with no alert/result as not detected. Thus a failed measurement cannot silently become proof of safety.
+
+### Threshold policy
+
+The frozen threshold policy records the model/policy name, score name and units, scalar threshold, comparison rule, validation split, pre-test freeze declaration, registry checksum, and policy checksum. `evaluate_heldout_events` rejects any test case that is missing, duplicated, scored with an unverified source, or inconsistent with the declared threshold. It also rejects a policy whose threshold was selected on the test split.
+
+From the **held-out test cases only**, the evaluator reports event-level precision, recall, specificity and F1 on evaluable cases, coverage/no-result counts, conservative recall over all labelled events, false alarms per monitored AOI-month, event lead-time/detection-delay summaries, and site-cluster bootstrap intervals. It withholds site-cluster intervals when fewer than five independent sites are present by default. These statistics are meaningful only when the registry labels, split assignments and model outputs were frozen independently of one another.
+
+### CLI contract
+
+Once a real detector emits per-case scores and a policy/threshold has been selected exclusively on the validation split, save:
+- `registry.json`: independently reviewed labels and source/geometric provenance;
+- `predictions.json`: one `ALERT), `NO_ALERT), or `NO_RESULT) record for each held-out test case; scored predictions must agree with the frozen threshold;
+- `threshold-policy.json`: the content-addressed policy bound to the registry.
+
+Then run:
+
+```bash
+python -m tools.know_place.event_validation \
+  --registry registry.json \
+  --predictions predictions.json \
+  --threshold-policy threshold-policy.json \
+  --out heldout-evaluation.json
+```
+
+**Current limit:** the generic AOI runner has no scientifically calibrated hazard score yet, so this evaluator has only synthetic known-answer tests and no real detector validation result. The synthetic test suite is an implementation check, not evidence of landslide/glacier-collapse detection accuracy. Promotion still requires the externally labelled, held-out event/non-event cohort and independent reference measurements described above.
