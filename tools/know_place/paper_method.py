@@ -90,7 +90,7 @@ def project_offsets_to_horizontal(
     sin_theta = np.sin(theta)
     los_h = np.hypot(a["los_x"], a["los_y"])
     finite_angle = np.isfinite(theta)
-    if np.any(finite_angle & ((theta <= 0) | (theta >= math.pi / 2)):
+    if np.any(finite_angle & ((theta <= 0) | (theta >= math.pi / 2))):
         raise ScientificInputError("incidence must be strictly between 0 and 90 degrees")
     finite_los = np.isfinite(los_h)
     if np.any(finite_los & (los_h <= 0)):
