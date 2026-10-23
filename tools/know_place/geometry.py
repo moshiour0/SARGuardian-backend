@@ -141,8 +141,18 @@ def build_analysis_roi(
     *,
     box_wkt: str,
     crown_wkt: str,
+    coherence_halo_cells: int = 2,
 ) -> AnalysisROI:
-    """Crop to the box bounds, rasterize box/crown by pixel-centre inclusion."""
+    """Rasterize box/crown on a window padded for full 5x5 coherence support.
+
+    The returned read window includes a two-cell halo by default. Pixels in
+    that halo can contribute to neighbourhood R for centres inside the box,
+    but only pixels selected by box_mask contribute to box/crown summaries.
+    This prevents treating the edge of the requested reference box as an image
+    boundary when calculating a moving-window statistic.
+    """
+    if not isinstance(coherence_halo_cells, int) or coherence_halo_cells < 2:
+        raise GoffReadError("COHERENCE_CONTEXT_HALO_MUST_BE_AT_LEAST_TWO_CELLS")
     x = np.asarray(x_coordinates_m, dtype=float)
     y = np.asarray(y_coordinates_m, dtype=float)
     if x.ndim != 1 or y.ndim != 1:
@@ -163,8 +173,19 @@ def build_analysis_roi(
     y_hits = np.flatnonzero((y >= ymin) & (y <= ymax))
     if not x_hits.size or not y_hits.size:
         raise GoffReadError("REFERENCE_BOX_DOES_NOT_INTERSECT_GOFF_GRID")
-    row0, row1 = int(y_hits.min()), int(y_hits.max()) + 1
-    col0, col1 = int(x_hits.min()), int(x_hits.max()) + 1
+    box_row0, box_row1 = int(y_hits.min()), int(y_hits.max()) + 1
+    box_col0, box_col1 = int(x_hits.min()), int(x_hits.max()) + 1
+    # Include enough off-box neighbours to compute a centred 5x5 R on every
+    # reference-box pixel that has adequate valid support.
+    row0 = max(0, box_row0 - coherence_halo_cells)
+    row1 = min(len(y), box_row1 + coherence_halo_cells)
+    col0 = max(0, box_col0 - coherence_halo_cells)
+    col1 = min(len(x), box_col1 + coherence_halo_cells)
+    if (box_row0 - row0 < coherence_halo_cells
+            or row1 - box_row1 < coherence_halo_cells
+            or box_col0 - col0 < coherence_halo_cells
+            or col1 - box_col1 < coherence_halo_cells):
+        raise GoffReadError("GOFF_GRID_TOO_SMALL_FOR_FULL_COHERENCE_HALO")
     roi_x, roi_y = x[col0:col1], y[row0:row1]
     xx, yy = np.meshgrid(roi_x, roi_y)
     box_mask = points_in_ring(xx, yy, box)
