@@ -159,6 +159,10 @@ def test_synthetic_five_pair_pipeline_writes_auditable_report_and_keeps_parity_b
     assert len(saved["products"]) == 5
     for pair in saved["products"]:
         assert pair["status"] == "METRICS_COMPUTED"
+        sensitivity = pair["directional_coherence_sensitivity"]
+        assert sensitivity["primary_minimum_valid_neighbours"] == 1
+        assert set(sensitivity["thresholds"]) == {"1", "5", "10", "15", "20", "25"}
+        assert sensitivity["thresholds"]["1"]["crown_valid_centres"] >= sensitivity["thresholds"]["25"]["crown_valid_centres"]
         stats = pair["crown_statistics"]
         # ATU is (0.6, 0.8), SR is zero, so a 0.5 m AT shift yields 0.5 m
         # horizontal magnitude by construction; this is only a synthetic check.
@@ -189,3 +193,29 @@ def test_cli_emits_path_free_failure_report_when_input_manifest_is_missing(tmp_p
     assert report["runtime_environment"]["python_version"]
     assert str(tmp_path) not in json.dumps(report)
     assert "KNOW_PLACE_ANALYSIS_STATUS=FAIL" in capsys.readouterr().out
+
+
+
+def test_coherence_sensitivity_records_magnitude_window_and_valid_centre_counts():
+    from tools.know_place.analyze import _coherence_sensitivity
+
+    h = w = 15
+    east = np.ones((h, w), dtype=float)
+    north = np.zeros((h, w), dtype=float)
+    valid = np.ones((h, w), dtype=bool)
+    box = np.ones((h, w), dtype=bool)
+    crown = np.zeros((h, w), dtype=bool)
+    crown[5:10, 5:10] = True
+    magnitude = np.ones((h, w), dtype=float)
+    result = _coherence_sensitivity(
+        east, north, valid, valid, box, crown, magnitude,
+        include_published_magnitude_window=True,
+    )
+    thresholds = result["thresholds"]
+    assert result["primary_minimum_valid_neighbours"] == 1
+    assert set(thresholds) == {"1", "5", "10", "15", "20", "25"}
+    assert thresholds["1"]["crown_valid_centres"] == 25
+    assert thresholds["25"]["crown_valid_centres"] == 25
+    assert thresholds["1"]["crown_median_R"] == 1.0
+    assert thresholds["1"]["target_pair_0_17_to_2_75_m_sensitivity"]["crown_median_R"] == 1.0
+    assert "not the paper's matched-control sample" in thresholds["1"]["target_pair_0_17_to_2_75_m_sensitivity"]["note"]
