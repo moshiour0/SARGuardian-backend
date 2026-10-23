@@ -9,6 +9,8 @@ on:
       - "tools/**"
       - ".github/workflows/sarguardian-aoi-*.yml"
       - ".github/workflows/sarguardian-aoi-*.yaml"
+      - ".github/workflows/sarguardian-streaming-batch.yml"
+      - ".github/workflows/sarguardian-product-worker.yml"
   pull_request:
     branches:
       - main
@@ -16,6 +18,8 @@ on:
       - "tools/**"
       - ".github/workflows/sarguardian-aoi-*.yml"
       - ".github/workflows/sarguardian-aoi-*.yaml"
+      - ".github/workflows/sarguardian-streaming-batch.yml"
+      - ".github/workflows/sarguardian-product-worker.yml"
 
 permissions:
   contents: read
