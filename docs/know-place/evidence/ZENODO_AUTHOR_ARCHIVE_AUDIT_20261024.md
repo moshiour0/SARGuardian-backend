@@ -59,3 +59,8 @@ The archive-integrity and published-output-reference gate is now **PASS**. The r
 4. Full-footprint per-pair offset rasters are absent, so the full-footprint screen must be regenerated from exact source granules before claiming replay parity.
 
 Next work is a separately tested author-parity path, comparison against the five archived fields and TableS4, resolution and SHA-256 pinning of exact raw GOFF inputs (without substituting X05026 for P05023), and then a full-footprint regeneration. Keep paper reproduction BLOCKED and hazard detection NOT_EVALUATED until those gates pass. This audit authorizes no change or merge to main.
+
+
+## Author-parity kernels (separate exploratory/reproduction boundary)
+
+The branch now has a separate `tools/know_place/author_parity.py` module. It contains recovered kernels for reflected-edge 5×5 coherence with strict >0.5 finite support, source quality gate without a correlation threshold, author LOS projection, crown-local geometry median over height, WIDE window selection, midline-coordinate rectangular AOI mask, stable-ground correction only when ring-valid count exceeds 200, north-up flip/extent, endpoint-linear crown slicing, P1 crown-cropped coherence, and the source polygon-null algorithm. Synthetic regression tests are in `tools/tests/test_know_place_author_parity.py`. The existing exploratory `tools/know_place/analyze.py` is unchanged; the recovered kernels have not yet been integrated into a full raw-input replay, and no paper-reproduction claim is made.

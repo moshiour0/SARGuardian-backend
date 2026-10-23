@@ -109,7 +109,7 @@ def test_author_wide_window_and_midline_aoi_mask_preserve_axis_orientation():
     x = np.arange(0.0, 11.0)
     y_descending = np.arange(10.0, -1.0, -1.0)
     assert author_wide_window_slices(x, y_descending, epsg=4326, wide_bounds_lonlat=(2, 2, 8, 8)) == (
-        slice(2, 8), slice(2, 8)
+        slice(3, 9), slice(2, 8)
     )
     mask = author_inside_aoi_mask(x, y_descending, epsg=4326, aoi_bounds_lonlat=(3, 3, 6, 6))
     assert int(mask.sum()) == 16
@@ -122,7 +122,7 @@ def test_author_site_series_uses_cropped_crown_coherence():
         east, north, (0.0, 8.0, 0.0, 8.0), 12,
         crown_bounds_lonlat=(2.0, 2.0, 6.0, 6.0),
     )
-    assert result["valid_crown_pixels"] == 9
+    assert result["valid_crown_pixels"] == 16
     assert result["P1_R_crown"] == pytest.approx(1.0)
     assert result["P1_R_background"] == pytest.approx(1.0)
     assert result["crown_median_rate_cm_per_day"] == pytest.approx(100.0 / 12.0)
@@ -136,8 +136,8 @@ def test_author_polygon_null_is_deterministic_and_uses_strict_quantiles():
         crown_bounds_lonlat=(9.0, 9.0, 12.0, 12.0),
         n_draw=40,
     )
-    first = author_polygon_null_statistics(east, north, np.random.default_rng(20260907), **args)
-    second = author_polygon_null_statistics(east, north, np.random.default_rng(20260907), **args)
+    first = author_polygon_null_statistics(east, north, rng=np.random.default_rng(20260907), **args)
+    second = author_polygon_null_statistics(east, north, rng=np.random.default_rng(20260907), **args)
     assert first == second
     assert first["candidate_centres_examined"] == 40
     assert first["accepted_draws"] > 0

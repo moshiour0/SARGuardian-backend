@@ -91,3 +91,6 @@
 - **Milestone 6:** isolated raw and saved-array workflows are branch-only; saved-array result/summary retention has passed remote Drive verification. The AOI result bundle includes `timeseries.csv`, `motion-features.csv`, native-grid GeoTIFF placeholders in synthetic tests / real geotiffs in actual measurement runs, NPZ diagnostics, result, dashboard, and checksummed manifest; ephemeral-source manifests now state whether raw HDF5 was deleted or retained. All new commits remain on `feat/know-place-analysis`; no merge or edit to `main` was performed.
 - **Paper reproduction:** `BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; processed archive and table values are verified, but exact raw GOFF bytes (especially first-pair P05023), author-method parity, full-footprint replay and cross-version manuscript mapping remain unresolved.
 - **Hazard detection:** `NOT_EVALUATED`. Do not report an operational landslide alarm from these results.
+
+
+- [x] Add isolated archived-author kernels and synthetic regression cases in `tools/know_place/author_parity.py` and `tools/tests/test_know_place_author_parity.py`. These are not yet wired into the exploratory runner; end-to-end golden comparison remains pending.
