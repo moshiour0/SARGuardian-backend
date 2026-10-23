@@ -41,7 +41,9 @@ class AOIRequest:
     track: str | None
     direction: str | None
     preferred_granules: tuple[str, ...]
+    allowed_maturities: tuple[str, ...]
     reference_wkt: str | None
+    reference_buffer_m: float
     min_snr: float
     max_horizontal_magnitude_m: float
     coherence_window: int
@@ -68,6 +70,7 @@ class AOIRequest:
                 "policy": "external_reference_polygon_component_median"
                 if self.reference_wkt else "no_background_correction",
                 "polygon_wkt": self.reference_wkt,
+                "fallback_buffer_m": self.reference_buffer_m,
             },
             "quality_policy": {
                 "name": "nisar_goff_exploratory_v1",
@@ -167,6 +170,12 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
     if not isinstance(raw_preferred, list) or any(not isinstance(item, str) or not item.strip() for item in raw_preferred):
         raise AOIRequestError("PREFERRED_GRANULES_MUST_BE_STRING_ARRAY")
     preferred_granules = tuple(sorted(set(item.strip() for item in raw_preferred)))
+    raw_maturities = selection.get("allowed_maturities", ["PROVISIONAL"])
+    if not isinstance(raw_maturities, list) or not raw_maturities:
+        raise AOIRequestError("ALLOWED_MATURITIES_MUST_BE_NONEMPTY_ARRAY")
+    allowed_maturities = tuple(sorted({str(item).upper() for item in raw_maturities}))
+    if set(allowed_maturities) - {"PROVISIONAL", "BETA"}:
+        raise AOIRequestError("CATALOG_MATURITY_UNSUPPORTED")
 
     reference = payload.get("reference")
     reference_wkt = None
@@ -179,6 +188,14 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         reference_wkt = _canonical_wkt(reference.get("polygon_wkt"), "reference")
         # Full geometric containment/intersection is revalidated when the ROI is
         # rasterized on the actual source grid; this request parser checks syntax.
+    try:
+        reference_buffer_m = float((reference or {}).get("fallback_buffer_m", 2000.0))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise AOIRequestError("REFERENCE_BUFFER_MUST_BE_NUMERIC") from exc
+    if not math.isfinite(reference_buffer_m) or reference_buffer_m < 0:
+        raise AOIRequestError("REFERENCE_BUFFER_M_INVALID")
+    if reference_wkt is None and reference_buffer_m <= 0:
+        raise AOIRequestError("POSITIVE_REFERENCE_BUFFER_REQUIRED_WITHOUT_REFERENCE_POLYGON")
 
     quality = payload.get("quality_policy", {})
     if not isinstance(quality, dict):
@@ -211,8 +228,8 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "analysis_mode": analysis_mode,
         "source_adapters": list(normalized_adapters),
         "polarization": polarization,
-        "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules)},
-        "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction"},
+        "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_maturities": list(allowed_maturities)},
+        "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction", "fallback_buffer_m": reference_buffer_m},
         "quality_policy": {"minimum_snr": min_snr, "maximum_horizontal_magnitude_m": max_magnitude},
         "coherence_policy": {"window_size": window, "minimum_valid_neighbours": neighbours},
     }
@@ -232,7 +249,9 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         track=track,
         direction=direction,
         preferred_granules=preferred_granules,
+        allowed_maturities=allowed_maturities,
         reference_wkt=reference_wkt,
+        reference_buffer_m=reference_buffer_m,
         min_snr=min_snr,
         max_horizontal_magnitude_m=max_magnitude,
         coherence_window=window,
