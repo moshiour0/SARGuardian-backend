@@ -1308,7 +1308,12 @@ def run_aoi_analysis(
             ],
             "raw_h5_retention": {
                 "raw_h5_in_output_bundle": False,
-                "source_cache_policy": "Raw HDF5 remains in a private external cache; absolute paths are intentionally not written to the result manifest.",
+                "raw_h5_retained_in_external_cache": not ephemeral_source_cache,
+                "source_cache_policy": (
+                    "Each raw HDF5 granule and its receipt were deleted immediately after its pair finished processing."
+                    if ephemeral_source_cache else
+                    "Raw HDF5 remains in a private external cache; absolute paths are intentionally not written to the result manifest."
+                ),
                 "note": "Result bundles include source identities and SHA-256 provenance, not raw source HDF5 files.",
             },
             "claim_boundary": {
