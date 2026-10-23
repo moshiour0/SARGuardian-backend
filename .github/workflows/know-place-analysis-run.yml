@@ -135,7 +135,7 @@ jobs:
           grep -Ev '^[[:space:]]*pytest([<=>!~]|[[:space:]]|$)' science-source/requirements.txt > "$runtime_requirements"
           test -s "$runtime_requirements"
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 \
-            -r "$runtime_requirements" -r backend-source/tools/requirements-retention.txt
+            -r "$runtime_requirements" -r backend-source/tools/requirements-retention.txt scipy==1.18.1
 
       - name: Re-query ASF for each exact granule and verify current maturity and collection
         id: catalog
