@@ -50,7 +50,7 @@ on:
           - D
         default: ANY
       reference_wkt:
-        description: "Optional reference/background polygon WKT; blank disables background correction and uses a local 2 km control context"
+        description: "Optional reference/background polygon WKT; blank uses a 2 km local-context component-median reference"
         required: false
         type: string
       execute_downloads:
