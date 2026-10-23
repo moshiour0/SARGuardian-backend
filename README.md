@@ -94,5 +94,8 @@ GUNW exports. Candidate screening is integrated for the named source AOI only;
 for arbitrary WKT, the current scientific script's named-polygon assumptions
 are explicitly reported as a skip rather than applied incorrectly. A workflow
 PASS is structural/reproducibility evidence, not proof of a landslide alert.
-The default-branch WKT dispatcher is still only an input-forwarding entry point;
-it does not replace the original source-AOI workflow.
+The default-branch WKT dispatcher remains an input-forwarding entry point and
+currently targets the older AOI-only branch. To exercise this integration, run
+the WKT workflow directly from `feat/final-aoi-science-integration`; update the
+default dispatcher reference separately after this branch is reviewed. The
+source-AOI streaming workflow remains independently callable.
