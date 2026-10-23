@@ -119,6 +119,86 @@ def _product_urls(product: Any, props: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
+
+def _exact_integer(value: Any) -> int | None:
+    """Return an integer only when metadata represents an exact count of bytes."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value >= 0 and value.is_integer() else None
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        return int(value.strip())
+    return None
+
+
+def _catalog_size_evidence(product: Any, props: dict[str, Any], wanted: str) -> tuple[int | None, dict[str, Any]]:
+    """Resolve byte size only from an unambiguous exact-byte field.
+
+    Recent asf_search releases expose properties['bytes'] as a per-file
+    mapping whose values may have a magnitude and a separate unit. Passing
+    that mapping to int() is a schema error; interpreting a rounded GB/MB
+    number as an exact byte count would also be unsafe. Prefer raw CMR UMM
+    SizeInBytes for the exact named source file.
+    """
+    umm = getattr(product, "umm", None)
+    if isinstance(umm, dict):
+        data_granule = umm.get("DataGranule", {})
+        archive_info = data_granule.get("ArchiveAndDistributionInformation", []) if isinstance(data_granule, dict) else []
+        if isinstance(archive_info, list):
+            matching = [
+                row for row in archive_info
+                if isinstance(row, dict)
+                and _normalise_product_name(row.get("Name")) == wanted
+            ]
+            if len(matching) > 1:
+                raise CatalogIdentityError(f"ASF_BYTE_SIZE_METADATA_AMBIGUOUS:{wanted}")
+            if len(matching) == 1:
+                exact = _exact_integer(matching[0].get("SizeInBytes"))
+                if exact is not None:
+                    return exact, {
+                        "status": "EXACT_BYTES_FROM_CMR_UMM",
+                        "source_field": "DataGranule.ArchiveAndDistributionInformation.SizeInBytes",
+                    }
+
+    for field in ("sizeBytes", "fileSize", "bytes"):
+        raw = props.get(field)
+        exact = _exact_integer(raw)
+        if exact is not None:
+            return exact, {
+                "status": "EXACT_BYTES_FROM_ASF_PROPERTY",
+                "source_field": field,
+            }
+        if not isinstance(raw, dict):
+            continue
+        keyed = [
+            value for name, value in raw.items()
+            if _normalise_product_name(str(name)) == wanted
+        ]
+        if len(keyed) > 1:
+            raise CatalogIdentityError(f"ASF_BYTE_SIZE_METADATA_AMBIGUOUS:{wanted}:{field}")
+        if len(keyed) == 1 and isinstance(keyed[0], dict):
+            row = keyed[0]
+            value = row.get("bytes", row.get("SizeInBytes"))
+            unit = str(row.get("format", row.get("unit", ""))).strip().lower()
+            exact_value = _exact_integer(value)
+            if exact_value is not None and unit in {"b", "byte", "bytes", "sizeinbytes"}:
+                return exact_value, {
+                    "status": "EXACT_BYTES_FROM_ASF_FILE_SIZE_MAP",
+                    "source_field": field,
+                    "reported_unit": unit,
+                }
+            return None, {
+                "status": "NON_EXACT_FORMATTED_SIZE_DEFERRED_TO_SOURCE_SHA256",
+                "source_field": field,
+                "reported_unit": unit or "not_declared",
+            }
+    return None, {
+        "status": "EXACT_BYTE_SIZE_NOT_EXPOSED_BY_CATALOG",
+        "source_field": None,
+    }
+
 def validate_exact_catalog_product(
     target: dict[str, Any],
     results: list[Any],
@@ -179,17 +259,11 @@ def validate_exact_catalog_product(
             f"ASF_COLLECTION_CONFLICT:{wanted}:values={conflicting_collections}"
         )
 
-    byte_value = props.get("bytes") or props.get("sizeBytes") or props.get("fileSize")
-    catalog_bytes: int | None = None
-    if byte_value is not None:
-        try:
-            catalog_bytes = int(byte_value)
-        except (TypeError, ValueError, OverflowError):
-            raise CatalogIdentityError(f"ASF_BYTE_SIZE_INVALID:{wanted}") from None
-        if catalog_bytes != int(target["expected_source_bytes"]):
-            raise CatalogIdentityError(
-                f"ASF_BYTE_SIZE_CHANGED:{wanted}:expected={target['expected_source_bytes']}:actual={catalog_bytes}"
-            )
+    catalog_bytes, size_evidence = _catalog_size_evidence(product, props, wanted)
+    if catalog_bytes is not None and catalog_bytes != int(target["expected_source_bytes"]):
+        raise CatalogIdentityError(
+            f"ASF_BYTE_SIZE_CHANGED:{wanted}:expected={target['expected_source_bytes']}:actual={catalog_bytes}"
+        )
 
     identity = parse_granule_identity(wanted + ".h5")
     expected = {
@@ -231,6 +305,7 @@ def validate_exact_catalog_product(
         "catalog_collection": EXPECTED_COLLECTION,
         "catalog_maturity_evidence": evidence,
         "catalog_size_bytes": catalog_bytes,
+        "catalog_size_evidence": size_evidence,
         "catalog_url_host": urlparse(urls[0]).hostname,
         "expected_source_sha256": str(target["historical_source_sha256"]),
         "source_identity_comparison": f"SHA256_MATCH_REQUIRED_TO_RUN;reference_run={REFERENCE_RUN_ID}",
