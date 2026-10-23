@@ -30,16 +30,21 @@ def build(rows, **kwargs):
     )
 
 
-def test_arbitrary_pair_series_keeps_exact_source_identity_and_detects_contiguous_chain():
+def test_arbitrary_pair_series_separates_processing_release_chains():
     result = build([row(name) for name in PAIR_NAMES])
     assert result["status"] == "PAIRWISE_SERIES_PLANNED"
     assert result["pair_count"] == 3
-    assert result["continuous_chain_eligible"] is True
-    assert result["cumulative_displacement_status"] == "ELIGIBLE_FOR_SEPARATE_REVIEW"
+    assert result["chain_count"] == 2
+    assert result["continuous_chain_eligible"] is False
+    assert result["cumulative_displacement_status"] == "SEPARATE_CHAINS_REVIEW_REQUIRED"
     assert [item["release_id"] for item in result["pairs"]] == ["X05026", "P05023", "P05023"]
     assert [item["relation_to_previous"] for item in result["pairs"]] == [
-        "FIRST_PAIR", "CONTIGUOUS", "CONTIGUOUS"
+        "FIRST_PAIR", "FIRST_PAIR", "CONTIGUOUS"
     ]
+    assert {item["chain_id"] for item in result["pairs"]} == {
+        "098-A-HH-PROVISIONAL-X05026",
+        "098-A-HH-PROVISIONAL-P05023",
+    }
     assert result["pairwise_metrics_are_not_cumulative"] is True
 
 
@@ -70,7 +75,10 @@ def test_multiple_orbit_geometries_are_returned_as_separate_chains():
     assert result["chain_count"] == 2
     assert result["geometry_key"] is None
     assert result["cumulative_displacement_status"] == "SEPARATE_CHAINS_REVIEW_REQUIRED"
-    assert {item["chain_id"] for item in result["pairs"]} == {"098-A-HH", "048-D-HH"}
+    assert {item["chain_id"] for item in result["pairs"]} == {
+        "098-A-HH-PROVISIONAL-X05026",
+        "048-D-HH-PROVISIONAL-X05026",
+    }
 
 
 def test_date_window_filters_products_by_both_acquisition_dates():
@@ -78,10 +86,18 @@ def test_date_window_filters_products_by_both_acquisition_dates():
         build([row(PAIR_NAMES[0])], end_date=date(2026, 6, 30))
 
 
-def test_gap_and_overlap_disable_cumulative_displacement_claim():
-    # The two intervals share the same orbit/polarization but aren't a touching
-    # pair chain because the second reference acquisition is on 14 July.
-    gapped = PAIR_NAMES[2]
-    result = build([row(PAIR_NAMES[0]), row(gapped)])
+def test_gap_disables_cumulative_displacement_within_the_same_release_chain():
+    # Both are P05023, so the gap is assessed inside one exact processing chain.
+    gapped = (
+        "NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_"
+        "20260726T233919_20260726T233954_20260819T233918_20260819T233953_"
+        "P05023_N_F_J_001.h5"
+    )
+    result = build(
+        [row(PAIR_NAMES[1]), row(gapped)],
+        end_date=date(2026, 8, 19),
+    )
+    assert result["chain_count"] == 1
     assert result["continuous_chain_eligible"] is False
     assert result["cumulative_displacement_status"] == "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
+    assert [item["relation_to_previous"] for item in result["pairs"]] == ["FIRST_PAIR", "GAP"]
