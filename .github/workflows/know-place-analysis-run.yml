@@ -88,6 +88,12 @@ jobs:
           echo "EXPLICIT_DOWNLOAD_CONSENT=PASS"
           echo "secrets_ready=true" >> "$GITHUB_OUTPUT"
 
+      - name: Checkout backend repository at the triggering feature-branch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: backend-source
+
       - name: Checkout the pinned dynamic-WKT science engine used by the previous run
         uses: actions/checkout@v4
         with:
@@ -99,7 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_sha="$(git rev-parse HEAD)"
+          backend_sha="$(git -C backend-source rev-parse HEAD)"
           science_sha="$(git -C science-source rev-parse HEAD)"
           {
             echo "## Know Place Analysis - exact five-pair replay"
@@ -122,14 +128,14 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 \
-            -r science-source/requirements.txt -r requirements-dev.txt -r tools/requirements-retention.txt
+            -r science-source/requirements.txt -r backend-source/requirements-dev.txt -r backend-source/tools/requirements-retention.txt
 
       - name: Re-query ASF for each exact granule and verify current maturity and collection
         id: catalog
         shell: bash
         run: |
           set -euo pipefail
-          python -m tools.know_place.catalog --out "$RUN_ROOT/catalog-manifest.json"
+          PYTHONPATH=backend-source python -m tools.know_place.catalog --out "$RUN_ROOT/catalog-manifest.json"
           cp "$RUN_ROOT/catalog-manifest.json" "$OUT_ROOT/catalog-manifest.json"
           python - "$RUN_ROOT/catalog-manifest.json" "$RUN_ROOT/download-plan.tsv" <<'PY'
           import json,sys
@@ -159,7 +165,7 @@ jobs:
             # The downloader's --aoi source argument only initializes the pinned
             # Earthdata session helper; the Know Place science path uses its own
             # separate box/crown masks and never calls the legacy source AOI reader.
-            python tools/download_nisar_product.py \
+            python backend-source/tools/download_nisar_product.py \
               --product-type GOFF --maturity "$maturity" \
               --granule-name "$granule" --science-root "$PWD/science-source" \
               --aoi source --expected-source-bytes "$expected_bytes" \
@@ -268,7 +274,7 @@ jobs:
         run: |
           set -uo pipefail
           set +e
-          python -m tools.know_place.analyze \
+          PYTHONPATH=backend-source python -m tools.know_place.analyze \
             --config "$RUN_ROOT/know-place-inputs.json" \
             --out "$OUT_ROOT" 2>&1 | tee "$OUT_ROOT/analysis.log"
           rc=${PIPESTATUS[0]}
@@ -350,10 +356,10 @@ jobs:
           )
           [[ ! -s "$OUT_ROOT/know-place-analysis-pairs.csv" ]] || files+=("$OUT_ROOT/know-place-analysis-pairs.csv")
           for file in "${files[@]}"; do test -s "$file"; done
-          python tools/drive_resumable_upload.py \
+          python backend-source/tools/drive_resumable_upload.py \
             --root "$OUT_ROOT" --run-name "KnowPlace-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --files "${files[@]}" --out "$OUT_ROOT/drive-upload-receipt.json"
-          python tools/drive_resumable_upload.py \
+          python backend-source/tools/drive_resumable_upload.py \
             --root "$OUT_ROOT" --run-name "KnowPlace-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --files "$OUT_ROOT/drive-upload-receipt.json" \
             --out "$OUT_ROOT/drive-receipt-upload.json"
