@@ -677,13 +677,15 @@ def sample_geometry(
     *,
     x_m: Any,
     y_m: Any,
-    height_m: float,
+    height_m: Any,
     expected_epsg: int,
 ) -> GeometrySample:
-    """Interpolate geometry at projected grid points and a fixed HAE elevation.
+    """Interpolate geometry at projected grid points and HAE elevation(s).
 
-    No out-of-domain extrapolation is permitted. x/y must use the GOFF grid CRS;
-    the caller is responsible for verifying its EPSG matches the metadata cube.
+    height_m may be one scalar or a per-pixel array matching x_m/y_m. The array
+    form permits DEM-derived terrain heights instead of a constant-height
+    approximation. No out-of-domain extrapolation is permitted. x/y must use
+    the GOFF grid CRS; the caller is responsible for verifying its EPSG.
     """
     try:
         from scipy.interpolate import RegularGridInterpolator
@@ -696,11 +698,20 @@ def sample_geometry(
     xq, yq = np.asarray(x_m, float), np.asarray(y_m, float)
     if xq.shape != yq.shape:
         raise GoffReadError("GEOMETRY_QUERY_XY_SHAPE_MISMATCH")
-    if not np.isfinite(height_m):
+    hq = np.asarray(height_m, dtype=float)
+    if hq.ndim == 0:
+        if not np.isfinite(float(hq)):
+            raise GoffReadError("GEOMETRY_QUERY_HEIGHT_NONFINITE")
+        hq = np.full(xq.shape, float(hq), dtype=float)
+    elif hq.shape != xq.shape:
+        raise GoffReadError("GEOMETRY_QUERY_HEIGHT_SHAPE_MISMATCH")
+    if not np.isfinite(hq).all():
         raise GoffReadError("GEOMETRY_QUERY_HEIGHT_NONFINITE")
-    if height_m < cubes.height_m[0] or height_m > cubes.height_m[-1]:
+    if np.any((hq < cubes.height_m[0]) | (hq > cubes.height_m[-1])):
+        low = float(np.min(hq))
+        high = float(np.max(hq))
         raise GoffReadError(
-            f"GEOMETRY_HEIGHT_OUTSIDE_METADATA_AXIS:{height_m}:"
+            f"GEOMETRY_HEIGHT_OUTSIDE_METADATA_AXIS:{low}..{high}:"
             f"{cubes.height_m[0]}..{cubes.height_m[-1]}"
         )
     if not np.isfinite(xq).all() or not np.isfinite(yq).all():
@@ -710,7 +721,7 @@ def sample_geometry(
     if np.any((yq < cubes.y_m[0]) | (yq > cubes.y_m[-1])):
         raise GoffReadError("GEOMETRY_QUERY_Y_OUTSIDE_METADATA_AXIS")
     points = np.column_stack(
-        [np.full(xq.size, float(height_m)), yq.reshape(-1), xq.reshape(-1)]
+        [hq.reshape(-1), yq.reshape(-1), xq.reshape(-1)]
     )
     def evaluate(cube: np.ndarray) -> np.ndarray:
         interpolator = RegularGridInterpolator(
