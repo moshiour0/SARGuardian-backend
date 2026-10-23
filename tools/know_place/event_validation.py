@@ -271,6 +271,8 @@ def evaluate_heldout_events(
         raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
     if threshold_policy.get("threshold_selection_split") != "validation":
         raise EventValidationError("THRESHOLD_MUST_BE_SELECTED_ON_VALIDATION_SPLIT")
+    _required_text(threshold_policy.get("model_policy_name"), "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
+    _required_text(threshold_policy.get("score_name"), "THRESHOLD_SCORE_NAME_REQUIRED")
     if threshold_policy.get("frozen_before_test") is not True:
         raise EventValidationError("THRESHOLD_POLICY_NOT_FROZEN_BEFORE_TEST")
     if threshold_policy.get("registry_sha256") != registry["registry_sha256"]:
@@ -291,12 +293,21 @@ def evaluate_heldout_events(
     if isinstance(minimum_independent_sites_for_ci, bool) or not isinstance(minimum_independent_sites_for_ci, int) or minimum_independent_sites_for_ci < 2:
         raise EventValidationError("MINIMUM_INDEPENDENT_SITES_INVALID")
 
-    raw_prediction_cases = prediction_payload.get("cases") if isinstance(prediction_payload, dict) else None
+    if not isinstance(prediction_payload, dict) or prediction_payload.get("schema_version") != PREDICTION_SCHEMA:
+        raise EventValidationError("PREDICTION_SCHEMA_UNSUPPORTED")
+    raw_prediction_cases = prediction_payload.get("cases")
     if not isinstance(raw_prediction_cases, list):
         raise EventValidationError("PREDICTIONS_CASES_MUST_BE_ARRAY")
+    validation_cases = [case for case in registry["cases"] if case["split"] == "validation"]
+    if not validation_cases:
+        raise EventValidationError("NO_VALIDATION_SPLIT_CASES")
     test_cases = {case["case_id"]: case for case in registry["cases"] if case["split"] == "test"}
     if not test_cases:
         raise EventValidationError("NO_HELDOUT_TEST_CASES")
+    if not any(case["event_label"] for case in test_cases.values()):
+        raise EventValidationError("HELDOUT_TEST_HAS_NO_POSITIVE_EVENT_CASES")
+    if not any(not case["event_label"] for case in test_cases.values()):
+        raise EventValidationError("HELDOUT_TEST_HAS_NO_NON_EVENT_CASES")
     predictions: dict[str, dict[str, Any]] = {}
     for i, raw in enumerate(raw_prediction_cases):
         if not isinstance(raw, dict):
