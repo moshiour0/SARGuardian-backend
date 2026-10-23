@@ -9,9 +9,11 @@ import argparse
 import csv
 from datetime import date
 import hashlib
+import importlib.metadata
 import json
 import math
 from pathlib import Path
+import platform
 import sys
 from typing import Any
 
@@ -44,6 +46,27 @@ PUBLISHED_TARGET = {
     "size_matched_control_median_displacement_m": 0.14,
     "size_matched_displacement_percentile": 94.7,
 }
+
+
+
+def _runtime_environment() -> dict[str, Any]:
+    """Record numerical/runtime versions needed to interpret a reproducible run."""
+    package_names = (
+        "numpy", "h5py", "scipy", "pyproj", "asf_search",
+        "rasterio", "matplotlib", "requests",
+    )
+    versions: dict[str, str | None] = {}
+    for name in package_names:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return {
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "packages": versions,
+    }
 
 
 def _json_safe(value: Any) -> Any:
@@ -444,6 +467,7 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
     result = {
         "schema_version": OUTPUT_SCHEMA,
         "project": "Know Place Analysis",
+        "runtime_environment": _runtime_environment(),
         "status": analysis_status,
         "structural_status": "PASS",
         "paper_reproduction_status": paper_status,
@@ -547,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = {
             "schema_version": OUTPUT_SCHEMA,
             "project": "Know Place Analysis",
+            "runtime_environment": _runtime_environment(),
             "status": "FAILED",
             "structural_status": "FAIL",
             "paper_reproduction_status": "BLOCKED_ANALYSIS_FAILED",
