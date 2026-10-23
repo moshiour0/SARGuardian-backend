@@ -143,3 +143,18 @@ def test_uncomparable_pair_blocks_rate_change(block_reason, grid_ok, gap, status
 def test_invalid_filename_fails_closed():
     with pytest.raises(MotionFeatureError, match="FEATURE_GRANULE_IDENTITY_INVALID"):
         build_motion_dynamics_features([{"granule_name": "not-a-GOFF.h5", "status": "METRICS_COMPUTED"}])
+
+
+def test_all_unmeasurable_pairs_report_insufficient_feature_coverage():
+    names = [PAIR_NAMES[0], PAIR_NAMES[1]]
+    plan_payload = plan(names)
+    measured = [
+        pair_result(names[0], east=1.0, north=0.0, grid_ok=None, status="INSUFFICIENT_AOI_VALID_PIXELS"),
+        pair_result(names[1], east=2.0, north=0.0, grid_ok=True, status="INSUFFICIENT_AOI_VALID_PIXELS"),
+    ]
+    result = build_motion_dynamics_features(measured, pairwise_series_plan=plan_payload)
+    assert result["status"] == "INSUFFICIENT_MEASUREMENT_FEATURES"
+    assert result["measured_feature_count"] == 0
+    assert result["unmeasured_feature_count"] == 2
+    assert all(row["median_horizontal_displacement_rate_m_per_day"] is None for row in result["pairs"])
+    assert result["hazard_detection_status"] == "NOT_EVALUATED"
