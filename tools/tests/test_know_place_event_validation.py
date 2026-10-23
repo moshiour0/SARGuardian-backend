@@ -12,6 +12,7 @@ from tools.know_place.event_validation import (
     REGISTRY_SCHEMA,
     THRESHOLD_SCHEMA,
     evaluate_heldout_events,
+    select_validation_threshold,
     main,
     seal_threshold_policy,
     validate_event_registry,
@@ -255,3 +256,77 @@ def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
     assert result["registry_sha256"] == validate_event_registry(reg)["registry_sha256"]
     output = capsys.readouterr().out
     assert "EVENT_VALIDATION_STATUS=EVALUATED_EXPLORATORY_HELDOUT_TEST" in output
+
+
+def validation_scores(*, positive_score=0.9, negative_score=0.2):
+    return {
+        "schema_version": "know-place-validation-scores/1.0",
+        "cases": [
+            {"case_id": "VAL-E1", "state": "SCORED", "score": positive_score},
+            {"case_id": "VAL-N1", "state": "SCORED", "score": negative_score},
+        ],
+    }
+
+
+def test_validation_threshold_selection_recovers_known_answer_without_touching_test_labels():
+    reg = registry()
+    selected = select_validation_threshold(
+        reg, validation_scores(),
+        model_policy_name="synthetic_detector_v1",
+        score_name="mocked_alert_score",
+        objective="max_youden_j",
+    )
+
+    policy = selected["threshold_policy"]
+    assert selected["status"] == "THRESHOLD_SELECTED_ON_VALIDATION_SPLIT"
+    assert selected["validation_case_count"] == 2
+    assert selected["validation_scored_case_count"] == 2
+    assert selected["selected_validation_metrics"]["tp"] == 1
+    assert selected["selected_validation_metrics"]["fp"] == 0
+    assert selected["selected_validation_metrics"]["tn"] == 1
+    assert selected["selected_validation_metrics"]["fn"] == 0
+    assert policy["threshold"] == pytest.approx(0.9)
+    assert policy["threshold_selection_split"] == "validation"
+    assert policy["frozen_before_test"] is True
+    assert policy["registry_sha256"] == validate_event_registry(reg)["registry_sha256"]
+    assert len(policy["validation_scores_sha256"]) == 64
+    assert len(policy["policy_sha256"]) == 64
+    # Held-out cases are not accepted in the threshold-selection inputs.
+    leaked = validation_scores()
+    leaked["cases"].append({"case_id": "T1", "state": "SCORED", "score": 1.0})
+    with pytest.raises(EventValidationError, match="VALIDATION_SCORE_NOT_VALIDATION_CASE"):
+        select_validation_threshold(
+            reg, leaked, model_policy_name="synthetic_detector_v1",
+            score_name="mocked_alert_score",
+        )
+
+
+def test_threshold_selection_supports_predeclared_minimum_specificity_objective():
+    reg = registry()
+    selected = select_validation_threshold(
+        reg, validation_scores(positive_score=0.8, negative_score=0.7),
+        model_policy_name="synthetic_detector_v1",
+        score_name="mocked_alert_score",
+        objective="max_recall_at_min_specificity",
+        minimum_specificity=1.0,
+    )
+    assert selected["objective"] == "max_recall_at_min_specificity"
+    assert selected["selected_validation_metrics"]["specificity"] == pytest.approx(1.0)
+    assert selected["selected_validation_metrics"]["recall"] == pytest.approx(1.0)
+    assert selected["threshold_policy"]["minimum_specificity"] == pytest.approx(1.0)
+
+
+def test_threshold_selection_rejects_objectives_without_independent_validation_classes():
+    reg = registry()
+    scores = {
+        "schema_version": "know-place-validation-scores/1.0",
+        "cases": [
+            {"case_id": "VAL-E1", "state": "NO_RESULT", "score": None},
+            {"case_id": "VAL-N1", "state": "SCORED", "score": 0.2},
+        ],
+    }
+    with pytest.raises(EventValidationError, match="VALIDATION_SCORES_HAVE_NO_POSITIVE_EVENTS"):
+        select_validation_threshold(
+            reg, scores, model_policy_name="synthetic_detector_v1",
+            score_name="mocked_alert_score",
+        )
