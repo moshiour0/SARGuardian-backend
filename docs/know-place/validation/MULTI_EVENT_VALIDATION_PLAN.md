@@ -139,8 +139,23 @@ From the **held-out test cases only**, the evaluator reports event-level precisi
 
 Once a real detector emits per-case scores and a policy/threshold has been selected exclusively on the validation split, save:
 - `registry.json`: independently reviewed labels and source/geometric provenance;
-- `predictions.json`: one `ALERT), `NO_ALERT), or `NO_RESULT) record for each held-out test case; scored predictions must agree with the frozen threshold;
+- `predictions.json`: one `ALERT`, `NO_ALERT`, or `NO_RESULT` record for each held-out test case; scored predictions must agree with the frozen threshold;
 - `threshold-policy.json`: the content-addressed policy bound to the registry.
+
+Before evaluating test predictions, generate the frozen threshold policy from **validation-only** scores. The registry checksum binds the split membership, and any test case accidentally included in the score file is rejected:
+
+```bash
+python -m tools.know_place.select_threshold \
+  --registry registry.json \
+  --validation-scores validation-scores.json \
+  --model-policy-name YOUR_DECLARED_DETECTOR_VERSION \
+  --score-name YOUR_DECLARED_RISK_SCORE \
+  --objective max_youden_j \
+  --out threshold-selection-report.json \
+  --threshold-policy-out threshold-policy.json
+```
+
+The score file uses schema `know-place-validation-scores/1.0`, with one `SCORED` record and finite score (or `NO_RESULT` and null score) for each validation case. The threshold selector accepts a predeclared `max_youden_j`, `max_f1), or `max_recall_at_min_specificity) objective. Use the last objective only when the minimum-specificity constraint was chosen before inspecting validation scores. Record the chosen objective, score units and detector version in the experiment log.
 
 Then run:
 
