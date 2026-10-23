@@ -28,6 +28,16 @@ KNOWN_INSUFFICIENT = (
 )
 
 
+def help_has_exact_option(help_text: str, option: str) -> bool:
+    """Return true only for a standalone argparse option, not a longer prefix.
+
+    The option --aoi-csv must not be mistaken for a separate --aoi option:
+    argparse accepts abbreviated long options by default, so passing
+    --aoi source can otherwise overwrite the required --aoi-csv value.
+    """
+    return re.search(rf"(?m)^\\s*{re.escape(option)}(?:[\\s,]|$)", help_text) is not None
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -340,8 +350,11 @@ def run_diagnostics(
                 stderr=subprocess.STDOUT, check=False, timeout=60,
             )
             candidate_help = help_result.stdout or ""
-            supports_aoi_flag = "--aoi" in candidate_help
-            supports_event_affected_flag = "--allow-event-affected-aoi" in candidate_help
+            # Exact option detection is important: --aoi-csv is not --aoi.
+            # The pinned legacy checker scopes its reference measurements with the
+            # AOI-specific --aoi-csv file and does not accept a separate --aoi flag.
+            supports_aoi_flag = help_has_exact_option(candidate_help, "--aoi")
+            supports_event_affected_flag = help_has_exact_option(candidate_help, "--allow-event-affected-aoi")
             points = read_candidate_points(candidates_csv)
             rows = []
             if aoi != "source" and not supports_aoi_flag:
