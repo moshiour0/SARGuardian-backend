@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+LEGACY_SOURCE_SCIENCE_COMMIT = "ab547ecc82bcc4d6ccef545a59852536c2beacc6"
 EXPORT_NAME = re.compile(r"^GUNW_(\d{8})_(\d{8})(?:_([A-Z]{2}))?\.tif$", re.IGNORECASE)
 KNOWN_INSUFFICIENT = (
     "no winter rasters", "no summer rasters", "no all rasters",
@@ -109,9 +110,26 @@ def read_candidate_points(path: Path) -> list[dict[str, Any]]:
     return points
 
 
+def candidate_export_mask_policy(
+    tags: dict[str, Any], *, aoi: str, science_commit: str
+) -> tuple[bool, str]:
+    """Accept only explicit AOI-mask provenance or the known legacy source pin."""
+    source = str(tags.get("source", "")).strip()
+    if not source:
+        return False, "SOURCE_PROVENANCE_TAG_MISSING"
+    raw_mask = tags.get("aoi_mask_applied")
+    if raw_mask is not None and str(raw_mask).strip():
+        if str(raw_mask).strip().lower() == "true":
+            return True, "EXPLICIT_AOI_MASK_TAG"
+        return False, "AOI_MASK_EXPLICITLY_NOT_TRUE"
+    if aoi == "source" and science_commit == LEGACY_SOURCE_SCIENCE_COMMIT:
+        return True, "LEGACY_SOURCE_PIN_WITH_SOURCE_PROVENANCE_TAG"
+    return False, "AOI_MASK_TAG_MISSING_FOR_THIS_ENGINE_OR_AOI"
+
+
 def target_window_measurements(
     raster_dir: Path, latitude: float, longitude: float, radius: int = 5,
-    coherence_threshold: float = 0.3,
+    coherence_threshold: float = 0.3, *, aoi: str, science_commit: str,
 ) -> list[dict[str, Any]]:
     """Measure each pair's retained 2-band GUNW export at a target window."""
     import numpy as np
@@ -128,7 +146,12 @@ def target_window_measurements(
         reference, secondary, _processing = identity
         try:
             with rasterio.open(path) as src:
-                if src.count < 2 or src.crs is None or not src.tags().get("aoi_mask_applied", "").lower() == "true":
+                if src.count < 2 or src.crs is None:
+                    continue
+                mask_ok, mask_evidence = candidate_export_mask_policy(
+                    src.tags(), aoi=aoi, science_commit=science_commit
+                )
+                if not mask_ok:
                     continue
                 crs_key = str(src.crs)
                 transformer = transformers.get(crs_key)
@@ -153,6 +176,7 @@ def target_window_measurements(
                     "median_mm": float(np.median(displacement[valid])),
                     "valid_pixels": count,
                     "median_coherence": float(np.median(coherence[valid])),
+                    "aoi_mask_evidence": mask_evidence,
                     "raster": path.name,
                 })
         except (OSError, ValueError, RuntimeError):
@@ -331,7 +355,8 @@ def run_diagnostics(
                 points = []
             for point in points:
                 measurement = target_window_measurements(
-                    flat_dir, point["lat"], point["lon"], radius=5, coherence_threshold=0.3
+                    flat_dir, point["lat"], point["lon"], radius=5, coherence_threshold=0.3,
+                    aoi=aoi, science_commit=expected_science_commit,
                 )
                 log_file = logs / f"candidate-{point['id']}-target.log"
                 write_target_log(log_file, measurement)
@@ -390,6 +415,7 @@ def run_diagnostics(
                         "coherence_threshold": 0.3,
                         "statistic": "median LOS displacement and median coherence over valid window pixels",
                         "processing_policy": "PR GUNW only",
+                        "mask_provenance_policy": "explicit aoi_mask_applied tag, or exact legacy source science pin plus source granule tag",
                         "caveat": "The candidate checker rejects or withholds a candidate; it cannot prove a landslide from these data alone.",
                     },
                     "results": rows,
