@@ -567,9 +567,10 @@ def _preview(
 def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
     fields = [
         "reference_date", "secondary_date", "granule_name", "release_id",
-        "status", "valid_aoi_pixels", "crown_median_horizontal_magnitude_m",
-        "crown_mean_vector_magnitude_m", "crown_mean_vector_azimuth_deg_clockwise_from_north",
-        "crown_median_directional_coherence_R", "source_sha256", "geotiff_file",
+        "status", "chain_id", "relation_to_previous", "valid_aoi_pixels",
+        "high_magnitude_flagged_pixels", "aoi_median_horizontal_magnitude_m",
+        "aoi_mean_vector_magnitude_m", "aoi_mean_vector_azimuth_deg_clockwise_from_north",
+        "aoi_median_directional_coherence_R", "source_sha256", "geotiff_file",
     ]
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -582,9 +583,14 @@ def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
                 "granule_name": pair.get("granule_name"),
                 "release_id": pair.get("release_id"),
                 "status": pair.get("status"),
+                "chain_id": pair.get("chain_id"),
+                "relation_to_previous": pair.get("relation_to_previous"),
                 "valid_aoi_pixels": pair.get("valid_aoi_pixels"),
-                **{field: stats.get(field) for field in fields[6:9]},
-                "crown_median_directional_coherence_R": stats.get("crown_median_directional_coherence_R"),
+                "high_magnitude_flagged_pixels": pair.get("high_magnitude_flagged_pixels"),
+                "aoi_median_horizontal_magnitude_m": stats.get("aoi_median_horizontal_magnitude_m", stats.get("crown_median_horizontal_magnitude_m")),
+                "aoi_mean_vector_magnitude_m": stats.get("aoi_mean_vector_magnitude_m", stats.get("crown_mean_vector_magnitude_m")),
+                "aoi_mean_vector_azimuth_deg_clockwise_from_north": stats.get("aoi_mean_vector_azimuth_deg_clockwise_from_north", stats.get("crown_mean_vector_azimuth_deg_clockwise_from_north")),
+                "aoi_median_directional_coherence_R": stats.get("aoi_median_directional_coherence_R", stats.get("crown_median_directional_coherence_R")),
                 "source_sha256": pair.get("source_sha256"),
                 "geotiff_file": pair.get("geotiff_file"),
             })
@@ -892,6 +898,20 @@ def run_aoi_analysis(
                 corrected_east, corrected_north, valid, roi.crown_mask,
                 coherence, interval_days=max(1, (raw.identity.secondary_start.date() - raw.identity.reference_start.date()).days),
             )
+            # Generic UI/API names refer to the user's AOI. Legacy crown_* fields
+            # remain alongside them so the isolated paper-reproduction path and
+            # existing reanalysis tools keep their published-statistic contract.
+            summary.update({
+                "aoi_valid_pixels": summary["valid_crown_pixels"],
+                "aoi_median_horizontal_magnitude_m": summary["crown_median_horizontal_magnitude_m"],
+                "aoi_mean_vector_east_m": summary["crown_mean_vector_east_m"],
+                "aoi_mean_vector_north_m": summary["crown_mean_vector_north_m"],
+                "aoi_mean_vector_magnitude_m": summary["crown_mean_vector_magnitude_m"],
+                "aoi_mean_vector_azimuth_deg_clockwise_from_north": summary["crown_mean_vector_azimuth_deg_clockwise_from_north"],
+                "aoi_median_magnitude_rate_m_per_day": summary["crown_median_magnitude_rate_m_per_day"],
+                "aoi_median_directional_coherence_R": summary["crown_median_directional_coherence_R"],
+                "aoi_coherence_valid_pixels": summary["coherence_valid_crown_pixels"],
+            })
             uncertainty = spatial_block_bootstrap_summary(
                 corrected_east, corrected_north, valid, roi.crown_mask,
                 block_size_cells=5, replicates=1000, seed=260826, minimum_blocks=8,
