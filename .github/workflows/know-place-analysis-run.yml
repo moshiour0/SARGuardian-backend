@@ -123,12 +123,19 @@ jobs:
           python-version: "3.13"
           check-latest: false
 
-      - name: Install pinned science, backend and retention dependencies
+      - name: Install pinned analysis runtime and retention dependencies (exclude test-only pins)
         shell: bash
         run: |
           set -euo pipefail
+          # The science requirements file includes pytest==9.1.1 for test runs,
+          # while the backend dev extra pins pytest<9. Pytest is not needed for
+          # raw HDF5 processing, so exclude only that test-only line and keep
+          # the scientific runtime versions from the pinned source repository.
+          runtime_requirements="$RUNNER_TEMP/know-place-runtime-requirements.txt"
+          grep -Ev '^[[:space:]]*pytest([<=>!~]|[[:space:]]|$)' science-source/requirements.txt > "$runtime_requirements"
+          test -s "$runtime_requirements"
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 \
-            -r science-source/requirements.txt -r backend-source/requirements-dev.txt -r backend-source/tools/requirements-retention.txt
+            -r "$runtime_requirements" -r backend-source/tools/requirements-retention.txt
 
       - name: Re-query ASF for each exact granule and verify current maturity and collection
         id: catalog
