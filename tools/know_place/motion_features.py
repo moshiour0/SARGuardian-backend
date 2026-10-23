@@ -77,16 +77,29 @@ def _feature_row(pair: dict[str, Any]) -> dict[str, Any]:
     stats = pair.get("statistics", {})
     if not isinstance(stats, dict):
         stats = {}
-    magnitude_rate = _finite_number(
-        stats.get("aoi_median_magnitude_rate_m_per_day",
-                  stats.get("crown_median_magnitude_rate_m_per_day"))
+    measurement_computed = status == "METRICS_COMPUTED"
+    magnitude_rate = (
+        _finite_number(stats.get(
+            "aoi_median_magnitude_rate_m_per_day",
+            stats.get("crown_median_magnitude_rate_m_per_day"),
+        ))
+        if measurement_computed else None
     )
-    vector_magnitude = _finite_number(
-        stats.get("aoi_mean_vector_magnitude_m",
-                  stats.get("crown_mean_vector_magnitude_m"))
+    vector_magnitude = (
+        _finite_number(stats.get(
+            "aoi_mean_vector_magnitude_m",
+            stats.get("crown_mean_vector_magnitude_m"),
+        ))
+        if measurement_computed else None
     )
-    east = _finite_number(stats.get("aoi_mean_vector_east_m", stats.get("crown_mean_vector_east_m")))
-    north = _finite_number(stats.get("aoi_mean_vector_north_m", stats.get("crown_mean_vector_north_m")))
+    east = (
+        _finite_number(stats.get("aoi_mean_vector_east_m", stats.get("crown_mean_vector_east_m")))
+        if measurement_computed else None
+    )
+    north = (
+        _finite_number(stats.get("aoi_mean_vector_north_m", stats.get("crown_mean_vector_north_m")))
+        if measurement_computed else None
+    )
     valid_pixels = _finite_number(pair.get("valid_aoi_pixels"))
     total_pixels = _finite_number(pair.get("aoi_total_grid_cells"))
     high_motion = _finite_number(pair.get("high_magnitude_flagged_pixels"))
