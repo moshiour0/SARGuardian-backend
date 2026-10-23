@@ -19,7 +19,7 @@ import numpy as np
 from .paper_method import ScientificInputError
 
 PRODUCT_PREFIX = "/science/LSAR/GOFF/grids/frequencyA/pixelOffsets"
-METADATA_PREFIX = "/science/LSAR/GOFF/metadata/"
+METADATA_PREFIX = "science/LSAR/GOFF/metadata/"
 GEOMETRY_FIELDS = (
     "incidenceAngle",
     "losUnitVectorX",
