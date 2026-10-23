@@ -46,4 +46,4 @@ jobs:
         run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py
 
       - name: Run scientific known-answer and fail-closed tests
-        run: python -m pytest -q --confcutdir=tools/tests tools/tests/test_know_place_paper_method.py tools/tests/test_know_place_goff_io.py tools/tests/test_know_place_geometry.py
+        run: python -m pytest -q --confcutdir=tools/tests tools/tests/test_know_place_paper_method.py tools/tests/test_know_place_goff_io.py tools/tests/test_know_place_geometry.py tools/tests/test_know_place_analyze.py
