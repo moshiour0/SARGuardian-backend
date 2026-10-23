@@ -194,6 +194,198 @@ def validate_event_registry(payload: dict[str, Any]) -> dict[str, Any]:
     return {**registry_body, "registry_sha256": registry_sha}
 
 
+def select_validation_threshold(
+    registry_payload: dict[str, Any],
+    validation_scores_payload: dict[str, Any],
+    *,
+    model_policy_name: str,
+    score_name: str,
+    objective: str = "max_youden_j",
+    decision_rule: str = ">=",
+    minimum_specificity: float | None = None,
+) -> dict[str, Any]:
+    """Choose a threshold using only the registry's validation split and seal it.
+
+    Supported objectives are max_youden_j, max_f1, or
+    max_recall_at_min_specificity. The objective and any specificity constraint
+    become part of the content-addressed policy, making threshold selection
+    reproducible and distinct from the held-out test evaluation.
+    """
+    registry = validate_event_registry(registry_payload)
+    _required_text(model_policy_name, "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
+    _required_text(score_name, "THRESHOLD_SCORE_NAME_REQUIRED")
+    if objective not in {"max_youden_j", "max_f1", "max_recall_at_min_specificity"}:
+        raise EventValidationError("THRESHOLD_SELECTION_OBJECTIVE_UNSUPPORTED")
+    if decision_rule not in {">=", ">"}:
+        raise EventValidationError("THRESHOLD_POLICY_DECISION_RULE_UNSUPPORTED")
+    if objective == "max_recall_at_min_specificity":
+        if (
+            isinstance(minimum_specificity, bool)
+            or not isinstance(minimum_specificity, (int, float))
+            or not math.isfinite(float(minimum_specificity))
+            or not 0.0 <= float(minimum_specificity) <= 1.0
+        ):
+            raise EventValidationError("MINIMUM_SPECIFICITY_REQUIRED_FOR_OBJECTIVE")
+    elif minimum_specificity is not None:
+        raise EventValidationError("MINIMUM_SPECIFICITY_ONLY_ALLOWED_FOR_CONSTRAINED_RECALL_OBJECTIVE")
+
+    if not isinstance(validation_scores_payload, dict) or validation_scores_payload.get("schema_version") != "know-place-validation-scores/1.0":
+        raise EventValidationError("VALIDATION_SCORE_SCHEMA_UNSUPPORTED")
+    raw_rows = validation_scores_payload.get("cases")
+    if not isinstance(raw_rows, list):
+        raise EventValidationError("VALIDATION_SCORES_CASES_MUST_BE_ARRAY")
+    validation_cases = {
+        case["case_id"]: case for case in registry["cases"]
+        if case["split"] == "validation"
+    }
+    if not validation_cases:
+        raise EventValidationError("NO_VALIDATION_SPLIT_CASES")
+
+    scores: dict[str, dict[str, Any]] = {}
+    for index, raw in enumerate(raw_rows):
+        if not isinstance(raw, dict):
+            raise EventValidationError(f"VALIDATION_SCORE_{index}_MUST_BE_OBJECT")
+        case_id = _required_text(raw.get("case_id"), f"VALIDATION_SCORE_{index}_CASE_ID_REQUIRED")
+        if case_id not in validation_cases:
+            raise EventValidationError(f"VALIDATION_SCORE_NOT_VALIDATION_CASE:{case_id}")
+        if case_id in scores:
+            raise EventValidationError(f"VALIDATION_SCORE_CASE_DUPLICATE:{case_id}")
+        state = raw.get("state")
+        if state not in {"SCORED", "NO_RESULT"}:
+            raise EventValidationError(f"VALIDATION_SCORE_STATE_UNSUPPORTED:{case_id}")
+        value = raw.get("score")
+        if state == "NO_RESULT":
+            if value is not None:
+                raise EventValidationError(f"VALIDATION_NO_RESULT_MUST_NOT_HAVE_SCORE:{case_id}")
+        else:
+            if not validation_cases[case_id]["source_products"]:
+                raise EventValidationError(f"VALIDATION_SCORE_WITHOUT_VERIFIED_SOURCE_PRODUCTS:{case_id}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise EventValidationError(f"VALIDATION_SCORE_NONFINITE_OR_MISSING:{case_id}")
+        scores[case_id] = {"case_id": case_id, "state": state, "score": float(value) if value is not None else None}
+
+    if set(scores) != set(validation_cases):
+        missing = sorted(set(validation_cases) - set(scores))
+        raise EventValidationError("VALIDATION_SCORES_INCOMPLETE:" + ",".join(missing))
+
+    scored = [
+        {**validation_cases[case_id], **row, "state": (
+            "ALERT" if row["state"] == "SCORED" else "NO_RESULT"
+        )}
+        for case_id, row in scores.items()
+        if row["state"] == "SCORED"
+    ]
+    if not any(row["event_label"] for row in scored):
+        raise EventValidationError("VALIDATION_SCORES_HAVE_NO_POSITIVE_EVENTS")
+    if not any(not row["event_label"] for row in scored):
+        raise EventValidationError("VALIDATION_SCORES_HAVE_NO_NON_EVENT_CONTROLS")
+
+    unique_scores = sorted({row["score"] for row in scored})
+    candidates = set(unique_scores)
+    below_min = float(np.nextafter(unique_scores[0], -math.inf))
+    above_max = float(np.nextafter(unique_scores[-1], math.inf))
+    if math.isfinite(below_min):
+        candidates.add(below_min)
+    if math.isfinite(above_max):
+        candidates.add(above_max)
+
+    rows: list[dict[str, Any]] = []
+    for threshold in sorted(candidates):
+        candidate_rows = []
+        for row in scored:
+            should_alert = row["score"] >= threshold if decision_rule == ">=" else row["score"] > threshold
+            candidate_rows.append({**row, "state": "ALERT" if should_alert else "NO_ALERT"})
+        metric_row = _confusion_metrics(candidate_rows)
+        specificity = metric_row["specificity"]
+        recall = metric_row["recall"]
+        f1 = metric_row["f1"]
+        youden = recall + specificity - 1.0 if recall is not None and specificity is not None else None
+        rows.append({
+            "threshold": float(threshold),
+            **metric_row,
+            "youden_j": youden,
+            "selection_objective": objective,
+            "meets_minimum_specificity": (
+                specificity is not None and specificity >= float(minimum_specificity)
+                if objective == "max_recall_at_min_specificity" else None
+            ),
+        })
+
+    if objective == "max_youden_j":
+        selected = max(rows, key=lambda row: (
+            row["youden_j"] if row["youden_j"] is not None else -math.inf,
+            row["recall"] if row["recall"] is not None else -math.inf,
+            row["specificity"] if row["specificity"] is not None else -math.inf,
+            row["threshold"],
+        ))
+    elif objective == "max_f1":
+        selected = max(rows, key=lambda row: (
+            row["f1"] if row["f1"] is not None else -math.inf,
+            row["specificity"] if row["specificity"] is not None else -math.inf,
+            row["threshold"],
+        ))
+    else:
+        feasible = [
+            row for row in rows
+            if row["meets_minimum_specificity"] is True and row["recall"] is not None
+        ]
+        if not feasible:
+            raise EventValidationError("NO_THRESHOLD_MEETS_MINIMUM_SPECIFICITY")
+        selected = max(feasible, key=lambda row: (
+            row["recall"],
+            row["precision"] if row["precision"] is not None else -math.inf,
+            row["specificity"] if row["specificity"] is not None else -math.inf,
+            row["threshold"],
+        ))
+
+    all_event_count = sum(case["event_label"] for case in validation_cases.values())
+    conservative_tp = sum(
+        case["event_label"] and scores[case_id]["state"] == "SCORED"
+        and (
+            scores[case_id]["score"] >= selected["threshold"]
+            if decision_rule == ">="
+            else scores[case_id]["score"] > selected["threshold"]
+        )
+        for case_id, case in validation_cases.items()
+    )
+    base_policy = {
+        "schema_version": THRESHOLD_SCHEMA,
+        "model_policy_name": model_policy_name,
+        "score_name": score_name,
+        "threshold": selected["threshold"],
+        "decision_rule": decision_rule,
+        "threshold_selection_split": "validation",
+        "threshold_selection_objective": objective,
+        "minimum_specificity": float(minimum_specificity) if minimum_specificity is not None else None,
+        "frozen_before_test": True,
+        "registry_sha256": registry["registry_sha256"],
+        "validation_case_ids_sha256": _canonical_sha256({"case_ids": sorted(validation_cases)}),
+        "validation_scores_sha256": _canonical_sha256(validation_scores_payload),
+        "selection_evidence": "Threshold selected from validation-split scores only; do not revise after held-out test scoring.",
+    }
+    policy = seal_threshold_policy(base_policy)
+    return {
+        "schema_version": "know-place-validation-threshold-selection/1.0",
+        "status": "THRESHOLD_SELECTED_ON_VALIDATION_SPLIT",
+        "registry_sha256": registry["registry_sha256"],
+        "validation_scores_sha256": _canonical_sha256(validation_scores_payload),
+        "objective": objective,
+        "minimum_specificity": float(minimum_specificity) if minimum_specificity is not None else None,
+        "validation_case_count": len(validation_cases),
+        "validation_scored_case_count": len(scored),
+        "validation_no_result_case_count": len(validation_cases) - len(scored),
+        "conservative_recall_all_validation_events": _safe_ratio(conservative_tp, all_event_count),
+        "selected_validation_metrics": selected,
+        "candidate_threshold_count": len(rows),
+        "threshold_policy": policy,
+        "limitations": [
+            "The selected threshold is calibrated only to the validation set and declared objective.",
+            "The validation score must itself be produced by a scientifically specified detector policy.",
+            "Selecting a threshold does not justify deploying it; held-out test evaluation and site-level uncertainty are mandatory.",
+        ],
+    }
+
+
 def _confusion_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     tp = sum(row["event_label"] and row["state"] == "ALERT" for row in rows)
     fp = sum((not row["event_label"]) and row["state"] == "ALERT" for row in rows)
