@@ -1,0 +1,513 @@
+"""Strict raw NISAR L2 GOFF IO for isolated Know Place Analysis.
+
+This module does not call SARGuardian's current reader/exporter: those outputs
+already include auto-reference, deramping, filtering and cropping, which are not
+inputs to the paper-equivalent calculation.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+import hashlib
+from pathlib import Path
+import re
+from typing import Any
+
+import h5py
+import numpy as np
+
+from .paper_method import ScientificInputError
+
+PRODUCT_PREFIX = "/science/LSAR/GOFF/grids/frequencyA/pixelOffsets"
+METADATA_PREFIX = "/science/LSAR/GOFF/metadata/"
+GEOMETRY_FIELDS = (
+    "incidenceAngle",
+    "losUnitVectorX",
+    "losUnitVectorY",
+    "alongTrackUnitVectorX",
+    "alongTrackUnitVectorY",
+)
+TIMESTAMP_RE = re.compile(r"(\d{8}T\d{6})")
+PRODUCT_RE = re.compile(
+    r"^NISAR_L2_(?P<processing>PR|UR|OD)_GOFF_(?P<frame>\d{3})_"
+    r"(?P<track>\d{3})_(?P<direction>[AD])_"
+)
+
+
+class GoffReadError(ScientificInputError):
+    """A raw GOFF product fails strict schema, identity, or geometry checks."""
+
+
+@dataclass(frozen=True)
+class GoffIdentity:
+    granule_name: str
+    processing: str
+    frame: str
+    track: str
+    direction: str
+    reference_start: datetime
+    reference_end: datetime
+    secondary_start: datetime
+    secondary_end: datetime
+    release_id: str | None
+
+
+@dataclass(frozen=True)
+class RawGoffProduct:
+    identity: GoffIdentity
+    polarization: str
+    layer: str
+    along_track_m: np.ndarray
+    slant_range_m: np.ndarray
+    snr: np.ndarray
+    correlation: np.ndarray
+    x_coordinates_m: np.ndarray
+    y_coordinates_m: np.ndarray
+    epsg: int
+    source_sha256: str
+    dataset_paths: dict[str, str]
+    unit_evidence: dict[str, str]
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GeometryCubes:
+    group_path: str
+    height_m: np.ndarray
+    y_m: np.ndarray
+    x_m: np.ndarray
+    incidence_deg: np.ndarray
+    los_x: np.ndarray
+    los_y: np.ndarray
+    along_track_x: np.ndarray
+    along_track_y: np.ndarray
+    source_paths: dict[str, str]
+    unit_evidence: dict[str, str]
+
+
+@dataclass(frozen=True)
+class GeometrySample:
+    incidence_deg: np.ndarray
+    los_x: np.ndarray
+    los_y: np.ndarray
+    along_track_x: np.ndarray
+    along_track_y: np.ndarray
+    metadata_group: str
+
+
+def _text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="strict").strip()
+    if isinstance(value, np.ndarray) and value.size == 1:
+        return _text(value.reshape(-1)[0])
+    return str(value).strip()
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _require_dataset(handle: h5py.File, path: str) -> h5py.Dataset:
+    if path not in handle:
+        raise GoffReadError(f"REQUIRED_GOFF_DATASET_MISSING:{path}")
+    item = handle[path]
+    if not isinstance(item, h5py.Dataset):
+        raise GoffReadError(f"REQUIRED_GOFF_PATH_NOT_DATASET:{path}")
+    return item
+
+
+def _array_units(dataset: h5py.Dataset) -> str | None:
+    raw = dataset.attrs.get("units")
+    if raw is None:
+        return None
+    return _text(raw).lower().replace(" ", "")
+
+
+def _offset_units_evidence(dataset: h5py.Dataset, field: str) -> str:
+    unit = _array_units(dataset)
+    metre_units = {"m", "meter", "meters", "metre", "metres"}
+    if unit is not None:
+        if unit not in metre_units:
+            raise GoffReadError(
+                f"OFFSET_UNIT_MISMATCH:{dataset.name}:expected_metres:actual={unit}"
+            )
+        return f"dataset_attribute:{unit}"
+    # NISAR L2 GOFF product specification defines AT/SR offsets in metres.
+    # This is an explicit schema contract, not a magnitude-based unit guess.
+    return "NISAR_L2_GOFF_product_specification:metres"
+
+
+def parse_granule_identity(path_or_name: str | Path) -> GoffIdentity:
+    """Parse acquisition and geometry identity from an official granule name."""
+    name = Path(path_or_name).name
+    if not name.lower().endswith(".h5"):
+        raise GoffReadError(f"GOFF_FILENAME_EXTENSION_INVALID:{name}")
+    stem = name[:-3]
+    match = PRODUCT_RE.match(stem)
+    if not match:
+        raise GoffReadError(f"GOFF_GRANULE_NAME_PATTERN_INVALID:{name}")
+    stamps = TIMESTAMP_RE.findall(stem)
+    if len(stamps) != 4:
+        raise GoffReadError(f"GOFF_EXPECTED_FOUR_ACQUISITION_TIMESTAMPS:{name}")
+    try:
+        parsed = [datetime.strptime(stamp, "%Y%m%dT%H%M%S") for stamp in stamps]
+    except ValueError as exc:
+        raise GoffReadError(f"GOFF_ACQUISITION_TIMESTAMP_INVALID:{name}:{exc}") from exc
+    if parsed[0] > parsed[1] or parsed[2] > parsed[3]:
+        raise GoffReadError(f"GOFF_ACQUISITION_INTERVAL_ORDER_INVALID:{name}")
+    if parsed[0] >= parsed[2]:
+        raise GoffReadError(f"GOFF_REFERENCE_MUST_PRECEDE_SECONDARY:{name}")
+    crids = re.findall(r"(?<![A-Z0-9])[PX]\d{5}(?![A-Z0-9])", stem)
+    if len(crids) > 1:
+        raise GoffReadError(f"GOFF_MULTIPLE_RELEASE_IDS:{name}:{crids}")
+    return GoffIdentity(
+        granule_name=name,
+        processing=match.group("processing"),
+        frame=match.group("frame"),
+        track=match.group("track"),
+        direction=match.group("direction"),
+        reference_start=parsed[0],
+        reference_end=parsed[1],
+        secondary_start=parsed[2],
+        secondary_end=parsed[3],
+        release_id=crids[0] if crids else None,
+    )
+
+
+def _epsg_from_projection(dataset: h5py.Dataset) -> int:
+    candidate = dataset.attrs.get("epsg_code")
+    if candidate is None:
+        scalar = np.asarray(dataset[()])
+        if scalar.size != 1:
+            raise GoffReadError(f"PROJECTION_EPSG_UNRESOLVED:{dataset.name}")
+        candidate = scalar.reshape(-1)[0]
+    try:
+        epsg = int(candidate)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise GoffReadError(f"PROJECTION_EPSG_INVALID:{dataset.name}") from exc
+    if epsg <= 0:
+        raise GoffReadError(f"PROJECTION_EPSG_INVALID:{dataset.name}:{epsg}")
+    return epsg
+
+
+def _validate_coordinate_axis(values: np.ndarray, name: str) -> np.ndarray:
+    axis = np.asarray(values, dtype=float)
+    if axis.ndim != 1 or axis.size < 2 or not np.isfinite(axis).all():
+        raise GoffReadError(f"COORDINATE_AXIS_INVALID:{name}")
+    delta = np.diff(axis)
+    if not (np.all(delta > 0) or np.all(delta < 0)):
+        raise GoffReadError(f"COORDINATE_AXIS_NOT_STRICTLY_MONOTONIC:{name}")
+    return axis
+
+
+def read_raw_goff(
+    path: str | Path,
+    *,
+    polarization: str = "HH",
+    layer: int = 2,
+    expected_track: str | None = None,
+    expected_direction: str | None = None,
+    expected_processing: str = "PR",
+) -> RawGoffProduct:
+    """Load raw layer-2 GOFF arrays. No filter, bias removal or deramping."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise GoffReadError(f"GOFF_SOURCE_FILE_NOT_FOUND:{source}")
+    identity = parse_granule_identity(source)
+    pol = polarization.strip().upper()
+    if pol not in {"HH", "HV", "VH", "VV"}:
+        raise GoffReadError(f"POLARIZATION_UNSUPPORTED:{polarization}")
+    if layer != 2:
+        raise GoffReadError("PAPER_METHOD_REQUIRES_GOFF_LAYER2")
+    if identity.processing != expected_processing:
+        raise GoffReadError(
+            f"GOFF_PROCESSING_MISMATCH:expected={expected_processing}:actual={identity.processing}"
+        )
+    if expected_track is not None and identity.track != str(expected_track).zfill(3):
+        raise GoffReadError(
+            f"GOFF_TRACK_MISMATCH:expected={str(expected_track).zfill(3)}:actual={identity.track}"
+        )
+    if expected_direction is not None and identity.direction != expected_direction.upper():
+        raise GoffReadError(
+            f"GOFF_DIRECTION_MISMATCH:expected={expected_direction}:actual={identity.direction}"
+        )
+
+    base = f"{PRODUCT_PREFIX}/{pol}/layer{layer}"
+    names = {
+        "along_track": "alongTrackOffset",
+        "slant_range": "slantRangeOffset",
+        "snr": "snr",
+        "correlation": "correlationSurfacePeak",
+        "x": "xCoordinates",
+        "y": "yCoordinates",
+        "projection": "projection",
+    }
+    data_paths = {key: f"{base}/{value}" for key, value in names.items()}
+    fields: dict[str, np.ndarray] = {}
+    unit_evidence: dict[str, str] = {}
+    with h5py.File(source, "r") as handle:
+        datasets = {key: _require_dataset(handle, value) for key, value in data_paths.items()}
+        for key in ("along_track", "slant_range", "snr", "correlation"):
+            dataset = datasets[key]
+            if dataset.ndim != 2:
+                raise GoffReadError(f"GOFF_MEASUREMENT_NOT_2D:{dataset.name}:{dataset.shape}")
+            fields[key] = np.asarray(dataset[()], dtype=np.float64)
+        shape = fields["along_track"].shape
+        for key in ("slant_range", "snr", "correlation"):
+            if fields[key].shape != shape:
+                raise GoffReadError(
+                    f"GOFF_MEASUREMENT_SHAPE_MISMATCH:{key}:{fields[key].shape}:expected={shape}"
+                )
+        for key in ("along_track", "slant_range"):
+            unit_evidence[key] = _offset_units_evidence(datasets[key], key)
+        snr_units = _array_units(datasets["snr"])
+        if snr_units not in (None, "1", "unitless", "dimensionless"):
+            raise GoffReadError(f"GOFF_SNR_UNIT_MISMATCH:{snr_units}")
+        unit_evidence["snr"] = (
+            f"dataset_attribute:{snr_units}" if snr_units is not None
+            else "NISAR_L2_GOFF_product_specification:dimensionless"
+        )
+        corr_units = _array_units(datasets["correlation"])
+        if corr_units not in (None, "1", "unitless", "dimensionless"):
+            raise GoffReadError(f"GOFF_CORRELATION_UNIT_MISMATCH:{corr_units}")
+        unit_evidence["correlation"] = (
+            f"dataset_attribute:{corr_units}" if corr_units is not None
+            else "NISAR_L2_GOFF_product_specification:dimensionless"
+        )
+
+        x = _validate_coordinate_axis(np.asarray(datasets["x"][()], dtype=float), datasets["x"].name)
+        y = _validate_coordinate_axis(np.asarray(datasets["y"][()], dtype=float), datasets["y"].name)
+        if len(x) != shape[1] or len(y) != shape[0]:
+            raise GoffReadError(
+                f"GOFF_COORDINATE_SHAPE_MISMATCH:grid={shape}:x={len(x)}:y={len(y)}"
+            )
+        epsg = _epsg_from_projection(datasets["projection"])
+        for key in ("along_track", "slant_range", "snr", "correlation"):
+            ds = datasets[key]
+            grid_mapping = ds.attrs.get("grid_mapping")
+            if grid_mapping is not None and _text(grid_mapping) != "projection":
+                raise GoffReadError(
+                    f"GOFF_GRID_MAPPING_CONFLICT:{ds.name}:{_text(grid_mapping)}"
+                )
+        field_paths = {key: datasets[key].name for key in datasets}
+
+    return RawGoffProduct(
+        identity=identity,
+        polarization=pol,
+        layer=f"layer{layer}",
+        along_track_m=fields["along_track"],
+        slant_range_m=fields["slant_range"],
+        snr=fields["snr"],
+        correlation=fields["correlation"],
+        x_coordinates_m=x,
+        y_coordinates_m=y,
+        epsg=epsg,
+        source_sha256=_sha256(source),
+        dataset_paths=field_paths,
+        unit_evidence=unit_evidence,
+        metadata={
+            "source_path_name_only": source.name,
+            "raw_data_only": True,
+            "correction_applied": False,
+            "quality_filter_applied": False,
+            "aoi_clip_applied": False,
+            "release_id": identity.release_id,
+            "reference_date": identity.reference_start.date().isoformat(),
+            "secondary_date": identity.secondary_start.date().isoformat(),
+        },
+    )
+
+
+def _incidence_to_degrees(dataset: h5py.Dataset, values: np.ndarray) -> tuple[np.ndarray, str]:
+    units = _array_units(dataset)
+    if units in {"degree", "degrees", "deg"}:
+        result = values.astype(float, copy=False)
+        evidence = f"dataset_attribute:{units}"
+    elif units in {"rad", "radian", "radians"}:
+        result = np.rad2deg(values)
+        evidence = f"dataset_attribute:{units}->degrees"
+    else:
+        raise GoffReadError(
+            f"INCIDENCE_ANGLE_UNIT_MISSING_OR_UNSUPPORTED:{dataset.name}:units={units}"
+        )
+    finite = result[np.isfinite(result)]
+    if finite.size == 0 or np.any((finite <= 0) | (finite >= 90)):
+        raise GoffReadError(f"INCIDENCE_ANGLE_VALUES_OUT_OF_RANGE:{dataset.name}")
+    return result, evidence
+
+
+def _geometry_units_evidence(dataset: h5py.Dataset) -> str:
+    units = _array_units(dataset)
+    if units is None:
+        return "NISAR_metadata_product_specification:dimensionless_unit_vector"
+    if units not in {"1", "unitless", "dimensionless"}:
+        raise GoffReadError(f"GEOMETRY_VECTOR_UNIT_MISMATCH:{dataset.name}:{units}")
+    return f"dataset_attribute:{units}"
+
+
+def read_geometry_cubes(path: str | Path) -> GeometryCubes:
+    """Find one complete metadata cube group; reject mixed or ambiguous groups.
+
+    The selected group must contain all geometry parameter cubes and the exact
+    x/y/height axes. Cubes use HAE, y, x order. Dataset names are matched exactly.
+    """
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise GoffReadError(f"GOFF_SOURCE_FILE_NOT_FOUND:{source}")
+    required = set(GEOMETRY_FIELDS) | {"xCoordinates", "yCoordinates", "heightAboveEllipsoid"}
+    candidates: set[str] = set()
+    with h5py.File(source, "r") as handle:
+        def visit(name: str, obj: Any) -> None:
+            if isinstance(obj, h5py.Dataset) and name.startswith(METADATA_PREFIX):
+                if name.rsplit("/", 1)[-1] in required:
+                    candidates.add(name.rsplit("/", 1)[0])
+        handle.visititems(visit)
+
+        complete: list[str] = []
+        reasons: list[str] = []
+        for group in sorted(candidates):
+            if not all(f"{group}/{name}" in handle for name in required):
+                continue
+            axes = {
+                "x": np.asarray(handle[f"{group}/xCoordinates"][()], dtype=float),
+                "y": np.asarray(handle[f"{group}/yCoordinates"][()], dtype=float),
+                "height": np.asarray(handle[f"{group}/heightAboveEllipsoid"][()], dtype=float),
+            }
+            try:
+                for axis_name, axis_values in axes.items():
+                    _validate_coordinate_axis(axis_values, f"{group}/{axis_name}")
+                expected_shape = (len(axes["height"]), len(axes["y"]), len(axes["x"]))
+            except GoffReadError as exc:
+                reasons.append(str(exc))
+                continue
+            shape_ok = all(
+                isinstance(handle[f"{group}/{field}"], h5py.Dataset)
+                and handle[f"{group}/{field}"].ndim == 3
+                and handle[f"{group}/{field}"].shape == expected_shape
+                for field in GEOMETRY_FIELDS
+            )
+            if shape_ok:
+                complete.append(group)
+            else:
+                reasons.append(f"GEOMETRY_CUBE_SHAPE_MISMATCH:{group}:expected={expected_shape}")
+
+        if len(complete) != 1:
+            detail = ";".join(reasons[:8])
+            if not complete:
+                raise GoffReadError(f"GOFF_GEOMETRY_CUBE_NOT_FOUND_OR_INVALID:{detail}")
+            raise GoffReadError(f"GOFF_GEOMETRY_CUBE_AMBIGUOUS:{complete}")
+
+        group = complete[0]
+        x = _validate_coordinate_axis(
+            np.asarray(handle[f"{group}/xCoordinates"][()], dtype=float),
+            f"{group}/xCoordinates",
+        )
+        y = _validate_coordinate_axis(
+            np.asarray(handle[f"{group}/yCoordinates"][()], dtype=float),
+            f"{group}/yCoordinates",
+        )
+        height = _validate_coordinate_axis(
+            np.asarray(handle[f"{group}/heightAboveEllipsoid"][()], dtype=float),
+            f"{group}/heightAboveEllipsoid",
+        )
+        cubes: dict[str, np.ndarray] = {}
+        paths: dict[str, str] = {}
+        evidence: dict[str, str] = {}
+        for field in GEOMETRY_FIELDS:
+            dataset = handle[f"{group}/{field}"]
+            cube = np.asarray(dataset[()], dtype=float)
+            if not np.isfinite(cube).any():
+                raise GoffReadError(f"GEOMETRY_CUBE_ALL_NONFINITE:{dataset.name}")
+            if field == "incidenceAngle":
+                cube, evidence[field] = _incidence_to_degrees(dataset, cube)
+            else:
+                evidence[field] = _geometry_units_evidence(dataset)
+            cubes[field] = cube
+            paths[field] = dataset.name
+
+        # Normalize descending axes and flip every cube along its matching axis.
+        if np.all(np.diff(x) < 0):
+            x = x[::-1].copy()
+            cubes = {key: np.flip(value, axis=2) for key, value in cubes.items()}
+        if np.all(np.diff(y) < 0):
+            y = y[::-1].copy()
+            cubes = {key: np.flip(value, axis=1) for key, value in cubes.items()}
+        if np.all(np.diff(height) < 0):
+            height = height[::-1].copy()
+            cubes = {key: np.flip(value, axis=0) for key, value in cubes.items()}
+
+    return GeometryCubes(
+        group_path=group,
+        height_m=height,
+        y_m=y,
+        x_m=x,
+        incidence_deg=cubes["incidenceAngle"],
+        los_x=cubes["losUnitVectorX"],
+        los_y=cubes["losUnitVectorY"],
+        along_track_x=cubes["alongTrackUnitVectorX"],
+        along_track_y=cubes["alongTrackUnitVectorY"],
+        source_paths=paths,
+        unit_evidence=evidence,
+    )
+
+
+def sample_geometry(
+    cubes: GeometryCubes,
+    *,
+    x_m: Any,
+    y_m: Any,
+    height_m: float,
+) -> GeometrySample:
+    """Interpolate geometry at projected grid points and a fixed HAE elevation.
+
+    No out-of-domain extrapolation is permitted. x/y must use the GOFF grid CRS;
+    the caller is responsible for verifying its EPSG matches the metadata cube.
+    """
+    try:
+        from scipy.interpolate import RegularGridInterpolator
+    except ImportError as exc:
+        raise GoffReadError("SCIPY_REQUIRED_FOR_GEOMETRY_CUBE_INTERPOLATION") from exc
+    xq, yq = np.asarray(x_m, float), np.asarray(y_m, float)
+    if xq.shape != yq.shape:
+        raise GoffReadError("GEOMETRY_QUERY_XY_SHAPE_MISMATCH")
+    if not np.isfinite(height_m):
+        raise GoffReadError("GEOMETRY_QUERY_HEIGHT_NONFINITE")
+    if height_m < cubes.height_m[0] or height_m > cubes.height_m[-1]:
+        raise GoffReadError(
+            f"GEOMETRY_HEIGHT_OUTSIDE_METADATA_AXIS:{height_m}:"
+            f"{cubes.height_m[0]}..{cubes.height_m[-1]}"
+        )
+    if not np.isfinite(xq).all() or not np.isfinite(yq).all():
+        raise GoffReadError("GEOMETRY_QUERY_XY_NONFINITE")
+    if np.any((xq < cubes.x_m[0]) | (xq > cubes.x_m[-1])):
+        raise GoffReadError("GEOMETRY_QUERY_X_OUTSIDE_METADATA_AXIS")
+    if np.any((yq < cubes.y_m[0]) | (yq > cubes.y_m[-1])):
+        raise GoffReadError("GEOMETRY_QUERY_Y_OUTSIDE_METADATA_AXIS")
+    points = np.column_stack(
+        [np.full(xq.size, float(height_m)), yq.reshape(-1), xq.reshape(-1)]
+    )
+    def evaluate(cube: np.ndarray) -> np.ndarray:
+        interpolator = RegularGridInterpolator(
+            (cubes.height_m, cubes.y_m, cubes.x_m),
+            cube,
+            method="linear",
+            bounds_error=True,
+            fill_value=np.nan,
+        )
+        values = np.asarray(interpolator(points), dtype=float).reshape(xq.shape)
+        if not np.isfinite(values).all():
+            raise GoffReadError("GEOMETRY_INTERPOLATION_NONFINITE_RESULT")
+        return values
+
+    return GeometrySample(
+        incidence_deg=evaluate(cubes.incidence_deg),
+        los_x=evaluate(cubes.los_x),
+        los_y=evaluate(cubes.los_y),
+        along_track_x=evaluate(cubes.along_track_x),
+        along_track_y=evaluate(cubes.along_track_y),
+        metadata_group=cubes.group_path,
+    )
