@@ -46,7 +46,7 @@ from .paper_method import (
     summarize_crown,
 )
 from .series import SeriesPlanError, build_pairwise_series_plan
-from .uncertainty import spatial_block_bootstrap_summary
+from .uncertainty import spatial_block_bootstrap_sensitivity, spatial_block_bootstrap_summary
 
 ENGINE_VERSION = "1.0.0"
 MAX_PRODUCTS_PER_DOWNLOADED_JOB = 30
@@ -1061,6 +1061,11 @@ def run_aoi_analysis(
                 corrected_east, corrected_north, valid, roi.crown_mask,
                 block_size_cells=5, replicates=1000, seed=260826, minimum_blocks=8,
             )
+            uncertainty_sensitivity = spatial_block_bootstrap_sensitivity(
+                corrected_east, corrected_north, valid, roi.crown_mask,
+                block_sizes_cells=(3, 5, 10), replicates_per_size=300,
+                seed=260826, minimum_blocks=8,
+            )
             controls = None
             try:
                 from .paper_method import empirical_percentile, size_matched_spatial_controls
@@ -1111,6 +1116,7 @@ def run_aoi_analysis(
                 "status": "METRICS_COMPUTED",
                 "statistics": summary,
                 "spatial_block_bootstrap_uncertainty": uncertainty,
+                "spatial_block_bootstrap_sensitivity": uncertainty_sensitivity,
                 "exploratory_control_comparison": controls,
                 "geotiff_file": geotiff_relative,
                 "diagnostic_arrays_file": npz_relative,
