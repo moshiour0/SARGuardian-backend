@@ -310,10 +310,13 @@ def size_matched_spatial_controls(
         raise ScientificInputError("control arrays and masks must share shape")
     usable = mask & np.isfinite(magnitude) & box
     crown_usable = usable & target
+    background_usable = usable & ~target
     target_count = int(crown_usable.sum())
     if target_count < 1:
         raise ScientificInputError("NO_VALID_CROWN_PIXELS_FOR_CONTROLS")
-    centers = np.argwhere(usable)
+    # A control center and its measured cells must be outside the crown; otherwise
+    # the target signal contaminates its own null distribution.
+    centers = np.argwhere(background_usable)
     if not len(centers):
         raise ScientificInputError("NO_VALID_BACKGROUND_CELLS_FOR_CONTROLS")
     radius_m = math.sqrt(target_count * pixel_size_x_m * pixel_size_y_m / math.pi)
@@ -332,7 +335,7 @@ def size_matched_spatial_controls(
         x0, x1 = max(0, cx - max_r), min(w, cx + max_r + 1)
         circle = (((yy[y0:y1] - cy) * pixel_size_y_m) ** 2
                   + ((xx[:, x0:x1] - cx) * pixel_size_x_m) ** 2) <= radius_m ** 2
-        sample = circle & usable[y0:y1, x0:x1]
+        sample = circle & background_usable[y0:y1, x0:x1]
         count = int(sample.sum())
         if count < min_count:
             rejected += 1
