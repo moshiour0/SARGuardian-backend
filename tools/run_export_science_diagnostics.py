@@ -377,20 +377,21 @@ def run_diagnostics(
                     "log": str((logs / f"candidate-{point['id']}-check.log").relative_to(out_root)),
                     "tail": output[-1400:],
                 })
-            report["candidate_checks"] = {
-                "status": "COMPLETED" if points else "NO_ELIGIBLE_CANDIDATES",
-                "aoi": aoi,
-                "stats_csv": str(stats_csv.resolve()),
-                "candidate_source_csv": str(candidates_csv.resolve()),
-                "measurement_rule": {
-                    "window": "11x11 pixels centered on target, clipped to raster edges",
-                    "coherence_threshold": 0.3,
-                    "statistic": "median LOS displacement and median coherence over valid window pixels",
-                    "processing_policy": "PR GUNW only",
-                    "caveat": "The candidate checker rejects or withholds a candidate; it cannot prove a landslide from these data alone.",
-                },
-                "results": rows,
-            }
+            if report.get("candidate_checks", {}).get("status") != "SKIPPED_LEGACY_CLI_CANNOT_SCOPE_NAMED_AOI":
+                report["candidate_checks"] = {
+                    "status": "COMPLETED" if points else "NO_ELIGIBLE_CANDIDATES",
+                    "aoi": aoi,
+                    "stats_csv": str(stats_csv.resolve()),
+                    "candidate_source_csv": str(candidates_csv.resolve()),
+                    "measurement_rule": {
+                        "window": "11x11 pixels centered on target, clipped to raster edges",
+                        "coherence_threshold": 0.3,
+                        "statistic": "median LOS displacement and median coherence over valid window pixels",
+                        "processing_policy": "PR GUNW only",
+                        "caveat": "The candidate checker rejects or withholds a candidate; it cannot prove a landslide from these data alone.",
+                    },
+                    "results": rows,
+                }
 
     report["status"] = "FAIL" if report["errors"] else "PASS_WITH_LIMITATIONS" if report["warnings"] else "PASS"
     (out_root / "science-diagnostics.json").write_text(
