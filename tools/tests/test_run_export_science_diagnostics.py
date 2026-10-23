@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 
 from tools.run_export_science_diagnostics import (
+    candidate_export_mask_policy,
     classify_pixel_stack,
     export_identity,
     read_candidate_points,
@@ -27,6 +28,29 @@ def test_pixel_stack_result_is_not_misreported_as_hazard_confirmation():
     assert classify_pixel_stack(0, "VERDICT: NO DETECTION in chain A; chain B cluster exceeds the noise-only 95th percentile") == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
     assert classify_pixel_stack(1, "No contiguous chain of 2+ pairs; nothing to stack.") == "INSUFFICIENT_TEMPORAL_COVERAGE"
     assert classify_pixel_stack(1, "Traceback: invalid raster grid") == "FAIL"
+
+
+def test_legacy_source_mask_fallback_is_pin_and_provenance_scoped():
+    old_pin = "ab547ecc82bcc4d6ccef545a59852536c2beacc6"
+    source_tags = {"source": "NISAR_L2_PR_GUNW_example.h5"}
+
+    assert candidate_export_mask_policy(
+        source_tags, aoi="source", science_commit=old_pin
+    ) == (True, "LEGACY_SOURCE_PIN_WITH_SOURCE_PROVENANCE_TAG")
+    assert candidate_export_mask_policy(
+        source_tags, aoi="custom", science_commit=old_pin
+    ) == (False, "AOI_MASK_TAG_MISSING_FOR_THIS_ENGINE_OR_AOI")
+    assert candidate_export_mask_policy(
+        {"source": "NISAR_L2_PR_GUNW_example.h5", "aoi_mask_applied": "false"},
+        aoi="source", science_commit=old_pin,
+    ) == (False, "AOI_MASK_EXPLICITLY_NOT_TRUE")
+    assert candidate_export_mask_policy(
+        {"aoi_mask_applied": "true"}, aoi="source", science_commit=old_pin
+    ) == (False, "SOURCE_PROVENANCE_TAG_MISSING")
+    assert candidate_export_mask_policy(
+        {"source": "NISAR_L2_PR_GUNW_example.h5"},
+        aoi="source", science_commit="10639a916c9829850775410b3ed7de62e527770d",
+    ) == (False, "AOI_MASK_TAG_MISSING_FOR_THIS_ENGINE_OR_AOI")
 
 
 def test_candidate_parser_only_keeps_detachment_like_valid_coordinates(tmp_path: Path):
