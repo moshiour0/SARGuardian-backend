@@ -110,14 +110,15 @@ def test_raw_reader_fails_if_required_source_layer_is_absent(tmp_path):
 def test_geometry_reader_and_interpolator_use_same_exact_cube_group(tmp_path):
     path = tmp_path / TARGET_NAME
     write_synthetic_goff(path)
-    cubes = read_geometry_cubes(path)
+    cubes = read_geometry_cubes(path, expected_epsg=32645)
     sample = sample_geometry(cubes, x_m=np.array([[150.0, 250.0]]),
-                             y_m=np.array([[250.0, 350.0]]), height_m=5151.0)
+                             y_m=np.array([[250.0, 350.0]]), height_m=5151.0,
+                             expected_epsg=32645)
     assert cubes.group_path.endswith("/metadata/radarGrid")
-    assert sample.incidence_deg.tolist() == pytest.approx([[39.1, 39.1]])
-    assert sample.los_x.tolist() == pytest.approx([[0.2, 0.2]])
-    assert sample.los_y.tolist() == pytest.approx([[-0.3, -0.3]])
-    assert sample.along_track_x.tolist() == pytest.approx([[0.9, 0.9]])
+    assert np.allclose(sample.incidence_deg, [[39.1, 39.1]])
+    assert np.allclose(sample.los_x, [[0.2, 0.2]])
+    assert np.allclose(sample.los_y, [[-0.3, -0.3]])
+    assert np.allclose(sample.along_track_x, [[0.9, 0.9]])
 
 
 def test_geometry_reader_fails_on_ambiguous_metadata_groups(tmp_path):
@@ -141,6 +142,33 @@ def test_geometry_sampling_refuses_extrapolation(tmp_path):
     write_synthetic_goff(path)
     cubes = read_geometry_cubes(path)
     with pytest.raises(GoffReadError, match="GEOMETRY_QUERY_X_OUTSIDE"):
-        sample_geometry(cubes, x_m=np.array([500.0]), y_m=np.array([250.0]), height_m=5151.0)
+        sample_geometry(cubes, x_m=np.array([500.0]), y_m=np.array([250.0]), height_m=5151.0,
+                    expected_epsg=32645)
     with pytest.raises(GoffReadError, match="GEOMETRY_HEIGHT_OUTSIDE"):
-        sample_geometry(cubes, x_m=np.array([150.0]), y_m=np.array([250.0]), height_m=7000.0)
+        sample_geometry(cubes, x_m=np.array([150.0]), y_m=np.array([250.0]), height_m=7000.0,
+                    expected_epsg=32645)
+
+
+
+def test_raw_reader_masks_only_explicit_fill_values_and_records_them(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    with h5py.File(path, "a") as h:
+        ds = h[f"{BASE}/grids/frequencyA/pixelOffsets/HH/layer2/slantRangeOffset"]
+        ds.attrs["_FillValue"] = np.float32(-9999.0)
+        ds[0, 0] = -9999.0
+    product = read_raw_goff(path)
+    assert np.isnan(product.slant_range_m[0, 0])
+    assert product.fill_evidence["slant_range"] == [-9999.0]
+    assert product.slant_range_m[0, 1] == pytest.approx(0.01)
+
+
+def test_geometry_metadata_crs_must_match_offset_grid_crs(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    with h5py.File(path, "a") as h:
+        ds = h[f"{BASE}/metadata/radarGrid/projection"]
+        ds.attrs["epsg_code"] = 32644
+        ds[()]  # metadata CRS now differs from the GOFF offset grid
+    with pytest.raises(GoffReadError, match="GEOMETRY_CRS_MISMATCH"):
+        read_geometry_cubes(path, expected_epsg=32645)
