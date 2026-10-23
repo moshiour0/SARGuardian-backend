@@ -154,9 +154,17 @@ python -m tools.know_place.aoi_runner --request tools/know_place/examples/bhote_
 
 For a credentialed download/measurement run, omit `--dry-run` and set `EARTHDATA_TOKEN` or `EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD`. Use a private `--cache-dir`. Add `--ephemeral-source-cache` when raw HDF5 should be deleted after processing rather than retained for future local reuse.
 
+### Motion-dynamics features
+
+Each measured pair's exact source acquisition start/end timestamps are reduced to reference/secondary acquisition midpoints. The pair's median horizontal displacement magnitude and mean horizontal vector are divided by the midpoint separation, producing separate **interval-average rates** in m/day. These are not instantaneous velocity and do not localize motion onset inside the interval.
+
+The result also records `motion_dynamics` features. Changes in mean-vector rate and the corresponding descriptive rate-change magnitude (m/day) and acceleration-like feature (m/day²) are calculated only if both pairs have actual metrics, are in the same release/maturity chain, the pair intervals are contiguous, projected grid lattices match, and neither interval crosses a registered mission gap. Otherwise the rate-change field is null with an explicit block reason. No risk score or operational alarm is emitted.
+
+`motion_dynamics.status` distinguishes complete, partial, and insufficient feature coverage. `risk_score` remains null and `hazard_detection_status=NOT_EVALUATED` until a separate model is trained/calibrated and tested on independently labelled event/non-event sites. Rate changes are candidate research features, not evidence of an impending collapse.
+
 ### Dashboard outputs and scientific status
 
-- `visuals/dashboard.html`: offline HTML, no CDN; contains displacement trend, pairwise metrics, AOI outline over a downsampled raster preview, source IDs/SHA-256, valid AOI pixel support, uncertainty interval and status gates. It is not a basemap or a substitute for full-resolution GIS rasters.
+- `visuals/dashboard.html`: offline HTML, no CDN; contains displacement trend, interval-average rates, gap-aware motion-dynamics table, AOI outline over a downsampled raster preview, source IDs/SHA-256, valid AOI pixel support, uncertainty interval and status gates. It is not a basemap or a substitute for full-resolution GIS rasters.
 - `maps/*_displacement.tif`: native-grid east/north/magnitude/coherence/valid-mask/high-magnitude-review flag/uncorrected-magnitude bands.
 - `diagnostics/*_arrays.npz`: derived arrays and AOI/reference masks for numerical reanalysis.
 - `timeseries.csv`, `result.json`, `manifest.json`: pair-level results, normalized request hash, runtime package versions, source checksums and derived-file checksums.
