@@ -78,10 +78,12 @@ def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, A
 def classify_pixel_stack(returncode: int, output: str) -> str:
     lower = output.lower()
     if returncode == 0:
-        if "verdict: no detection" in lower:
-            return "COMPLETED_NO_DETECTION"
+        # One invocation can report multiple temporal/geometry chains.
+        # A candidate in any chain must not be hidden by another chain's null.
         if "cluster exceeds the noise-only 95th percentile" in lower:
             return "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
+        if "verdict: no detection" in lower:
+            return "COMPLETED_NO_DETECTION"
         return "COMPLETED"
     if any(fragment in lower for fragment in KNOWN_INSUFFICIENT):
         return "INSUFFICIENT_TEMPORAL_COVERAGE"
