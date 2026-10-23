@@ -83,7 +83,7 @@ The two-granule pilot and the 33-product source-baseline replay have now passed.
 
 The new WKT-driven NISAR acquisition and dashboard flow is documented in
 [docs/DYNAMIC_AOI_WKT_E2E.md](docs/DYNAMIC_AOI_WKT_E2E.md). It lives on
-`feat/e2e-aoi-wkt-date-dashboard` and uses the scientific AOI parser in
+`feat/final-aoi-science-integration` and uses the scientific AOI parser in
 `science/aoi-wkt-dynamic-e2e`. The original
 `feat/e2e-pinned-science-pipeline` workflow remains separate and unchanged.
 
