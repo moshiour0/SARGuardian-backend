@@ -138,15 +138,17 @@ From the **held-out test cases only**, the evaluator reports event-level precisi
 ### CLI contract
 
 Once a real detector emits per-case scores and a policy/threshold has been selected exclusively on the validation split, save:
-- `registry.json`: independently reviewed labels and source/geometric provenance;
-- `predictions.json`: one `ALERT`, `NO_ALERT`, or `NO_RESULT` record for each held-out test case; scored predictions must agree with the frozen threshold;
-- `threshold-policy.json`: the content-addressed policy bound to the registry.
+- `validation-registry.json`: only `split=validation) cases with independently reviewed labels and source/geometric provenance;
+- `heldout-test-registry.json`: only `split=test) cases, kept separate from the calibration input;
+- `validation-scores.json`: one finite `SCORED) value or a `NO_RESULT) for every validation case;
+- `heldout-test-predictions.json`: one `ALERT), `NO_ALERT), or `NO_RESULT) record for every held-out test case; scored predictions must agree with the frozen threshold;
+- `threshold-policy.json`: the content-addressed policy bound to the validation-only registry and validation scores.
 
 Before evaluating test predictions, generate the frozen threshold policy from **validation-only** scores. The registry checksum binds the split membership, and any test case accidentally included in the score file is rejected:
 
 ```bash
 python -m tools.know_place.select_threshold \
-  --registry registry.json \
+  --registry validation-registry.json \
   --validation-scores validation-scores.json \
   --model-policy-name YOUR_DECLARED_DETECTOR_VERSION \
   --score-name YOUR_DECLARED_RISK_SCORE \
@@ -154,6 +156,8 @@ python -m tools.know_place.select_threshold \
   --out threshold-selection-report.json \
   --threshold-policy-out threshold-policy.json
 ```
+
+The threshold selector now rejects any registry containing development/test cases, and the held-out evaluator requires two explicit inputs: a validation-only registry whose SHA-256 matches the frozen policy, plus a test-only registry. Do not pass the same combined registry to both CLIs. Keep the master multi-split registry in a controlled data-curation step and export split-specific files with their own hashes. This prevents test labels from entering the threshold-selection stage, rather than merely promising not to use them.
 
 The score file uses schema `know-place-validation-scores/1.0`, with one `SCORED` record and finite score (or `NO_RESULT` and null score) for each validation case. The threshold selector accepts a predeclared `max_youden_j`, `max_f1`, or `max_recall_at_min_specificity` objective. Use the last objective only when the minimum-specificity constraint was chosen before inspecting validation scores. Record the chosen objective, score units and detector version in the experiment log.
 
