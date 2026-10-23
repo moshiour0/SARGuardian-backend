@@ -90,4 +90,4 @@ def test_block_size_sensitivity_fails_closed_for_invalid_scales():
     with pytest.raises(ValueError, match="UNCERTAINTY_BLOCK_SIZES_MUST_BE_NONEMPTY_AND_UNIQUE"):
         spatial_block_bootstrap_sensitivity(east, east, valid, valid, block_sizes_cells=())
     with pytest.raises(ValueError, match="UNCERTAINTY_BLOCK_SIZES_INVALID"):
-        spatial_block_bootstrap_sensitivity(east, east, valid, valid, block_sizes_cells=(3, 4))
+        spatial_block_bootstrap_sensitivity(east, east, valid, valid, block_sizes_cells=(3, 0))
