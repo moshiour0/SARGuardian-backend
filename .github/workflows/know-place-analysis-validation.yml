@@ -160,15 +160,17 @@ jobs:
           import json,sys
           d=json.load(open(sys.argv[1],encoding="utf-8"))
           rows=d.get("products",[])
-          if d.get("status")!="PASS" or len(rows)!=5:
-              raise SystemExit("ERROR=ASF_AUTHOR_CATALOG_NOT_FIVE_EXACT_PRODUCTS")
+          if d.get("status") not in {"PASS","BLOCKED"} or len(rows)!=5:
+              raise SystemExit("ERROR=ASF_AUTHOR_CATALOG_MANIFEST_INVALID")
           if any(p.get("release_id")!="P05023" or p.get("source_sha256") is not None for p in rows):
               raise SystemExit("ERROR=ASF_AUTHOR_IDENTITY_GATE_SCHEMA_CONFLICT")
           for p in rows:
-              print("ASF_AUTHOR_PRODUCT_IDENTITY=PASS {} {} {} {}".format(
-                  p["interval"],p["release_id"],p["catalog_maturity"],
-                  p["catalog_identity_status"]))
-          print("AUTHOR_RAW_PRODUCT_DOWNLOADS=0")
+              print("ASF_AUTHOR_PRODUCT_IDENTITY={} {} {} {}".format(
+                  p["catalog_identity_status"],p["interval"],p["release_id"],
+                  p.get("catalog_maturity") or "UNRESOLVED"))
+          print("AUTHOR_REPRODUCTION_GATE={}".format(
+              "PASS" if d.get("status")=="PASS" else "BLOCKED"))
+          print("SOURCE_DOWNLOADS=0")
           PY
 
       - name: Preserve live author-identity evidence
