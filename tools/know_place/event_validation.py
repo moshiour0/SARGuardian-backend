@@ -454,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(
-            json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
             encoding="utf-8",
         )
     except (OSError, json.JSONDecodeError) as exc:
