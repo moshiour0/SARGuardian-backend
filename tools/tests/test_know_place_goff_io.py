@@ -233,12 +233,12 @@ def test_geometry_sampling_supports_per_pixel_hae_values_for_dem_backed_projecti
     cubes.incidence_deg[1, :, :] = 50.0
     sample = sample_geometry(
         cubes,
-        x_m=np.array([[150.0, 250.0]]),
-        y_m=np.array([[250.0, 350.0]]),
-        height_m=np.array([[5000.0, 5500.0]]),
+        x_m=np.array([[101.0, 102.0]]),
+        y_m=np.array([[201.0, 202.0]]),
+        height_m=np.array([[5000.0, 6000.0]]),
         expected_epsg=32645,
     )
-    assert np.allclose(sample.incidence_deg, [[30.0, 40.0]])
+    assert np.allclose(sample.incidence_deg, [[30.0, 50.0]])
 
 
 def test_geometry_sampling_rejects_mismatched_or_outside_per_pixel_hae_values(tmp_path):
@@ -247,11 +247,11 @@ def test_geometry_sampling_rejects_mismatched_or_outside_per_pixel_hae_values(tm
     cubes = read_geometry_cubes(path, expected_epsg=32645)
     with pytest.raises(GoffReadError, match="GEOMETRY_QUERY_HEIGHT_SHAPE_MISMATCH"):
         sample_geometry(
-            cubes, x_m=np.array([[150.0, 250.0]]), y_m=np.array([[250.0, 350.0]]),
+            cubes, x_m=np.array([[101.0, 102.0]]), y_m=np.array([[201.0, 202.0]]),
             height_m=np.array([5150.0]), expected_epsg=32645,
         )
     with pytest.raises(GoffReadError, match="GEOMETRY_HEIGHT_OUTSIDE_METADATA_AXIS"):
         sample_geometry(
-            cubes, x_m=np.array([[150.0, 250.0]]), y_m=np.array([[250.0, 350.0]]),
+            cubes, x_m=np.array([[101.0, 102.0]]), y_m=np.array([[201.0, 202.0]]),
             height_m=np.array([[5150.0, 7000.0]]), expected_epsg=32645,
         )
