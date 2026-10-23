@@ -105,6 +105,54 @@ def _safe_json(value: Any) -> Any:
     return str(value)
 
 
+def _grid_identity_sha256(grid: Any) -> str:
+    """Hash CRS plus exact source-grid centre axes without serializing giant lists."""
+    digest = hashlib.sha256()
+    digest.update(f"epsg={int(grid.epsg)};".encode("ascii"))
+    for axis_name in ("x_coordinates_m", "y_coordinates_m"):
+        axis = np.asarray(getattr(grid, axis_name), dtype="<f8")
+        digest.update(f"{axis_name}:{axis.size}:".encode("ascii"))
+        digest.update(axis.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def _grid_lattice_compatible(previous: Any, current: Any) -> bool:
+    """Check identical projected pixel spacing and integer-aligned pixel centres.
+
+    Different extent/array dimensions are allowed if both grids share a common
+    native lattice. A changed CRS, posting, or sub-pixel origin shift breaks a
+    displacement time-series link even when the same WKT AOI was requested.
+    """
+    if int(previous.epsg) != int(current.epsg):
+        return False
+    axes = []
+    for grid in (previous, current):
+        x = np.asarray(grid.x_coordinates_m, dtype=float)
+        y = np.asarray(grid.y_coordinates_m, dtype=float)
+        if x.ndim != 1 or y.ndim != 1 or len(x) < 2 or len(y) < 2:
+            return False
+        dx_values, dy_values = np.abs(np.diff(x)), np.abs(np.diff(y))
+        dx, dy = float(np.median(dx_values)), float(np.median(dy_values))
+        if (
+            not np.isfinite(dx) or not np.isfinite(dy) or dx <= 0 or dy <= 0
+            or not np.allclose(dx_values, dx, rtol=1e-6, atol=1e-4)
+            or not np.allclose(dy_values, dy, rtol=1e-6, atol=1e-4)
+        ):
+            return False
+        axes.append((dx, dy, float(np.min(x)), float(np.min(y))))
+    dx0, dy0, xmin0, ymin0 = axes[0]
+    dx1, dy1, xmin1, ymin1 = axes[1]
+    if not (math.isclose(dx0, dx1, rel_tol=1e-6, abs_tol=1e-4)
+            and math.isclose(dy0, dy1, rel_tol=1e-6, abs_tol=1e-4)):
+        return False
+    x_cells = (xmin1 - xmin0) / dx0
+    y_cells = (ymin1 - ymin0) / dy0
+    return (
+        math.isclose(x_cells, round(x_cells), rel_tol=0.0, abs_tol=1e-4)
+        and math.isclose(y_cells, round(y_cells), rel_tol=0.0, abs_tol=1e-4)
+    )
+
+
 def _magnitude_gate_limit(request: AOIRequest) -> float:
     """Select the versioned gate without confusing suspect motion with impossible motion."""
     if request.magnitude_policy == "reject_above_threshold":
@@ -714,6 +762,7 @@ def run_aoi_analysis(
         pairs: list[dict[str, Any]] = []
         download_evidence: list[dict[str, Any]] = []
         ephemeral_pending_paths: list[Path] = []
+        previous_grid_by_chain: dict[str, Any] = {}
         for planned in plan["pairs"]:
             record = catalog_by_name[planned["granule_name"]]
             source_path, receipt = _download_exact_product(record, cache_dir, session)
@@ -725,6 +774,14 @@ def run_aoi_analysis(
                 expected_track=planned["track"], expected_direction=planned["direction"],
                 expected_processing="PR",
             )
+            grid_identity = _grid_identity_sha256(grid)
+            chain_id = planned.get("chain_id", "UNASSIGNED")
+            previous_grid = previous_grid_by_chain.get(chain_id)
+            grid_aligned = (
+                None if previous_grid is None
+                else _grid_lattice_compatible(previous_grid, grid)
+            )
+            previous_grid_by_chain[chain_id] = grid
             roi_box_wkt = request.reference_wkt or _processing_extent_wkt(
                 request.aoi_wkt, grid.epsg, request.reference_buffer_m
             )
@@ -775,6 +832,8 @@ def run_aoi_analysis(
                     "catalog_maturity": record["maturity"],
                     "source_sha256": raw.source_sha256,
                     "epsg": raw.epsg,
+                    "grid_identity_sha256": grid_identity,
+                    "grid_lattice_compatible_with_previous": grid_aligned,
                     "status": "INSUFFICIENT_AOI_VALID_PIXELS",
                     "valid_aoi_pixels": 0,
                     "quality_gate_counts": asdict(gate_counts),
@@ -804,6 +863,8 @@ def run_aoi_analysis(
                         "catalog_maturity": record["maturity"],
                         "source_sha256": raw.source_sha256,
                         "epsg": raw.epsg,
+                        "grid_identity_sha256": grid_identity,
+                        "grid_lattice_compatible_with_previous": grid_aligned,
                         "status": "INSUFFICIENT_REFERENCE_SUPPORT",
                         "valid_aoi_pixels": int(aoi_valid_before_reference.sum()),
                         "quality_gate_counts": asdict(gate_counts),
@@ -850,6 +911,8 @@ def run_aoi_analysis(
                 "source_sha256": raw.source_sha256,
                 "source_bytes": source_path.stat().st_size,
                 "epsg": raw.epsg,
+                "grid_identity_sha256": grid_identity,
+                "grid_lattice_compatible_with_previous": grid_aligned,
                 "direction": raw.identity.direction,
                 "track": raw.identity.track,
                 "polarization": raw.polarization,
@@ -991,6 +1054,25 @@ def run_aoi_analysis(
         else:
             measurement_status = "NOT_MEASURABLE"
             run_status = "NO_VALID_PAIR_METRICS"
+        grid_mismatch_pairs = [
+            pair for pair in pairs
+            if pair.get("grid_lattice_compatible_with_previous") is False
+        ]
+        chains_by_id = {
+            chain["chain_id"]: chain
+            for chain in plan.get("chains", [])
+        }
+        for chain_id, chain in chains_by_id.items():
+            chain_pairs = [pair for pair in pairs if pair.get("chain_id") == chain_id]
+            if any(pair.get("grid_lattice_compatible_with_previous") is False for pair in chain_pairs):
+                chain["grid_lattice_compatible"] = False
+                chain["continuous_chain_eligible"] = False
+                chain["cumulative_displacement_status"] = "NOT_ELIGIBLE_GRID_LATTICE_MISMATCH"
+            else:
+                chain["grid_lattice_compatible"] = True
+        if grid_mismatch_pairs:
+            plan["continuous_chain_eligible"] = False
+            plan["cumulative_displacement_status"] = "GRID_INCOMPATIBLE_CHAIN_REVIEW_REQUIRED"
         result = {
             "schema_version": "know-place-aoi-result/1.0",
             "engine_version": ENGINE_VERSION,
@@ -1006,6 +1088,10 @@ def run_aoi_analysis(
             "source_adapters": list(request.source_adapters),
             "reference_policy": "external reference polygon component-median correction" if request.reference_wkt else f"no background correction; {request.reference_buffer_m:g} m local context used for controls",
             "pairwise_series_plan": plan,
+            "grid_compatibility_status": (
+                "MISMATCH_REVIEW_REQUIRED" if grid_mismatch_pairs else "CONSISTENT_LATTICE_WITHIN_CHAINS"
+            ),
+            "grid_mismatch_pair_count": len(grid_mismatch_pairs),
             "pairs": pairs,
             "download_evidence": download_evidence,
             "output_manifest": "manifest.json",
