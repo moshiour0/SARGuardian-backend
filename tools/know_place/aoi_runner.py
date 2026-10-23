@@ -49,6 +49,7 @@ from .series import SeriesPlanError, build_pairwise_series_plan
 from .uncertainty import spatial_block_bootstrap_summary
 
 ENGINE_VERSION = "1.0.0"
+MAX_PRODUCTS_PER_DOWNLOADED_JOB = 30
 TRUSTED_ASF_HOSTS = ("asf.alaska.edu", ".asf.earthdatacloud.nasa.gov")
 
 
@@ -59,6 +60,21 @@ class AOIRunError(RuntimeError):
         super().__init__(safe_message)
         self.code = code
         self.safe_message = safe_message
+
+
+def _cleanup_ephemeral_source(source_path: Path, pending_paths: list[Path]) -> None:
+    """Remove one processed source granule and its receipt from an ephemeral cache."""
+    try:
+        shutil.rmtree(source_path.parent, ignore_errors=False)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise AOIRunError(
+            "EPHEMERAL_SOURCE_CLEANUP_FAILED",
+            f"Could not remove a processed source granule ({type(exc).__name__})",
+        ) from None
+    while source_path in pending_paths:
+        pending_paths.remove(source_path)
 
 
 def _sha256(path: Path) -> str:
@@ -580,6 +596,7 @@ def run_aoi_analysis(
     *,
     cache_root: str | Path | None = None,
     dry_run: bool = False,
+    ephemeral_source_cache: bool = False,
 ) -> dict[str, Any]:
     """Discover products, plan a single orbit chain, verify/download and measure it."""
     request = validate_aoi_request(request_payload)
@@ -615,6 +632,11 @@ def run_aoi_analysis(
             preferred_granules=request.preferred_granules,
         )
         (run_dir / "series-plan.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if not dry_run and len(plan["pairs"]) > MAX_PRODUCTS_PER_DOWNLOADED_JOB:
+            raise AOIRunError(
+                "AOI_PRODUCT_LIMIT_EXCEEDED",
+                f"Selected {len(plan['pairs'])} products; this runner caps one download job at {MAX_PRODUCTS_PER_DOWNLOADED_JOB}. Split the date window into explicit, documented sub-runs rather than silently truncating the series.",
+            )
         if dry_run:
             result = {
                 "schema_version": "know-place-aoi-result/1.0",
@@ -685,9 +707,12 @@ def run_aoi_analysis(
         catalog_by_name = {item["granule_name"]: item for item in catalog_rows}
         pairs: list[dict[str, Any]] = []
         download_evidence: list[dict[str, Any]] = []
+        ephemeral_pending_paths: list[Path] = []
         for planned in plan["pairs"]:
             record = catalog_by_name[planned["granule_name"]]
             source_path, receipt = _download_exact_product(record, cache_dir, session)
+            if ephemeral_source_cache:
+                ephemeral_pending_paths.append(source_path)
             download_evidence.append(receipt)
             grid = inspect_goff_grid(
                 source_path, polarization=request.polarization, layer=2,
@@ -752,6 +777,8 @@ def run_aoi_analysis(
                     "magnitude_policy": request.magnitude_policy,
                     "interpretation": "No AOI pixels passed the finite-data, SNR and magnitude gates; no displacement summary is emitted.",
                 })
+                if ephemeral_source_cache:
+                    _cleanup_ephemeral_source(source_path, ephemeral_pending_paths)
                 continue
 
             background_info: dict[str, Any]
@@ -779,6 +806,8 @@ def run_aoi_analysis(
                         "magnitude_policy": request.magnitude_policy,
                         "reason_code": str(exc).split(":", 1)[0],
                     })
+                    if ephemeral_source_cache:
+                        _cleanup_ephemeral_source(source_path, ephemeral_pending_paths)
                     continue
                 reference_status = "APPLIED_EXTERNAL_REFERENCE_POLYGON"
             else:
@@ -855,6 +884,8 @@ def run_aoi_analysis(
                 base["status"] = "INSUFFICIENT_AOI_VALID_PIXELS"
                 base["reason"] = "No AOI cells pass finite-data, SNR and projected-magnitude gates"
                 pairs.append(base)
+                if ephemeral_source_cache:
+                    _cleanup_ephemeral_source(source_path, ephemeral_pending_paths)
                 continue
 
             summary = summarize_crown(
@@ -925,6 +956,8 @@ def run_aoi_analysis(
                 "interpretation": "Measurement-only output. Hazard classification is not evaluated by this measurement engine.",
             })
             pairs.append(base)
+            if ephemeral_source_cache:
+                _cleanup_ephemeral_source(source_path, ephemeral_pending_paths)
 
         if not pairs:
             raise AOIRunError("NO_PAIR_MEASUREMENTS", "No product pair reached metric computation")
@@ -994,6 +1027,11 @@ def run_aoi_analysis(
         (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
     except (AOIRunError, AOIRequestError, SeriesPlanError, GoffReadError, ScientificInputError) as exc:
+        for pending_path in list(locals().get("ephemeral_pending_paths", [])):
+            try:
+                _cleanup_ephemeral_source(pending_path, locals()["ephemeral_pending_paths"])
+            except AOIRunError:
+                pass
         code = getattr(exc, "code", str(exc).split(":", 1)[0]) or type(exc).__name__
         safe = getattr(exc, "safe_message", str(exc))
         failure = {
@@ -1009,6 +1047,32 @@ def run_aoi_analysis(
         }
         (run_dir / "failure.json").write_text(json.dumps(failure, indent=2) + "\n", encoding="utf-8")
         raise AOIRunError(str(code)[:100], str(safe)[:300]) from None
+    except Exception as exc:
+        for pending_path in list(locals().get("ephemeral_pending_paths", [])):
+            try:
+                _cleanup_ephemeral_source(pending_path, locals()["ephemeral_pending_paths"])
+            except AOIRunError:
+                pass
+        failure = {
+            "schema_version": "know-place-aoi-result/1.0",
+            "engine_version": ENGINE_VERSION,
+            "status": "FAILED",
+            "structural_status": "FAIL",
+            "measurement_status": "NOT_COMPUTED",
+            "paper_reproduction_status": "NOT_EVALUATED",
+            "hazard_detection_status": "NOT_EVALUATED",
+            "request_sha256": request.request_sha256,
+            "failure": {
+                "code": "UNEXPECTED_ANALYSIS_FAILURE",
+                "exception_type": type(exc).__name__,
+                "safe_message": "Unexpected analysis failure; inspect the workflow log for the step-level error.",
+            },
+        }
+        (run_dir / "failure.json").write_text(json.dumps(failure, indent=2) + "\n", encoding="utf-8")
+        raise AOIRunError(
+            "UNEXPECTED_ANALYSIS_FAILURE",
+            f"Unexpected analysis failure ({type(exc).__name__}); see the workflow log",
+        ) from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1016,11 +1080,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--request", required=True, type=Path, help="Versioned JSON request with AOI polygon and inclusive date range")
     parser.add_argument("--out", required=True, type=Path, help="Root directory for derived result runs")
     parser.add_argument("--cache-dir", type=Path, default=None, help="Private source-HDF5 cache directory")
+    parser.add_argument("--ephemeral-source-cache", action="store_true", help="Delete each raw source granule and its receipt immediately after its pair is processed; keep only source hashes/provenance in the result")
     parser.add_argument("--dry-run", action="store_true", help="Discover/plan only; do not authenticate or download source products")
     args = parser.parse_args(argv)
     try:
         payload = json.loads(args.request.read_text(encoding="utf-8"))
-        result = run_aoi_analysis(payload, args.out, cache_root=args.cache_dir, dry_run=args.dry_run)
+        result = run_aoi_analysis(
+            payload, args.out, cache_root=args.cache_dir, dry_run=args.dry_run,
+            ephemeral_source_cache=args.ephemeral_source_cache,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         print("KNOW_PLACE_AOI_STATUS=FAIL")
         print(f"ERROR={type(exc).__name__}:REQUEST_READ_FAILED")
