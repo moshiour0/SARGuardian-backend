@@ -224,7 +224,7 @@ function byId(id){return document.getElementById(id)}
 function fmt(v){return v===null||v===undefined||v===''?'—':(typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:3}):String(v))}
 function node(tag,cls,txt){var n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
 byId('status').textContent=S.status==='PASS'?'RUN COMPLETE · STRUCTURAL CHECKS PASS':(S.status==='PARTIAL'?'PARTIAL · INSPECT WARNINGS':'PROCESSING FAILED');
-var cards=[['Products selected',S.products_expected,S.gunw_count+' GUNW · '+S.goff_count+' GOFF'],['Artifacts validated',S.products_validated,S.products_missing+' missing or invalid'],['Products with valid pixels',S.products_with_science_pixels,'At least one finite band-1 pixel'],['AOI WKT SHA-256',S.aoi_wkt_sha256.slice(0,12),S.date_start+' → '+S.date_end]];
+var cards=[['Products selected',S.products_expected,S.gunw_count+' GUNW · '+S.goff_count+' GOFF'],['Artifacts validated',S.products_validated,S.products_missing+' missing or invalid'],['Products with valid pixels',S.products_with_science_pixels,'At least one finite band-1 pixel'],['AOI WKT SHA-256',S.aoi_wkt_sha256.slice(0,12),S.date_start+' → '+S.date_end]];var D=S.science_diagnostics||{};cards.push(['Per-pixel stack',(D.pixel_stack||{}).status||'NOT RUN',((D.pixel_stack||{}).interpretation||'Inspect science-diagnostics.json and the pixel-stack log.')]);cards.push(['Candidate screening',(D.candidate_checks||{}).status||'NOT RUN',((D.candidate_checks||{}).detail||'Candidate screening is not a general detector or an alert.')]);
 cards.forEach(function(c){var d=node('div','card');d.append(node('div','label',c[0]),node('div','metric',fmt(c[1])),node('div','sub',c[2]));byId('metrics').append(d)});
 [['Run ID',S.run_id],['Science commit',S.science_commit],['Backend tools commit',S.orchestration_sha],['Dispatcher commit',S.dispatcher_workflow_sha],['AOI CRS',S.aoi_crs],['WKT SHA-256',S.aoi_wkt_sha256],['Run profile',S.run_profile],['Retention',S.retention_profile],['Catalog window','2024-01-01 → '+S.date_end],['Baseline comparison','Disabled for custom AOI']].forEach(function(pair){byId('runmeta').append(node('div','key',pair[0]),node('div','mono',fmt(pair[1])))});
 byId('wkt').textContent=S.aoi_wkt;
@@ -361,6 +361,39 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             errors.append({"product_id":pid,"problem":"PRODUCT_AGGREGATION_FAILED","detail":record["errors"][0]})
         result_rows.append(record)
 
+    # Run the unchanged per-pixel stack against the exact requested-WKT
+    # exports. Candidate screening is invoked in policy mode too, so arbitrary
+    # WKT runs record an explicit unsupported-AOI skip rather than misusing the
+    # source/langtang/lhende polygon assumptions in candidate_check.py.
+    try:
+        try:
+            from run_export_science_diagnostics import run_diagnostics
+        except ImportError:
+            from tools.run_export_science_diagnostics import run_diagnostics
+        science_diagnostics = run_diagnostics(
+            args.science_root,
+            out / "product-data",
+            out / "science-diagnostics",
+            expected_science_commit=str(manifest.get("science_commit") or ""),
+            aoi="custom",
+            run_candidate_check=True,
+        )
+        if science_diagnostics.get("status") == "FAIL":
+            errors.append({
+                "problem": "AOI_EXPORT_SCIENCE_DIAGNOSTICS_FAILED",
+                "detail": str(science_diagnostics.get("errors", []))[:800],
+            })
+    except Exception as exc:
+        science_diagnostics = {
+            "status": "FAIL",
+            "errors": [{"problem": "AOI_EXPORT_SCIENCE_DIAGNOSTICS_EXCEPTION",
+                        "type": type(exc).__name__, "detail": str(exc)[:400]}],
+        }
+        errors.append({
+            "problem": "AOI_EXPORT_SCIENCE_DIAGNOSTICS_EXCEPTION",
+            "detail": type(exc).__name__ + ":" + str(exc)[:400],
+        })
+
     ring = parse_polygon_wkt(str(manifest["aoi_wkt"]))
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
@@ -390,6 +423,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "catalog_result_truncated":manifest.get("catalog_query",{}).get("results_truncated"),
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
+        "science_diagnostics":science_diagnostics,
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
         "goff_count":sum(x.get("product_type")=="GOFF" for x in result_rows),
         "retention_profile_note":manifest.get("archive_note"),"baseline_policy":manifest.get("baseline_policy"),
