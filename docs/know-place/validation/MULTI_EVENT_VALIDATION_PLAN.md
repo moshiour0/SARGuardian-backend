@@ -138,10 +138,10 @@ From the **held-out test cases only**, the evaluator reports event-level precisi
 ### CLI contract
 
 Once a real detector emits per-case scores and a policy/threshold has been selected exclusively on the validation split, save:
-- `validation-registry.json`: only `split=validation) cases with independently reviewed labels and source/geometric provenance;
-- `heldout-test-registry.json`: only `split=test) cases, kept separate from the calibration input;
-- `validation-scores.json`: one finite `SCORED) value or a `NO_RESULT) for every validation case;
-- `heldout-test-predictions.json`: one `ALERT), `NO_ALERT), or `NO_RESULT) record for every held-out test case; scored predictions must agree with the frozen threshold;
+- `validation-registry.json`: only `split=validation` cases with independently reviewed labels and source/geometric provenance;
+- `heldout-test-registry.json`: only `split=test` cases, kept separate from the calibration input;
+- `validation-scores.json`: one finite `SCORED` value or a `NO_RESULT` for every validation case;
+- `heldout-test-predictions.json`: one `ALERT`, `NO_ALERT`, or `NO_RESULT` record for every held-out test case; scored predictions must agree with the frozen threshold;
 - `threshold-policy.json`: the content-addressed policy bound to the validation-only registry and validation scores.
 
 Before evaluating test predictions, generate the frozen threshold policy from **validation-only** scores. The registry checksum binds the split membership, and any test case accidentally included in the score file is rejected:
@@ -165,8 +165,9 @@ Then run:
 
 ```bash
 python -m tools.know_place.event_validation \
-  --registry registry.json \
-  --predictions predictions.json \
+  --registry heldout-test-registry.json \
+  --validation-registry validation-registry.json \
+  --predictions heldout-test-predictions.json \
   --threshold-policy threshold-policy.json \
   --out heldout-evaluation.json
 ```
