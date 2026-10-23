@@ -133,7 +133,7 @@ Open the repository's **Actions** tab on `feat/know-place-analysis` and choose *
 
 [Workflow file](../.github/workflows/know-place-aoi-analysis.yml)
 
-1. Enter one closed WGS84 polygon WKT, inclusive UTC start/end dates, polarization, and optional track/direction. You may supply an external reference/background polygon.
+1. Enter one closed WGS84 polygon WKT, inclusive UTC start/end dates, polarization, and optional track/direction. You may supply an external reference/background polygon. If omitted, the runner uses component-wise median correction from a 2 km local context outside the AOI; explicitly setting `reference.policy=none` disables correction. The local-context approach assumes most background pixels are stable and must be inspected.
 2. Leave `execute_downloads=false` first. The dry run queries ASF and writes the exact candidate inventory and separate pair/processing chains, but downloads no raw product.
 3. Inspect `catalog-manifest.json`, `series-plan.json` and the request hash in the run artifact. The plan deliberately separates tracks, direction, polarization, product maturity and CRID/release. Same-pair release ambiguity fails closed; no preferred variant is silently chosen.
 4. Set `execute_downloads=true` only after reviewing the dry-run selection and confirming Earthdata and Drive secrets are configured. The workflow downloads one selected pair at a time, checks bytes/SHA-256/receipt, calculates metrics, writes GeoTIFF/NPZ/CSV, produces `visuals/dashboard.html`, and uploads a derived-only ZIP to central Google Drive. The upload receipt records the local and downloaded-remote SHA-256 checksums.
