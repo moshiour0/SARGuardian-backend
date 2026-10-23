@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import shutil
@@ -24,6 +25,14 @@ KNOWN_INSUFFICIENT = (
     "no winter rasters", "no summer rasters", "no all rasters",
     "no contiguous chain of 2+ pairs", "no rasters",
 )
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def export_identity(path: Path) -> tuple[str, str, str] | None:
@@ -51,7 +60,7 @@ def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, A
         target = target_dir / source.name
         if target.exists():
             # Two distinct source products must never be allowed to overwrite one another.
-            if source.read_bytes() != target.read_bytes():
+            if file_sha256(source) != file_sha256(target):
                 collisions.append({"name": source.name, "source": str(source)})
             continue
         shutil.copy2(source, target)
@@ -299,8 +308,25 @@ def run_diagnostics(
             report["candidate_checks"] = {"status": "FAIL", "problem": "SCRIPT_MISSING", "results": []}
             report["errors"].append({"problem": "CANDIDATE_CHECK_SCRIPT_MISSING"})
         else:
+            help_result = subprocess.run(
+                [sys.executable, str(candidate_script), "--help"],
+                cwd=science_root, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, check=False, timeout=60,
+            )
+            candidate_help = help_result.stdout or ""
+            supports_aoi_flag = "--aoi" in candidate_help
+            supports_event_affected_flag = "--allow-event-affected-aoi" in candidate_help
             points = read_candidate_points(candidates_csv)
             rows = []
+            if aoi != "source" and not supports_aoi_flag:
+                report["candidate_checks"] = {
+                    "status": "SKIPPED_LEGACY_CLI_CANNOT_SCOPE_NAMED_AOI",
+                    "aoi": aoi,
+                    "detail": "The pinned candidate_check.py does not expose --aoi. Skipped rather than treating a named AOI as the default source polygon.",
+                    "results": [],
+                }
+                report["warnings"].append("CANDIDATE_CHECK_SKIPPED_LEGACY_AOI_CLI")
+                points = []
             for point in points:
                 measurement = target_window_measurements(
                     flat_dir, point["lat"], point["lon"], radius=5, coherence_threshold=0.3
@@ -318,11 +344,12 @@ def run_diagnostics(
                     sys.executable, str(candidate_script),
                     "--target-log", str(log_file),
                     "--aoi-csv", str(stats_csv.resolve()),
-                    "--aoi", aoi,
                     "--lat", str(point["lat"]), "--lon", str(point["lon"]),
                     "--min-px", "20",
                 ]
-                if aoi == "lhende":
+                if supports_aoi_flag:
+                    argv.extend(["--aoi", aoi])
+                if aoi == "lhende" and supports_event_affected_flag:
                     argv.append("--allow-event-affected-aoi")
                 done = subprocess.run(
                     argv, cwd=science_root, text=True,
