@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/e2e-aoi-wkt-date-dashboard
+      - feat/final-aoi-science-integration
     paths:
       - "tools/**"
       - ".github/workflows/sarguardian-aoi-*.yml"
