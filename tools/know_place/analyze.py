@@ -528,9 +528,39 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         report = analyze_config(args.config, args.out)
-    except (GoffReadError, ScientificInputError, OSError, ValueError) as exc:
-        print(f"KNOW_PLACE_ANALYSIS_STATUS=FAIL")
-        print(f"ERROR={type(exc).__name__}:{exc}")
+    except Exception as exc:
+        # Preserve a compact, path-free machine-readable failure report so
+        # failed science runs remain auditable and can be retained by the
+        # isolated workflow. The process still returns non-zero.
+        output = Path(args.out).expanduser().resolve()
+        output.mkdir(parents=True, exist_ok=True)
+        message = str(exc)
+        error_code = message.split(":", 1)[0].strip() or type(exc).__name__
+        failed = {
+            "schema_version": OUTPUT_SCHEMA,
+            "project": "Know Place Analysis",
+            "status": "FAILED",
+            "structural_status": "FAIL",
+            "paper_reproduction_status": "BLOCKED_ANALYSIS_FAILED",
+            "hazard_detection_status": "NOT_EVALUATED",
+            "failure": {
+                "type": type(exc).__name__,
+                "code": error_code[:160],
+                "detail_policy": "Full tool output is in analysis.log; this report omits filesystem paths and credentials.",
+            },
+            "limitations": [
+                "No scientific measurements or hazard alarm are claimed from a failed run.",
+                "A non-zero process exit remains a failure even when this report is emitted.",
+            ],
+        }
+        failure_path = output / "know-place-analysis-report.json"
+        failure_path.write_text(
+            json.dumps(failed, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+        print("KNOW_PLACE_ANALYSIS_STATUS=FAIL")
+        print(f"ERROR={type(exc).__name__}:{error_code[:160]}")
+        print(f"REPORT={failure_path}")
         return 2
     print(f"KNOW_PLACE_ANALYSIS_STATUS={report['status']}")
     print(f"STRUCTURAL_STATUS={report['structural_status']}")
