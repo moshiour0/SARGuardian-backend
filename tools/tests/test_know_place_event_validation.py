@@ -34,7 +34,7 @@ def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
             "end": "2026-07-20T00:00:00Z",
         },
         "event_time_utc": event_time if label else None,
-        "monitoring_exposure_aoi_months": 2.0 if with_product else 0.0,
+        "monitoring_exposure_aoi_months": 1.0 if with_product else 0.0,
         "source_products": [{
             "granule_name": f"fixture-{case_id}.h5",
             "sha256": (case_id.encode("ascii").hex() * 64)[:64].ljust(64, "0"),
@@ -125,7 +125,7 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     assert metrics["specificity"] == pytest.approx(0.5)
     assert metrics["f1"] == pytest.approx(0.5)
     assert result["conservative_recall_all_labelled_events"] == pytest.approx(1 / 3)
-    assert result["false_alarms_per_aoi_month"] == pytest.approx(1 / 4)
+    assert result["false_alarms_per_aoi_month"] == pytest.approx(1 / 2)
     assert result["lead_time_hours_before_event"]["median"] == pytest.approx(48.0)
     assert result["uncertainty"]["status"] == "COMPUTED_SITE_CLUSTER_BOOTSTRAP"
     assert result["uncertainty"]["independent_sites"] == 4
@@ -206,8 +206,11 @@ def test_registry_rejects_unreviewed_labels_geometry_conflicts_and_duplicate_ids
 
 def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
     reg = registry()
-    reg["cases"] = [case("T1", "ONLY-SITE", "test", True, event_time="2026-08-01T00:00:00Z"),
-                    case("T2", "ONLY-SITE", "test", False)]
+    reg["cases"] = [
+        case("VAL-E1", "VAL-SITE", "validation", True, event_time="2026-07-15T00:00:00Z"),
+        case("T1", "ONLY-SITE", "test", True, event_time="2026-08-01T00:00:00Z"),
+        case("T2", "ONLY-SITE", "test", False),
+    ]
     # Build a policy against the compact test registry.
     policy = threshold_policy(reg)
     predictions = {
