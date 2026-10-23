@@ -1,0 +1,320 @@
+{
+  "schema_version": "know-place-author-benchmark/1.0",
+  "provenance": {
+    "article_title": "NISAR offsets measure pre-failure motion but do not single out the Bhote Koshi avalanche source",
+    "author": "Sansar Raj Meena",
+    "posted_date": "2026-09-22",
+    "article_doi": "https://doi.org/10.21203/rs.3.rs-11022365/v1",
+    "code_and_golden_data_archive_doi": "https://doi.org/10.5281/zenodo.22730419",
+    "article_license": "CC BY 4.0",
+    "supplement_license": "CC BY 4.0 except Supplementary Figure 1 and Supplementary Table 5, which are identified as third-party CC BY-NC 4.0 material",
+    "uploaded_artifacts": [
+      {
+        "name": "nisar_offsets_measure_pre_failure_motion_but_do_not_single_out_the_bhote_koshi_avalanche_source.pdf",
+        "role": "main paper PDF",
+        "sha256": "514ff22bbf8adff829605e005496cff7f80ee72596171432aa169f2ffb986705"
+      },
+      {
+        "name": "8da4c3f71775fbc4b0d7d324.docx",
+        "role": "Supplementary Information containing Supplementary Figures 1-3 and Tables 1-6",
+        "sha256": "37c43d7f683796aa96f9a90f0bd6abda2b1e26f4ccbbb674cfa13642da37f777"
+      },
+      {
+        "name": "b0dbe1d825f6eb03362df3d2.csv",
+        "role": "Supplementary Data 1: attributed inventory of 101 validated zones",
+        "sha256": "b800d90bd6e7322ef2f8548370de0fb922ef057cbdce2d0c2caa681ae76a42a8"
+      }
+    ],
+    "local_reference_inventory": "docs/know-place/reference/author_validated_zones_supplementary_data_1.csv",
+    "archive_status": "DOI identified in the paper; archive payload/checksum not yet verified in this run"
+  },
+  "spatial_definition": {
+    "crs": "EPSG:4326",
+    "crown_wkt": "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))",
+    "crown_area_km2": 2.07,
+    "reference_box_wkt": "POLYGON ((85.500 28.265, 85.565 28.265, 85.565 28.318, 85.500 28.318, 85.500 28.265))",
+    "polygon_source": "Main paper Methods, bulk referencing; Supplementary Figure 2 caption",
+    "site_series_geometry_policy": "One crown-local radar geometry is used throughout the site series; the paper does not document an explicit HAE/datum query in the text.",
+    "footprint_geometry_policy": "Per-pixel radar geometry interpolated at Copernicus DEM GLO-90 elevation on the common GOFF grid."
+  },
+  "raster_and_selection_policy": {
+    "track": "T098",
+    "direction": "ascending",
+    "frequency": "L-SAR frequency A",
+    "polarization": "HH",
+    "grid_crs": "EPSG:32645",
+    "grid_shape_pixels": [
+      4230,
+      4311
+    ],
+    "posting_m": 80,
+    "layer": "layer2",
+    "min_snr": 5,
+    "discard_magnitude_over_m": 10,
+    "projection": "dE = AT*atuX - (SR/sin(theta))*losX/abs(los_h); dN = AT*atuY - (SR/sin(theta))*losY/abs(los_h)",
+    "los_sign_convention": "LOS unit vector is target-to-sensor; positive slant-range offset means motion away from sensor; vertical motion is set to zero for the horizontal projection.",
+    "bulk_reference": "Component-wise median over SNR-valid pixels within the 6 km box but outside the crown; no further stability selection.",
+    "site_directional_coherence": "5x5 mean resultant length R of unit displacement vectors. Published estimator crops the crown and reflects at crop edges; author code is needed to pin missing-neighbour behaviour exactly.",
+    "polygon_null": "Random compact regions with crown valid-pixel count on valid ground within the 6 km box; 857-996 accepted draws depending on pair. The published text does not fully specify PRNG/draw implementation.",
+    "footprint_screen": {
+      "local_window_pixels": 41,
+      "local_window_km": 3.28,
+      "minimum_magnitude_anomaly_m": 0.5,
+      "minimum_anomaly_mad_multiple": 4,
+      "minimum_residual_coherence_R": 0.75,
+      "coherence_window_pixels": 5,
+      "minimum_valid_window_fraction": 0.5,
+      "minimum_epochs_of_five": 2,
+      "minimum_connected_component_pixels": 10,
+      "directional_validation_max_misfit_deg": 45
+    }
+  },
+  "exact_author_granules": [
+    {
+      "interval": "2026-06-20/2026-07-02",
+      "days": 12,
+      "processing_flag": "N_F",
+      "id": "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001"
+    },
+    {
+      "interval": "2026-07-02/2026-07-14",
+      "days": 12,
+      "processing_flag": "F_F",
+      "id": "NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001"
+    },
+    {
+      "interval": "2026-07-14/2026-07-26",
+      "days": 12,
+      "processing_flag": "N_F",
+      "id": "NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001"
+    },
+    {
+      "interval": "2026-07-26/2026-08-19",
+      "days": 24,
+      "processing_flag": "N_F",
+      "id": "NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001"
+    },
+    {
+      "interval": "2026-08-19/2026-08-31",
+      "days": 12,
+      "processing_flag": "N_F",
+      "id": "NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001"
+    }
+  ],
+  "published_site_series": {
+    "columns": [
+      "20 Jun-2 Jul",
+      "2-14 Jul",
+      "14-26 Jul",
+      "26 Jul-19 Aug",
+      "19-31 Aug"
+    ],
+    "interval_days": [
+      12,
+      12,
+      12,
+      24,
+      12
+    ],
+    "valid_crown_pixels": [
+      302,
+      299,
+      302,
+      298,
+      202
+    ],
+    "median_crown_displacement_m": [
+      0.99,
+      0.54,
+      0.3,
+      0.96,
+      0.33
+    ],
+    "median_crown_rate_cm_per_day": [
+      8.3,
+      4.5,
+      2.5,
+      4,
+      2.7
+    ],
+    "displacement_null_percentile": [
+      94.9,
+      87.5,
+      81,
+      94.7,
+      81.3
+    ],
+    "displacement_null_median_m": [
+      0.17,
+      0.21,
+      0.14,
+      0.14,
+      0.09
+    ],
+    "bulk_reference_crown_R": [
+      0.75,
+      0.612,
+      0.611,
+      0.871,
+      0.551
+    ],
+    "bulk_reference_background_R": [
+      0.641,
+      0.719,
+      0.757,
+      0.687,
+      0.592
+    ],
+    "bulk_reference_crown_minus_background_R": [
+      0.109,
+      -0.107,
+      -0.146,
+      0.185,
+      -0.041
+    ],
+    "bulk_reference_crown_exceeds_background": [
+      true,
+      false,
+      false,
+      true,
+      false
+    ],
+    "single_field_crown_R": [
+      0.739,
+      0.583,
+      0.594,
+      0.848,
+      0.511
+    ],
+    "single_field_background_R": [
+      0.636,
+      0.726,
+      0.764,
+      0.68,
+      0.595
+    ],
+    "local_mean_reference_crown_R": [
+      0.669,
+      0.679,
+      0.726,
+      0.775,
+      0.666
+    ],
+    "local_mean_reference_background_R": [
+      0.678,
+      0.667,
+      0.697,
+      0.795,
+      0.661
+    ],
+    "local_mean_reference_crown_minus_background_R": [
+      -0.009,
+      0.012,
+      0.029,
+      -0.02,
+      0.005
+    ],
+    "polygon_null_R_percentile": [
+      77.2,
+      23.3,
+      39.8,
+      85.2,
+      29.1
+    ],
+    "polygon_null_samples_beating_box_mean_percent": [
+      47.5,
+      37.7,
+      37.2,
+      46.7,
+      50.2
+    ],
+    "polygon_null_R_5th_percentile": [
+      0.46,
+      0.485,
+      0.481,
+      0.413,
+      0.412
+    ],
+    "polygon_null_R_95th_percentile": [
+      0.863,
+      0.891,
+      0.965,
+      0.896,
+      0.814
+    ],
+    "polygon_null_accepted_draws": [
+      857,
+      887,
+      920,
+      916,
+      996
+    ],
+    "core_R": [
+      0.969,
+      0.978,
+      0.962,
+      0.973,
+      0.867
+    ],
+    "core_null_R_99th_percentile": [
+      0.969,
+      0.989,
+      0.998,
+      0.981,
+      0.931
+    ],
+    "core_null_percentile": [
+      99,
+      97,
+      89.2,
+      97.7,
+      92.6
+    ],
+    "core_null_draws": [
+      389,
+      395,
+      389,
+      388,
+      394
+    ],
+    "gamma_crosscheck_co_event": {
+      "crown_R": 0.659,
+      "box_R": 0.686,
+      "scene_R": 0.654,
+      "crown_box_pixels": "1398/31703",
+      "comparability": "Only the sign of crown-minus-box is comparable with geocoded/referenced NISAR statistics."
+    }
+  },
+  "published_footprint_inventory": {
+    "total_footprint_km2": 116707,
+    "screenable_area_km2": 54799,
+    "prevalidation_candidate_zones": 106,
+    "validated_zones": 101,
+    "validated_zone_area_km2": 13.5,
+    "glacier_intersecting_zones": 93,
+    "off_glacier_zones": 8,
+    "source_zone_id": 43,
+    "source_zone": {
+      "lon": 85.5294,
+      "lat": 28.29161,
+      "area_km2": 0.192,
+      "n_epochs": 3,
+      "res_mag_m": 4.38,
+      "disp_az": 276.3,
+      "downslope_az": 296.1,
+      "d_downslope_deg": 19.8,
+      "R_res": 0.915,
+      "elev_m": 5084,
+      "slope_deg": 24.9,
+      "glacier": true,
+      "RGIId": "RGI60-15.04173"
+    }
+  },
+  "interpretation": {
+    "paper_conclusion": "Pre-failure motion is measurable, but the source is not distinctive against the calibrated population; no pre-event interval clears the 95th percentile for displacement or directional coherence, and no acceleration is resolved.",
+    "paper_reproduction_status": "BLOCKED_AUTHOR_CODE_GOLDEN_RASTERS_AND_EXACT_FIRST_GRANULE_VARIANT_UNVERIFIED",
+    "hazard_detection_status": "NOT_EVALUATED",
+    "source_variant_mismatch": "The existing historical raw replay used X05026 for 20 Jun-2 Jul; Supplementary Table 1 specifies P05023. The old result is historically checksum-verified but is not an exact five-granule author reproduction.",
+    "next_gate": "Download/hash the Zenodo archive at the DOI above, verify all author code/data files, validate exact P05023 first-pair identity in ASF, then perform pixelwise and all-five-pair golden comparison."
+  }
+}
