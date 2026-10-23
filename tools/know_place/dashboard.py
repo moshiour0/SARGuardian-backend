@@ -126,7 +126,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
           <p>Source SHA-256: <code>{html.escape(str(pair.get('source_sha256','not recorded')))}</code></p></div>
           <span class="status">{html.escape(str(pair.get('status','UNKNOWN')))}</span></div>
           <canvas id="{canvas_id}" width="420" height="280" aria-label="Horizontal displacement magnitude preview"></canvas>
-          <div class="legend"><span>Lower magnitude</span><span class="gradient"></span><span>Higher magnitude</span><span>No data = grey</span></div>
+          <div class="legend"><span>Lower magnitude</span><span class="gradient"></span><span>Higher magnitude</span><span>No data = grey</span><span>→ Arrow: mean direction; symbolic length</span></div>
           <p class="map-note">AOI outline over a downsampled native-grid displacement preview; not a basemap. CRS EPSG:{html.escape(str(pair.get('epsg','unknown')))}. Raster download: <a href="{html.escape(dashboard_raster_path, quote=True)}">{html.escape(str(pair.get('geotiff_file','not available')))}</a></p>
         </article>""")
 
@@ -238,6 +238,26 @@ for (const item of pairMaps) {{
     ctx.fillRect(ox+col*scale,oy+r*scale,Math.ceil(scale),Math.ceil(scale));
   }}
   const ring=p.aoi_ring_xy||[], dx=Number(p.pixel_size_x_m)||1, dy=Number(p.pixel_size_y_m)||1;
+  const es=p.east_values_m||[], ns=p.north_values_m||[];
+  // Direction arrows are orientation-only, not scaled displacement vectors.
+  // Draw sparsely so the raster remains visible on a mobile-sized canvas.
+  ctx.strokeStyle='#ffffff'; ctx.fillStyle='#ffffff'; ctx.lineWidth=1.25;
+  for(let r=1;r<h;r+=4) for(let col=1;col<w;col+=4) {{
+    const e=es[r]?.[col], n=ns[r]?.[col];
+    if(typeof e!=='number'||typeof n!=='number'||!Number.isFinite(e)||!Number.isFinite(n)) continue;
+    const norm=Math.hypot(e,n);
+    if(norm<1e-6) continue;
+    const cx=ox+(col+0.5)*scale, cy=oy+(r+0.5)*scale;
+    const length=Math.min(8,Math.max(3,scale*1.7));
+    const x2=cx+length*e/norm, y2=cy-length*n/norm;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x2,y2);ctx.stroke();
+    const angle=Math.atan2(y2-cy,x2-cx), head=2.5;
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-head*Math.cos(angle-0.55),y2-head*Math.sin(angle-0.55));
+    ctx.lineTo(x2-head*Math.cos(angle+0.55),y2-head*Math.sin(angle+0.55));
+    ctx.closePath();ctx.fill();
+  }}
   if(ring.length>2) {{
     ctx.strokeStyle='#ffffff'; ctx.lineWidth=2; ctx.beginPath();
     ring.forEach((pt,i)=>{{
