@@ -47,8 +47,20 @@ def _write_goff(path: Path, *, x: np.ndarray, y: np.ndarray, east_motion: float)
         if y2 != y1:
             inside ^= crosses & (xx < (x2 - x1) * (yy - y1) / (y2 - y1) + x1)
     raw_at[inside] = east_motion
-    # One clear gross blunder verifies reject-not-clip in the full runner.
-    raw_at[0, 0] = 20.0
+    # One valid-in-box, outside-crown gross blunder verifies reject-not-clip.
+    box_ring = parse_polygon_wkt(BOX_WKT)
+    bx, by = transformer.transform(
+        [p[0] for p in box_ring], [p[1] for p in box_ring]
+    )
+    inside_box = np.zeros(xx.shape, dtype=bool)
+    for (x1, y1), (x2, y2) in zip(zip(bx[:-1], by[:-1]), zip(bx[1:], by[1:])):
+        crosses = (y1 > yy) != (y2 > yy)
+        if y2 != y1:
+            inside_box ^= crosses & (xx < (x2 - x1) * (yy - y1) / (y2 - y1) + x1)
+    outside_crown = np.argwhere(inside_box & ~inside)
+    assert outside_crown.size, "synthetic reference box must have background cells"
+    bad_row, bad_col = outside_crown[0]
+    raw_at[bad_row, bad_col] = 20.0
     shape = raw_at.shape
     layer_path = f"{BASE}/grids/frequencyA/pixelOffsets/HH/layer2"
     with h5py.File(path, "w") as handle:
