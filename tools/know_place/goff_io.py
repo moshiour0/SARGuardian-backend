@@ -147,27 +147,46 @@ def _array_units(dataset: h5py.Dataset) -> str | None:
 def _read_float_dataset_masking_declared_fill(
     dataset: h5py.Dataset, selection: tuple[slice, slice] | None = None,
 ) -> tuple[np.ndarray, list[float | str]]:
-    """Replace only explicit HDF5 fill/missing sentinels with NaN, recording each."""
+    """Mask only declared HDF5 fill sentinels, including user-defined creation fill."""
     values = np.asarray(dataset[()] if selection is None else dataset[selection], dtype=np.float64)
     markers: list[float | str] = []
+
+    def apply_marker(raw_value: Any, source: str) -> None:
+        try:
+            marker = float(raw_value)
+        except (TypeError, ValueError, OverflowError):
+            raise GoffReadError(f"NONNUMERIC_FILL_MARKER:{dataset.name}:{source}") from None
+        if np.isnan(marker):
+            label: float | str = "NaN"
+            values[np.isnan(values)] = np.nan
+        elif not np.isfinite(marker):
+            label = "Infinity" if marker > 0 else "-Infinity"
+            values[values == marker] = np.nan
+        else:
+            label = marker
+            values[values == marker] = np.nan
+        if label not in markers:
+            markers.append(label)
+
     for attribute in ("_FillValue", "missing_value", "fill_value", "noDataValue"):
         if attribute not in dataset.attrs:
             continue
         raw = np.asarray(dataset.attrs[attribute]).reshape(-1)
         for item in raw:
-            try:
-                marker = float(item)
-            except (TypeError, ValueError, OverflowError):
-                raise GoffReadError(f"NONNUMERIC_FILL_MARKER:{dataset.name}:{attribute}") from None
-            if np.isnan(marker):
-                markers.append("NaN")
-                values[np.isnan(values)] = np.nan
-            elif not np.isfinite(marker):
-                markers.append("Infinity" if marker > 0 else "-Infinity")
-                values[values == marker] = np.nan
-            else:
-                markers.append(marker)
-                values[values == marker] = np.nan
+            apply_marker(item, attribute)
+
+    # HDF5 can define a dataset's fill value in its creation property list
+    # without copying the same value into a conventional attribute. Only mask
+    # it when HDF5 explicitly marks it USER_DEFINED: h5py otherwise exposes a
+    # default zero fill value, and zero can be a physically valid offset.
+    try:
+        creation_status = dataset.id.get_create_plist().fill_value_defined()
+        user_defined_status = h5py.h5d.FILL_VALUE_USER_DEFINED
+    except (AttributeError, RuntimeError):
+        creation_status = None
+        user_defined_status = object()
+    if creation_status == user_defined_status:
+        apply_marker(dataset.fillvalue, "HDF5_creation_property_list")
     return values, markers
 
 
