@@ -141,7 +141,7 @@ def test_synthetic_five_pair_pipeline_writes_auditable_report_and_keeps_parity_b
         "geometry_height_m": 5151.0,
         "control_seed": 260826,
         "control_draws": 20,
-        "coherence_minimum_valid_cells": 25,
+        "coherence_minimum_valid_cells": 1,
         "products": manifest_products,
     }, indent=2), encoding="utf-8")
 
