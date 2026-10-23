@@ -99,7 +99,7 @@ These match the rounded source-zone values in the main paper. This is author-der
 - The published crown pixel counts differ from the historical replay at least for the 24-day target pair (296 versus 298). Exact rasterization, geometry lookup, sample policy, and processing differences must be isolated before declaring parity.
 - The site's constant 5151.0 m HAE query is not proven equivalent to the author's crown-local geometry sampling: the paper confirms one crown-local geometry for the site series, but exact height/datum and sampling code are not stated in the PDF/supplement text.
 - The exact random-region generator and acceptance rules and the exact 5×5 coherence missing/edge policy must be taken from the author scripts, not guessed.
-- Full-footprint screen rasters, source code, and the article's complete numeric verification script are not present in the supplied files; only Supplementary Data 1 is present.
+- The supplied files include the full Supplementary Information document (Figs. 1–3 and Tables 1–6) plus Supplementary Data 1's 101-zone CSV. They do not include the separate full-footprint raster layers, original author source code, or the archive's complete numeric/golden-output assets.
 
 ## 4. Acceptance plan
 
