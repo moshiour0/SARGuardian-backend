@@ -23,7 +23,7 @@
 - [ ] Confirm GOFF HDF5 paths, units, sign convention, metadata-grid coordinates and unit-vector sampling against the exact five files and product specification.
 - [x] Define a versioned input/output JSON schema and separate structural / method-reproduction / interpretation statuses.
 - [x] Define separate WKT masks for the reference box, crown and box-minus-crown; persist crown-WKT SHA-256 and geometry provenance. (An author-exact crown polygon is still outstanding.)
-- [ ] Define deterministic spatial-null sample count, PRNG/seed, draw rejection policy and quantile convention; compare these with author scripts before claiming parity.
+- [x] Define and record deterministic exploratory control parameters (seed, draw count, PRNG, reject/accept accounting and quantile convention). - [ ] Verify exact sample geometry/algorithm against author scripts before claiming parity.
 
 ## Milestone 2 — Implement pure scientific kernels (no downloads in unit tests)
 
@@ -31,52 +31,55 @@
 - [x] Unit-test quality gate order, SNR ≥ 5, magnitude ≤ 10 m, reject-not-clip behavior, and per-gate rejection counts.
 - [x] Unit-test component-wise background median correction on synthetic arrays with known bias.
 - [x] Unit-test crown median magnitude, mean-vector magnitude/azimuth, and day-normalized descriptive rate as distinct statistics.
-- [ ] Test 5×5 mean resultant length using known uniform and aligned vectors, edge windows and nodata.
+- [x] Test 5×5 mean resultant length using uniform/opposed vectors and expose 1/5/10/15/20/25-neighbour sensitivity in the report. - [ ] Add explicit corner/edge and missing-centre-vector regression cases.
 - [x] Unit-test deterministic size-matched control sampling, accepted/rejected draw accounting and empirical percentile.
 - [x] Unit-test missing/finite/nodata behavior and explicit failure when background/crown support is empty; test HDF5 attribute and creation-property fill handling without mistaking a default zero for nodata.
 - [x] Unit-test missing or duplicate products, wrong track/direction, invalid geometry, unit/CRS mismatches and ambiguous metadata fail closed.
 
 ## Milestone 3 — Strict raw GOFF HDF5 reader
 
-- [ ] Find exact layer2 AT, SR, SNR, coordinate vectors, CRS/projection, valid mask and radar geometry datasets.
+- [x] Read exact layer2 AT, SR, SNR, correlation, coordinate vectors, CRS/projection and per-product radar geometry from all five candidate raw HDF5 inputs.
 - [x] Implement geometry metadata interpolation with explicit cube selection, axis/unit/CRS checks and no extrapolation; synthetic schema tests pass. Actual five-product metadata verification remains pending.
 - [x] Refuse ambiguous geometry groups, missing fields, non-finite geometry, unit mismatches and out-of-domain interpolation. Confirm actual product sign convention from the five raw files before scientific use.
-- [ ] Validate all five products are compatible on the same native grid; do not silently resample.
+- [x] Validate all five candidate products against the common EPSG:32645 80 m native grid; the strict reader fails closed on grid mismatches.
 - [x] Implement source SHA-256 and record granule name, catalog maturity evidence, CRID, exact pair dates, track, direction, polarization and layer in the report.
 
 ## Milestone 4 — Paper-method analysis
 
-- [ ] Produce per-pair raw quality-gate count report (finite, SNR, projected-magnitude, crown valid, background valid).
-- [ ] Produce corrected dE/dN/magnitude outputs on the source grid.
-- [ ] Produce 5×5 R from unit vectors without assuming adjacent pixels are independent.
-- [ ] Calculate crown and background medians using documented mask variants.
-- [ ] Create deterministic size-matched control distributions for magnitude and R; report accepted and rejected draws and percentile ranks.
-- [ ] Examine 19–31 Aug co-event decorrelation / directional disorder so large magnitudes are not mistaken for organised motion.
-- [ ] Process every eligible interval; do not choose only pairs that appear to support a precursor.
+- [x] Produce per-pair raw quality-gate counts, crown/background support counts and source SHA-256 evidence.
+- [x] Produce corrected dE/dN/magnitude outputs and hash-recorded NPZ diagnostic arrays on the source grid.
+- [x] Produce 5×5 R from unit vectors, with valid-centre counts, an explicit minimum-neighbour policy and sensitivity outputs.
+- [x] Calculate crown and box/background R and crown displacement/vector metrics with distinct, provenance-labelled masks.
+- [x] Create an explicitly labelled exploratory deterministic circular-control distribution for magnitude and R; accepted/rejected draws and percentiles are recorded. - [ ] Verify author-exact spatial-control sampling before comparing published percentiles.
+- [x] Screen 19–31 Aug separately: crown R is lower than its surrounding box and the report does not treat its displacement magnitude as an alarm.
+- [x] Process all five required intervals separately, without pooling ascending/descending tracks or selecting only a target-positive interval.
 - [ ] Keep core diagnostic separate and state its selection bias if implemented.
 
 ## Milestone 5 — Golden comparison and interpretation
 
-- [ ] Compare the 26 Jul–19 Aug crown median to ≈0.96 m, mean-vector magnitude to ≈1.72 m and direction to ≈278°; explain all differences.
-- [ ] Compare crown/background R to ≈0.87 / ≈0.69 and displacement null median to ≈0.14 m where method definitions match.
+- [x] Compare the 26 Jul–19 Aug crown median (0.966 m), mean-vector magnitude (1.722 m) and azimuth (277.79°) to rounded paper targets; residual geometry/mask/input-variant differences are documented.
+- [x] Compare R on the common 0.17–2.75 m pointwise window (0.869 at 150 crown centres) to the published ~0.869 at 147 centres; document background R/count mismatch and non-equivalent controls.
 - [ ] Compare each pre-event interval's null percentile with the author's supplementary results.
-- [ ] Reproduce the published interpretation: no pre-event polygon-scale metric passed the 95th-percentile criterion; this is not a calibrated failure detector.
+- [x] Record the paper’s interpretation and explicitly avoid describing this analysis as an early-warning detector.
 - [ ] If the supplement is unavailable or processing differs, clearly label the exact parity gate BLOCKED/NOT_COMPARABLE rather than PASS.
-- [ ] Verify outputs with independent reviewer inspection before claiming reproduction.
+- [ ] Complete independent scientific review before claiming reproduction; exact author geometry/variant/control golden outputs remain unavailable.
 
 ## Milestone 6 — Operational isolation and review
 
 - [x] Add an isolated expensive replay workflow gated by the explicit `[run-know-place]` commit marker; it exists only on this feature branch.
-- [ ] Verify output artifacts include compact CSV/JSON, geometry and source hashes, per-pair maps, quality-gate accounting and caveats.
-- [x] Run automated tests, YAML parsing and `actionlint` from the feature branch: 43 tests passed; both workflows parsed and actionlint passed in [run 40004184248](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40004184248).
+- [x] Verify compact CSV/JSON, NPZ diagnostics, source/array hashes, quality-gate accounting, scientific caveats and separate reanalysis artifacts; the latest reanalysis report and summary were remotely verified in Drive.
+- [x] Run automated tests, YAML parsing and `actionlint` from the feature branch: **46 tests passed**, all three isolated workflow files parsed, and actionlint passed in [validation run 40015371603](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015371603).
 - [x] Keep every Know Place Analysis commit on `feat/know-place-analysis`; no `main` changes or merge were made.
 - [ ] Do not merge to `main`. Any later integration requires explicit review and approval.
 
 ## Current gate status (updated 2026-10-24)
 
-- **Milestone 0:** baseline review and artifact-hash note saved. The downloaded manifest/dashboard ZIP SHA-256 values identify the exact review bundles, not the original HDF5 input bytes.
-- **Milestone 1:** blueprint and input/output provenance contract implemented; live ASF identity gate currently passes for five exact candidate granules without downloading raw products. The Research Square/EGUsphere paper's author-supplement raster/script package and exact crown WKT have not yet been independently recovered. The selected CRID variants therefore remain `NOT_VERIFIED_AGAINST_AUTHOR_SUPPLEMENT`.
-- **Milestone 2:** isolated pure-kernel and synthetic HDF5/geometry tests pass: **43 passed**.
-- **Milestone 3:** strict raw reader and geometry interpolation are implemented and synthetic-tested. First protected replay verified all five historical byte counts/SHA-256 but stopped before HDF5 analysis because SciPy was absent. The SciPy pin is fixed. A subsequent attempt passed dependency and ASF catalog gates, then failed at the Earthdata OAuth probe with a retryable `ConnectionError` before any raw product bytes were downloaded; there was no product or hash mismatch. [Run 40006338802](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40006338802). A separate replay is being attempted; actual product geometry validation is still pending.
-- **Milestones 4–5:** code path is implemented, but no five-pair metrics have completed yet. First replay failed after verified raw input downloads because `SCIPY_REQUIRED_FOR_GEOMETRY_CUBE_INTERPOLATION`; SciPy `1.18.1` is now pinned, and 43 tests pass. A second replay failed on a retryable Earthdata OAuth connection error before any product download. A new replay is required. Author-golden parity remains blocked until exact crown geometry, release variants and author outputs are verified. No scientific reproduction or hazard-detection claim is authorized.
-- **Milestone 6:** isolated CI passes (43 tests; YAML and actionlint pass in [run 40005983856](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40005983856)). The raw replay is launched only by an explicit commit marker; Drive/Earthdata secrets passed preflight in the previous attempt, raw bytes/SHA matched all five recorded historical files, and derived outputs must be durably verified before local raw cleanup. `main` remains unchanged.
+- **Milestone 0:** complete. Baseline run, source/dashboard artifacts, array/report checksums and findings are saved under `docs/know-place/evidence/`.
+- **Milestone 1:** blueprint, method contract and versioned provenance implemented. ASF identity gate passes for five candidate products. Exact author crown WKT, source-variant manifest and author-supplement controls/golden outputs are still not independently available; product variants remain **not verified against author input**.
+- **Milestone 2:** scientific kernels and strict synthetic HDF5/geometry/integration tests pass. Current validation: 46 passed; YAML and actionlint passed for the isolated workflows.
+- **Milestone 3:** five raw candidate GOFF HDF5 products were fetched one at a time during [raw replay Run 40006999011](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40006999011); all five historical file-size/SHA-256 identity checks passed, and all five metric records were produced. The later saved-array reanalysis also verified the five NPZ hashes against the source report before computing any new R values.
+- **Milestone 4:** per-pair gates, corrected dE/dN/magnitude metrics, 5x5 R and spatial-control diagnostics have been computed. The original run used a too-strict 25/25 neighbour rule; the separate [saved-array R sensitivity reanalysis, Run 40015023621](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015023621), computes the 1/5/10/15/20/25 sensitivity and does not modify the original run report.
+- **Milestone 5:** the target pair gives 0.966 m crown median, 1.722 m mean-vector magnitude and 277.79° azimuth; R=0.869 on a common pointwise 0.17–2.75 m window (150 centres) is close to the paper’s ~0.869 (147 centres). The approximate crown geometry, sample-count differences and exploratory-control mismatch remain material. Our 96.08th-percentile result is **not comparable** to the paper’s 94.7th percentile and must not be treated as a detection.
+- **Milestone 6:** isolated raw and saved-array workflows are branch-only; saved-array result/summary retention has passed remote Drive verification. All new commits remain on `feat/know-place-analysis`; no merge or edit to `main` was performed.
+- **Paper reproduction:** `BLOCKED_AUTHOR_GEOMETRY_VARIANT_AND_GOLDEN_OUTPUTS_UNVERIFIED`.
+- **Hazard detection:** `NOT_EVALUATED`. Do not report an operational landslide alarm from these results.
