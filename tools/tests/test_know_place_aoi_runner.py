@@ -182,3 +182,31 @@ def test_ephemeral_source_cleanup_removes_h5_and_receipt_without_reuploading_raw
 
     assert not product_dir.exists()
     assert pending == []
+
+
+def test_grid_lattice_contract_accepts_extent_changes_but_rejects_subpixel_shift_and_crs_change():
+    base = SimpleNamespace(
+        epsg=32645,
+        x_coordinates_m=np.arange(1000.0, 1800.0, 80.0),
+        y_coordinates_m=np.arange(2400.0, 1600.0, -80.0),
+    )
+    different_extent_same_lattice = SimpleNamespace(
+        epsg=32645,
+        x_coordinates_m=np.arange(1160.0, 1800.0, 80.0),
+        y_coordinates_m=np.arange(2320.0, 1600.0, -80.0),
+    )
+    shifted_half_pixel = SimpleNamespace(
+        epsg=32645,
+        x_coordinates_m=np.arange(1040.0, 1840.0, 80.0),
+        y_coordinates_m=np.arange(2400.0, 1600.0, -80.0),
+    )
+    wrong_crs = SimpleNamespace(
+        epsg=32646,
+        x_coordinates_m=base.x_coordinates_m.copy(),
+        y_coordinates_m=base.y_coordinates_m.copy(),
+    )
+
+    assert _grid_lattice_compatible(base, different_extent_same_lattice)
+    assert not _grid_lattice_compatible(base, shifted_half_pixel)
+    assert not _grid_lattice_compatible(base, wrong_crs)
+    assert _grid_identity_sha256(base) != _grid_identity_sha256(different_extent_same_lattice)
