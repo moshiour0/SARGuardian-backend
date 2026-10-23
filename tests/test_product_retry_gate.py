@@ -154,3 +154,21 @@ def test_full_baseline_guard_rejects_wrong_product_count():
         assert "FULL_BASELINE_PRODUCT_COUNTS_INVALID" in str(exc)
     else:
         raise AssertionError("Expected an invalid full-baseline manifest to be rejected")
+
+
+def test_zero_product_resume_produces_empty_retry_plan_without_inventing_products(tmp_path):
+    manifest = _full_manifest()
+
+    report = gate.build_retry_plan(
+        manifest,
+        [],
+        tmp_path / "granules",
+        tmp_path / "cleanups",
+    )
+
+    assert report["products_checked"] == 0
+    assert report["products_verified"] == 0
+    assert report["products_to_retry"] == 0
+    assert report["retry_product_ids"] == []
+    assert report["retry_products"] == []
+    assert report["decisions"] == []
