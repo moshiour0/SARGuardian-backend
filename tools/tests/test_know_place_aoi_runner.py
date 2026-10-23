@@ -14,6 +14,7 @@ from tools.know_place.aoi_runner import (
     AOIRunError,
     _download_exact_product,
     _cleanup_ephemeral_source,
+    _estimate_roi_window_cells,
     _exact_bytes,
     _grid_identity_sha256,
     _grid_lattice_compatible,
@@ -26,6 +27,7 @@ from tools.know_place.aoi_runner import (
     discover_nisar_goff,
 )
 import numpy as np
+from pyproj import Transformer
 
 PAIR_NAMES = [
     "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_X05026_N_F_J_001.h5",
@@ -214,3 +216,19 @@ def test_grid_lattice_contract_accepts_extent_changes_but_rejects_subpixel_shift
     assert not _grid_lattice_compatible(base, shifted_half_pixel)
     assert not _grid_lattice_compatible(base, wrong_crs)
     assert _grid_identity_sha256(base) != _grid_identity_sha256(different_extent_same_lattice)
+
+
+def test_oversized_reference_context_fails_before_roi_allocation():
+    wkt = "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))"
+    corners = [(85.52, 28.28), (85.54, 28.28), (85.54, 28.30), (85.52, 28.30)]
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
+    xs, ys = transformer.transform([p[0] for p in corners], [p[1] for p in corners])
+    x = np.arange(np.floor(min(xs) / 80) * 80 - 1000, np.ceil(max(xs) / 80) * 80 + 1000, 80.0)
+    y = np.arange(np.ceil(max(ys) / 80) * 80 + 1000, np.floor(min(ys) / 80) * 80 - 1000, -80.0)
+
+    with pytest.raises(AOIRunError) as exc_info:
+        _estimate_roi_window_cells(x, y, wkt, 32645, max_window_cells=10)
+    assert exc_info.value.code == "AOI_WINDOW_TOO_LARGE"
+
+    permitted_cells = _estimate_roi_window_cells(x, y, wkt, 32645, max_window_cells=10000)
+    assert 0 < permitted_cells <= 10000
