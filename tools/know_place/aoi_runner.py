@@ -248,6 +248,11 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             "track": identity.track,
             "direction": identity.direction,
             "polarization": request.polarization,
+            "polarization_evidence": (
+                "ASF catalog query filtered mainBandPolarization; exact HDF5 group is rechecked after download"
+                if raw_pol else
+                "ASF query filter only; catalog product property omitted polarization, exact HDF5 group must confirm"
+            ),
             "release_id": identity.release_id,
             "maturity": maturity,
             "maturity_evidence": maturity_evidence,
@@ -270,6 +275,7 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             "start_utc": f"{request.start_date.isoformat()}T00:00:00Z",
             "end_utc": f"{request.end_date.isoformat()}T23:59:59Z",
             "main_band_polarization": request.polarization,
+            "polarization_evidence_policy": "query filter is recorded; exact HDF5 polarization group must be validated before measurement",
             "allowed_maturities": list(request.allowed_maturities),
         },
         "result_count": len(all_rows),
