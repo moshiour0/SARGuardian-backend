@@ -63,7 +63,10 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             prev_pair.get("chain_id") is not None
             and prev_pair.get("chain_id") == pair.get("chain_id")
         )
-        contiguous = pair.get("relation_to_previous") == "CONTIGUOUS"
+        contiguous = (
+            pair.get("relation_to_previous") == "CONTIGUOUS"
+            and pair.get("grid_lattice_compatible_with_previous") is True
+        )
         if not (same_chain and contiguous and i - 1 in point_by_pair_index and i in point_by_pair_index):
             continue
         x1, y1 = point_by_pair_index[i - 1]
@@ -108,6 +111,8 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
           <div class="map-heading"><div><h3>{html.escape(str(pair.get('reference_date','?')))} → {html.escape(str(pair.get('secondary_date','?')))}</h3>
           <p>{html.escape(str(pair.get('granule_name','')))}</p>
           <p>Valid AOI pixels: {html.escape(str(pair.get('valid_aoi_pixels','—')))}</p>
+          <p>Grid lattice vs previous pair: {html.escape(str(pair.get('grid_lattice_compatible_with_previous','not applicable / not checked')))}</p>
+          <p>Grid identity SHA-256: <code>{html.escape(str(pair.get('grid_identity_sha256','not recorded')))}</code></p>
           <p>Source SHA-256: <code>{html.escape(str(pair.get('source_sha256','not recorded')))}</code></p></div>
           <span class="status">{html.escape(str(pair.get('status','UNKNOWN')))}</span></div>
           <canvas id="{canvas_id}" width="420" height="280" aria-label="Horizontal displacement magnitude preview"></canvas>
@@ -186,7 +191,7 @@ main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(2
 </section>
 <section class="two-col">
 <div class="panel chart"><h2>AOI displacement by product interval</h2><p>Each point is a pairwise median magnitude. Intervals are not summed into cumulative movement unless an independently reviewed continuous-chain policy permits it.</p>{trend_svg}</div>
-<div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Output checksums</p><div class="code">{html.escape(str(report.get('output_checksums_sha256','not recorded')))}</div></div>
+<div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Grid compatibility</p><div class="code">{html.escape(str(report.get('grid_compatibility_status','not evaluated')))} (mismatched pair links are not connected)</div><p>Output checksum policy</p><div class="code">Per-file SHA-256 values are listed in manifest.json; the manifest excludes itself to avoid circular checksums.</div></div>
 </section>
 <section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Orbit chain</th><th>Valid AOI pixels</th><th>High-motion review pixels</th><th>Median AOI magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
 <section style="margin-top:18px"><h2>Spatial displacement previews</h2><p>Native projected grids downsampled for quick inspection. Use the linked GeoTIFF for full-resolution GIS analysis; the preview is not a substitute for pixel-level data.</p><div class="map-grid">{''.join(map_cards)}</div></section>
