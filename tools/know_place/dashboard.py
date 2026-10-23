@@ -135,6 +135,17 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
         stats = pair.get("statistics", {})
         uncertainty = pair.get("spatial_block_bootstrap_uncertainty", {})
         uncertainty_stats = uncertainty.get("statistics", {})
+        sensitivity = pair.get("spatial_block_bootstrap_sensitivity", {})
+        sensitivity_rows = sensitivity.get("rows", []) if isinstance(sensitivity, dict) else []
+        sensitivity_label_parts = []
+        for sensitivity_row in sensitivity_rows:
+            ci = sensitivity_row.get("median_horizontal_magnitude_95pct_interval_m")
+            size = sensitivity_row.get("block_size_cells", "?")
+            if isinstance(ci, list) and len(ci) == 2:
+                sensitivity_label_parts.append(f"{size}-cell: {_number(ci[0])}–{_number(ci[1])} m")
+            else:
+                sensitivity_label_parts.append(f"{size}-cell: unavailable")
+        sensitivity_label = "; ".join(sensitivity_label_parts) if sensitivity_label_parts else "NOT_REPORTED"
         magnitude_ci = uncertainty_stats.get("median_horizontal_magnitude_95pct_interval_m")
         magnitude_ci_label = (
             f"{_number(magnitude_ci[0])}–{_number(magnitude_ci[1])} m"
@@ -146,13 +157,14 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             f"<td>{html.escape(str(pair.get('reference_date','')))} → {html.escape(str(pair.get('secondary_date','')))}</td>"
             f"<td>{html.escape(str(pair.get('release_id','')))}</td>"
             f"<td>{html.escape(str(pair.get('chain_id','not assigned')))}</td>"
-            f"<td>{html.escape(str(pair.get('valid_aoi_pixels','—')))}</td>"
+            f"<td>{html.escape(str(pair.get('valid_aoi_pixels','—')))} / {html.escape(str(pair.get('aoi_total_grid_cells','—')))} ({_number(100.0 * float(pair.get('valid_aoi_fraction',0.0)),1)}%)</td>"
             f"<td>{html.escape(str(pair.get('high_magnitude_flagged_pixels', '—')))}</td>"
             f"<td>{_number(stats.get('aoi_median_horizontal_magnitude_m', stats.get('crown_median_horizontal_magnitude_m')))} m</td>"
             f"<td>{html.escape(magnitude_ci_label)}</td>"
             f"<td>{_number(stats.get('aoi_mean_vector_magnitude_m', stats.get('crown_mean_vector_magnitude_m')))} m</td>"
             f"<td>{_number(stats.get('aoi_mean_vector_azimuth_deg_clockwise_from_north', stats.get('crown_mean_vector_azimuth_deg_clockwise_from_north')),1)}°</td>"
             f"<td>{_number(stats.get('aoi_median_directional_coherence_R', stats.get('crown_median_directional_coherence_R')),2)}</td>"
+            f"<td>{html.escape(sensitivity_label)}</td>"
             "</tr>"
         )
     pair_data = []
@@ -203,7 +215,7 @@ main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(2
 <div class="panel chart"><h2>AOI displacement by product interval</h2><p>Each point is a pairwise median magnitude. Intervals are not summed into cumulative movement unless an independently reviewed continuous-chain policy permits it.</p>{trend_svg}</div>
 <div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Grid compatibility</p><div class="code">{html.escape(str(report.get('grid_compatibility_status','not evaluated')))} (mismatched pair links are not connected)</div><p>Output checksum policy</p><div class="code">Per-file SHA-256 values are listed in manifest.json; the manifest excludes itself to avoid circular checksums.</div></div>
 </section>
-<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Orbit chain</th><th>Valid AOI pixels</th><th>High-motion review pixels</th><th>Median AOI magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
+<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Orbit chain</th><th>Valid / total AOI pixels</th><th>High-motion review pixels</th><th>Median AOI magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th><th>Block-size CI sensitivity</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
 <section style="margin-top:18px"><h2>Spatial displacement previews</h2><p>Native projected grids downsampled for quick inspection. Use the linked GeoTIFF for full-resolution GIS analysis; the preview is not a substitute for pixel-level data.</p><div class="map-grid">{''.join(map_cards)}</div></section>
 <section class="panel" style="margin-top:18px"><h2>Normalized request</h2><div class="code">{html.escape(json.dumps(request, ensure_ascii=False, indent=2))}</div></section>
 <footer class="footer">Generated by SARGuardian Know Place Analysis. A successful processing run means calculations and provenance checks completed; it does not prove a hazard detection, prediction, or warning. Always inspect acquisition coverage, valid pixel support, control distributions and uncertainty.</footer>
