@@ -394,6 +394,9 @@ def run_diagnostics(
                     },
                     "results": rows,
                 }
+                if any(row.get("status") == "NOT_MEASURABLE_IN_RETAINED_EXPORTS" for row in rows):
+                    report["candidate_checks"]["status"] = "COMPLETED_WITH_UNOBSERVED_TARGETS"
+                    report["warnings"].append("ONE_OR_MORE_CANDIDATE_TARGETS_NOT_MEASURABLE")
 
     report["status"] = "FAIL" if report["errors"] else "PASS_WITH_LIMITATIONS" if report["warnings"] else "PASS"
     (out_root / "science-diagnostics.json").write_text(
