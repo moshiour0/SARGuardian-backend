@@ -166,3 +166,66 @@ def spatial_block_bootstrap_summary(
             "mean_vector_azimuth_95pct_arc": azimuth_arc,
         },
     }
+
+
+def spatial_block_bootstrap_sensitivity(
+    east_m: Any,
+    north_m: Any,
+    valid: Any,
+    aoi_mask: Any,
+    *,
+    block_sizes_cells: tuple[int, ...] = (3, 5, 10),
+    replicates_per_size: int = 300,
+    seed: int = 260826,
+    minimum_blocks: int = 8,
+) -> dict[str, Any]:
+    """Quantify how spatial-block size changes uncertainty intervals.
+
+    Each block size gets its own recorded, deterministic seed. This sensitivity
+    table is required because a single arbitrary block size can materially
+    understate or overstate spatial uncertainty. The 5-cell row can be compared
+    with the runner's higher-replicate primary estimate.
+    """
+    if not block_sizes_cells or len(set(block_sizes_cells)) != len(block_sizes_cells):
+        raise ValueError("UNCERTAINTY_BLOCK_SIZES_MUST_BE_NONEMPTY_AND_UNIQUE")
+    if any(isinstance(size, bool) or not isinstance(size, int) or size < 1 for size in block_sizes_cells):
+        raise ValueError("UNCERTAINTY_BLOCK_SIZES_INVALID")
+    if isinstance(replicates_per_size, bool) or not isinstance(replicates_per_size, int) or replicates_per_size < 100:
+        raise ValueError("UNCERTAINTY_REPLICATES_MUST_BE_AT_LEAST_100")
+
+    rows: list[dict[str, Any]] = []
+    for index, block_size in enumerate(block_sizes_cells):
+        # Deterministic distinct substreams, stable for the ordered size list.
+        child_seed = seed + 1009 * index
+        result = spatial_block_bootstrap_summary(
+            east_m, north_m, valid, aoi_mask,
+            block_size_cells=block_size,
+            replicates=replicates_per_size,
+            seed=child_seed,
+            minimum_blocks=minimum_blocks,
+        )
+        stats = result.get("statistics", {})
+        rows.append({
+            "block_size_cells": block_size,
+            "seed": child_seed,
+            "replicates": replicates_per_size,
+            "status": result["status"],
+            "valid_block_count": result.get("valid_block_count", 0),
+            "median_horizontal_magnitude_m": stats.get("median_horizontal_magnitude_m"),
+            "median_horizontal_magnitude_95pct_interval_m": stats.get("median_horizontal_magnitude_95pct_interval_m"),
+            "mean_vector_magnitude_m": stats.get("mean_vector_magnitude_m"),
+            "mean_vector_magnitude_95pct_interval_m": stats.get("mean_vector_magnitude_95pct_interval_m"),
+            "mean_vector_azimuth_95pct_arc": stats.get("mean_vector_azimuth_95pct_arc"),
+        })
+    complete = all(row["status"] == "COMPUTED_EXPLORATORY" for row in rows)
+    return {
+        "schema_version": "spatial-block-uncertainty-sensitivity/1.0",
+        "status": "COMPUTED_EXPLORATORY" if complete else "PARTIAL_INSUFFICIENT_BLOCK_SUPPORT",
+        "sizes_tested_cells": list(block_sizes_cells),
+        "rows": rows,
+        "interpretation": (
+            "Compare how confidence intervals and valid-block support respond to block size. "
+            "These are conditional spatial-sampling intervals, not systematic-error intervals "
+            "or calibrated hazard probabilities."
+        ),
+    }
