@@ -2,7 +2,7 @@
 
 ## Launch
 
-Run the default-branch workflow **SARGuardian AOI WKT E2E (safe branch dispatcher)** from the repository's Actions tab. The dispatcher calls the isolated feature workflow in branch `feat/e2e-aoi-wkt-date-dashboard`; the existing source-AOI E2E workflow is not called or changed.
+Run the **SARGuardian AOI WKT E2E + Dashboard** workflow on `feat/final-aoi-science-integration` from the Actions tab to process an explicit WKT polygon and date window. The default-branch dispatcher (if used) should forward to this integration branch. The fixed source-AOI streaming workflow remains available as a separate profile, and both paths now invoke the shared export-science diagnostics adapter.
 
 Inputs:
 
