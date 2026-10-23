@@ -220,13 +220,13 @@ jobs:
             echo
             echo "- Branch: $GITHUB_REF_NAME"
             echo "- Commit: $GITHUB_SHA"
-            echo "- AOI input: `know-place-request.json`"
+            echo "- AOI input: know-place-request.json"
             if [[ "${{ inputs.execute_downloads }}" == "true" ]]; then
               echo "- Source downloads: opted in; exact product hashes and receipts are recorded per run"
             else
               echo "- Source downloads: not run (catalog/series-plan only)"
             fi
-            echo "- Result artifact: `$OUTPUT_ROOT/`"
+            echo "- Result artifact: $OUTPUT_ROOT/"
             echo "- A successful measurement run is not a validated hazard alarm."
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ -d "$OUTPUT_ROOT" ]]; then
