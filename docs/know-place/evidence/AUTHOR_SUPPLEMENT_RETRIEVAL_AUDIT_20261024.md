@@ -17,7 +17,9 @@ The user supplied the paper PDF, its supplementary-information Word file, and th
 
 The source-derived CSV is preserved in the repository at `docs/know-place/reference/author_validated_zones_supplementary_data_1.csv`. The paper/supplement values transcribed for automated integrity checks are in `docs/know-place/reference/author_benchmark_v1.json`; attribution and reuse limitations are in the neighbouring `README.md`.
 
-**Canonical article now used for this work:** Sansar Raj Meena, “NISAR offsets measure pre-failure motion but do not single out the Bhote Koshi avalanche source,” posted 22 September 2026, Research Square DOI https://doi.org/10.21203/rs.3.rs-11022365/v1. The paper points to the processing code, statistics and figure/golden-data archive at https://doi.org/10.5281/zenodo.22730419.
+**User-supplied benchmark version under test:** Sansar Raj Meena, “NISAR offsets measure pre-failure motion but do not single out the Bhote Koshi avalanche source,” posted 22 September 2026, Research Square DOI https://doi.org/10.21203/rs.3.rs-11022365/v1. The paper points to the processing code, statistics and figure/golden-data archive at https://doi.org/10.5281/zenodo.22730419.
+
+**Manuscript-version caution:** the pre-existing `KNOW_PLACE_ANALYSIS_BLUEPRINT.md` cites a differently titled EGUsphere preprint, DOI `10.5194/egusphere-2026-5462`. A formal cross-version identity/content comparison has not been completed. The exact product IDs and table values transcribed in this audit refer only to the uploaded Research Square PDF and its supplied supplement; do not silently assume the two records are identical or mix their source manifests.
 
 The uploaded DOCX is the supplementary information, not the separate Zenodo code/data archive. I have not verified the Zenodo archive payload or its checksum in this run. Therefore script-level parity and pixelwise golden-data comparison are still blocked; this is not evidence that the archive is absent. The article and supplement describe CC BY 4.0 terms, except Supplementary Figure 1 and Supplementary Table 5, identified as third-party CC BY-NC 4.0 material. Those exceptions are not copied into the repository.
 
@@ -47,7 +49,7 @@ Supplementary Table 1 specifies these exact GOFF identifiers (all release `P0502
 | 26 Jul–19 Aug 2026 | 24 | N_F | `...20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001` |
 | 19–31 Aug 2026 | 12 | N_F | `...20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001` |
 
-The earlier raw replay (Run 40006999011) and the frozen historical catalog manifest used CRID `X05026` for the first pair. The historical input's byte-size/SHA-256 checks remain valid for that file, but the variant **does not match the supplied author's manifest**. The other four identifiers match. Do not relabel the old replay as an exact five-granule author reproduction and do not overwrite the historical source hash. The exact P05023 first-pair identity must be checked against the live ASF catalog and fetched/hashes recorded before a new exact-series run.
+The earlier raw replay (Run 40006999011) and the frozen historical catalog manifest used CRID `X05026` for the first pair. The historical input's byte-size/SHA-256 checks remain valid for that file, but the variant **does not match the supplied author's manifest**. The other four identifiers match. Do not relabel the old replay as an exact five-granule author reproduction and do not overwrite the historical source hash. The live no-download author-ID query in validation Run 40035193088 confirmed trusted collection-route identities for four P05023 granules, but returned `ASF_AUTHOR_EXACT_GRANULE_NOT_FOUND` for the 20 June–2 July P05023 granule. The separate historical gate still confirms X05026 for that pair. The lookup does not establish whether the author ID survives in another archive or older catalog state; no raw data was downloaded and no author-P05023 source SHA-256 exists.
 
 ### 2.3 Site-series method as stated in the supplied paper
 
@@ -92,7 +94,7 @@ These match the rounded source-zone values in the main paper. This is author-der
 ## 3. What remains blocked
 
 - The code/statistics/raster archive cited by the paper at Zenodo DOI `10.5281/zenodo.22730419` has not yet been downloaded and hash-verified in this run.
-- Live ASF identity and source SHA-256 for the exact first-pair P05023 granule remain unverified; the earlier X05026 file must remain preserved as historical evidence only.
+- A live ASF query confirmed four of five author P05023 granules by trusted collection URL, but the exact 20 June–2 July P05023 identifier was not found (Run 40035193088). The separate historical-candidate query confirms X05026 for that same interval. No raw source was downloaded during either gate; preserve X05026 only as historical evidence and do not call it author-identical.
 - Pixelwise comparison against author east/north/magnitude/coherence rasters and exact equality/tolerance checks for all five pairs are not complete.
 - The published crown pixel counts differ from the historical replay at least for the 24-day target pair (296 versus 298). Exact rasterization, geometry lookup, sample policy, and processing differences must be isolated before declaring parity.
 - The site's constant 5151.0 m HAE query is not proven equivalent to the author's crown-local geometry sampling: the paper confirms one crown-local geometry for the site series, but exact height/datum and sampling code are not stated in the PDF/supplement text.
@@ -102,7 +104,7 @@ These match the rounded source-zone values in the main paper. This is author-der
 ## 4. Acceptance plan
 
 1. Obtain the Zenodo record/archive linked by the paper; save original filenames, metadata, archive SHA-256 and extracted-file SHA-256 values.
-2. Compare all five identifiers against the archive README and live ASF. If the exact P05023 first pair is valid, fetch it as a new immutable input; never replace or relabel the historical X05026 source.
+2. Compare the archive README and source metadata with the failed live lookup for the exact first-pair P05023 ID. If the author archive includes that granule or a retrievable direct object reference, verify bytes and SHA-256 before any new run. If it remains unavailable, document the source-version mismatch and ask the corresponding archive/author for clarification; never substitute, rename or relabel X05026 as P05023.
 3. Extract the author's actual scripts and reproduce their environment/commands. Use the author crown WKT now recorded in the reference manifest.
 4. Compare source rasters and all Table 4 values pair-by-pair. Record pixelwise tolerances, valid masks, crown cell counts, scalar values, null distributions, and any known grid/resampling differences.
 5. Reproduce the footprint inventory/screen only from the documented source input, parameters, and archive outputs. Keep source-zone inventory distinct from independent-event validation.
