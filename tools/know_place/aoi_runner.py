@@ -579,30 +579,60 @@ def _preview(
     x_coordinates_m: np.ndarray,
     y_coordinates_m: np.ndarray,
     aoi_ring_projected: tuple[tuple[float, float], ...],
+    *,
+    east_m: np.ndarray | None = None,
+    north_m: np.ndarray | None = None,
     max_side: int = 72,
 ) -> dict[str, Any]:
+    """Make a lightweight magnitude and direction preview; never used for metrics."""
     x = np.asarray(x_coordinates_m, dtype=float)
     y = np.asarray(y_coordinates_m, dtype=float)
     arr = np.asarray(magnitude, dtype=float)
+    east = np.asarray(east_m, dtype=float) if east_m is not None else None
+    north = np.asarray(north_m, dtype=float) if north_m is not None else None
+    if (east is None) != (north is None):
+        raise AOIRunError("VECTOR_PREVIEW_REQUIRES_BOTH_COMPONENTS", "Vector preview requires east and north components")
+    if east is not None and (east.shape != arr.shape or north.shape != arr.shape):
+        raise AOIRunError("VECTOR_PREVIEW_SHAPE_MISMATCH", "Vector preview arrays must match the magnitude grid")
     dx = float(np.median(np.abs(np.diff(x))))
     dy = float(np.median(np.abs(np.diff(y))))
     if x[-1] < x[0]:
         arr = np.fliplr(arr)
+        if east is not None:
+            east, north = np.fliplr(east), np.fliplr(north)
     if y[-1] > y[0]:
         arr = np.flipud(arr)
+        if east is not None:
+            east, north = np.flipud(east), np.flipud(north)
     stride = max(1, int(math.ceil(max(arr.shape) / max_side)))
     out_h = int(math.ceil(arr.shape[0] / stride))
     out_w = int(math.ceil(arr.shape[1] / stride))
     values: list[list[float | None]] = []
+    east_values: list[list[float | None]] = []
+    north_values: list[list[float | None]] = []
     for r in range(out_h):
-        row = []
-        for c in range(out_w):
-            block = arr[r * stride:min(arr.shape[0], (r + 1) * stride),
-                        c * stride:min(arr.shape[1], (c + 1) * stride)]
-            finite = block[np.isfinite(block)]
+        row, row_east, row_north = [], [], []
+        for col in range(out_w):
+            rs = slice(r * stride, min(arr.shape[0], (r + 1) * stride))
+            cs = slice(col * stride, min(arr.shape[1], (col + 1) * stride))
+            block = arr[rs, cs]
+            finite_mask = np.isfinite(block)
+            finite = block[finite_mask]
             row.append(float(np.median(finite)) if finite.size else None)
+            if east is not None and north is not None:
+                block_east, block_north = east[rs, cs], north[rs, cs]
+                vector_mask = finite_mask & np.isfinite(block_east) & np.isfinite(block_north)
+                if vector_mask.any():
+                    row_east.append(float(np.mean(block_east[vector_mask])))
+                    row_north.append(float(np.mean(block_north[vector_mask])))
+                else:
+                    row_east.append(None)
+                    row_north.append(None)
         values.append(row)
-    return {
+        if east is not None and north is not None:
+            east_values.append(row_east)
+            north_values.append(row_north)
+    result = {
         "width": out_w, "height": out_h, "values": values,
         "min_x_m": float(np.min(x)), "max_y_m": float(np.max(y)),
         "pixel_size_x_m": dx * stride, "pixel_size_y_m": dy * stride,
@@ -610,13 +640,19 @@ def _preview(
         "aoi_ring_xy": [[float(px), float(py)] for px, py in aoi_ring_projected],
         "description": "Median magnitude per block; visualization only, not measurement source.",
     }
+    if east is not None and north is not None:
+        result["east_values_m"] = east_values
+        result["north_values_m"] = north_values
+        result["vector_preview_note"] = "Arrow orientation shows mean east/north direction per block; arrow length is symbolic."
+    return result
 
 
 def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
     fields = [
         "reference_date", "secondary_date", "granule_name", "release_id",
         "status", "chain_id", "relation_to_previous", "valid_aoi_pixels",
-        "high_magnitude_flagged_pixels", "aoi_median_horizontal_magnitude_m",
+        "aoi_total_grid_cells", "valid_aoi_fraction", "high_magnitude_flagged_pixels",
+        "aoi_median_horizontal_magnitude_m",
         "aoi_mean_vector_magnitude_m", "aoi_mean_vector_azimuth_deg_clockwise_from_north",
         "aoi_median_directional_coherence_R", "source_sha256", "geotiff_file",
     ]
@@ -634,6 +670,8 @@ def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
                 "chain_id": pair.get("chain_id"),
                 "relation_to_previous": pair.get("relation_to_previous"),
                 "valid_aoi_pixels": pair.get("valid_aoi_pixels"),
+                "aoi_total_grid_cells": pair.get("aoi_total_grid_cells"),
+                "valid_aoi_fraction": pair.get("valid_aoi_fraction"),
                 "high_magnitude_flagged_pixels": pair.get("high_magnitude_flagged_pixels"),
                 "aoi_median_horizontal_magnitude_m": stats.get("aoi_median_horizontal_magnitude_m", stats.get("crown_median_horizontal_magnitude_m")),
                 "aoi_mean_vector_magnitude_m": stats.get("aoi_mean_vector_magnitude_m", stats.get("crown_mean_vector_magnitude_m")),
@@ -854,6 +892,8 @@ def run_aoi_analysis(
                     "grid_lattice_compatible_with_previous": grid_aligned,
                     "status": "INSUFFICIENT_AOI_VALID_PIXELS",
                     "valid_aoi_pixels": 0,
+                    "aoi_total_grid_cells": int(roi.crown_mask.sum()),
+                    "valid_aoi_fraction": 0.0,
                     "quality_gate_counts": asdict(gate_counts),
                     "high_magnitude_threshold": request.max_horizontal_magnitude_m,
                     "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
@@ -890,6 +930,8 @@ def run_aoi_analysis(
                         "grid_lattice_compatible_with_previous": grid_aligned,
                         "status": "INSUFFICIENT_REFERENCE_SUPPORT",
                         "valid_aoi_pixels": int(aoi_valid_before_reference.sum()),
+                        "aoi_total_grid_cells": int(roi.crown_mask.sum()),
+                        "valid_aoi_fraction": float(aoi_valid_before_reference.sum()) / int(roi.crown_mask.sum()),
                         "quality_gate_counts": asdict(gate_counts),
                         "high_magnitude_threshold": request.max_horizontal_magnitude_m,
                         "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
@@ -960,6 +1002,8 @@ def run_aoi_analysis(
                 "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
                 "magnitude_policy": request.magnitude_policy,
                 "valid_aoi_pixels": int(aoi_valid.sum()),
+                "aoi_total_grid_cells": int(roi.crown_mask.sum()),
+                "valid_aoi_fraction": float(aoi_valid.sum()) / int(roi.crown_mask.sum()),
                 "geometry": {
                     "metadata_group": sample.metadata_group,
                     "unit_evidence": cubes.unit_evidence,
@@ -1073,6 +1117,7 @@ def run_aoi_analysis(
                 "map_preview": _preview(
                     magnitude, roi.x_coordinates_m, roi.y_coordinates_m,
                     roi.crown_ring_projected,
+                    east_m=corrected_east, north_m=corrected_north,
                 ),
                 "interpretation": "Measurement-only output. Hazard classification is not evaluated by this measurement engine.",
             })
