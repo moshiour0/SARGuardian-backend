@@ -1,0 +1,247 @@
+name: Know Place AOI analysis — polygon/date-range
+
+on:
+  workflow_dispatch:
+    inputs:
+      aoi_wkt:
+        description: "Closed WGS84 POLYGON WKT (longitude latitude; one exterior ring)"
+        required: true
+        type: string
+      start_date:
+        description: "Inclusive UTC start date, YYYY-MM-DD"
+        required: true
+        type: string
+      end_date:
+        description: "Inclusive UTC end date, YYYY-MM-DD"
+        required: true
+        type: string
+      hazard_mode:
+        description: "Event class for validation metadata; this does not auto-classify an event"
+        required: true
+        type: choice
+        options:
+          - landslide
+          - glacier_collapse
+          - ice_rock_avalanche
+          - mixed
+        default: mixed
+      polarization:
+        description: "NISAR frequency-A polarization"
+        required: true
+        type: choice
+        options:
+          - HH
+          - HV
+          - VV
+          - VH
+        default: HH
+      track:
+        description: "Optional three-digit track (use ANY to retain separate orbit chains)"
+        required: true
+        type: string
+        default: ANY
+      direction:
+        description: "Optional flight direction"
+        required: true
+        type: choice
+        options:
+          - ANY
+          - A
+          - D
+        default: ANY
+      reference_wkt:
+        description: "Optional reference/background polygon WKT; blank disables background correction and uses a local 2 km control context"
+        required: false
+        type: string
+      execute_downloads:
+        description: "Download selected raw GOFF products, compute measurements, GeoTIFFs and dashboard, and upload a derived result bundle to Drive"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: know-place-aoi-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  analyze-aoi:
+    name: Validate AOI and build reproducible GOFF measurements
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      OUTPUT_ROOT: know-place-aoi-output
+
+    steps:
+      - name: Checkout the selected feature branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          check-latest: false
+
+      - name: Install versioned Know Place runtime
+        run: python -m pip install --disable-pip-version-check -r tools/know_place/requirements.txt
+
+      - name: Write normalized request input without shell interpolation
+        shell: bash
+        env:
+          AOI_WKT: ${{ inputs.aoi_wkt }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
+          HAZARD_MODE: ${{ inputs.hazard_mode }}
+          POLARIZATION: ${{ inputs.polarization }}
+          TRACK: ${{ inputs.track }}
+          DIRECTION: ${{ inputs.direction }}
+          REFERENCE_WKT: ${{ inputs.reference_wkt }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          selection = {
+              "allowed_maturities": ["PROVISIONAL"],
+              "preferred_granules": [],
+          }
+          if os.environ["TRACK"].strip().upper() != "ANY":
+              selection["track"] = os.environ["TRACK"].strip()
+          if os.environ["DIRECTION"].strip().upper() != "ANY":
+              selection["direction"] = os.environ["DIRECTION"].strip().upper()
+
+          request = {
+              "schema_version": "know-place-aoi-request/1.0",
+              "aoi": {
+                  "type": "Polygon",
+                  "crs": "EPSG:4326",
+                  "wkt": os.environ["AOI_WKT"].strip(),
+              },
+              "date_range": {
+                  "start": os.environ["START_DATE"].strip(),
+                  "end": os.environ["END_DATE"].strip(),
+                  "inclusive": True,
+              },
+              "hazard_mode": os.environ["HAZARD_MODE"].strip(),
+              "analysis_mode": "exploratory",
+              "source_adapters": ["NISAR_GOFF"],
+              "polarization": os.environ["POLARIZATION"].strip(),
+              "product_selection": selection,
+              "quality_policy": {
+                  "minimum_snr": 5.0,
+                  "maximum_horizontal_magnitude_m": 10.0,
+                  "magnitude_policy": "flag_above_threshold_keep",
+              },
+              "coherence_policy": {
+                  "window_size": 5,
+                  "minimum_valid_neighbours": 1,
+              },
+          }
+          reference = os.environ.get("REFERENCE_WKT", "").strip()
+          if reference:
+              request["reference"] = {
+                  "policy": "external_reference_polygon_component_median",
+                  "polygon_wkt": reference,
+                  "fallback_buffer_m": 2000.0,
+              }
+          else:
+              request["reference"] = {"fallback_buffer_m": 2000.0}
+
+          Path("know-place-request.json").write_text(
+              json.dumps(request, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          print("REQUEST_JSON_WRITTEN=know-place-request.json")
+          PY
+
+      - name: Preflight all required credentials before any raw source download
+        if: ${{ inputs.execute_downloads }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$EARTHDATA_TOKEN" && ( -z "$EARTHDATA_USERNAME" || -z "$EARTHDATA_PASSWORD" ) ]]; then
+            echo "ERROR=EARTHDATA_CREDENTIALS_REQUIRED_BEFORE_DOWNLOAD"
+            exit 1
+          fi
+          if [[ -z "$GOOGLE_DRIVE_OAUTH_CLIENT_JSON" || -z "$GOOGLE_DRIVE_REFRESH_TOKEN" || -z "$GOOGLE_DRIVE_PARENT_FOLDER_ID" ]]; then
+            echo "ERROR=DRIVE_SECRETS_REQUIRED_BEFORE_DOWNLOAD"
+            exit 1
+          fi
+          echo "EARTHDATA_CREDENTIAL_PREFLIGHT=PASS"
+          echo "DRIVE_CREDENTIAL_PREFLIGHT=PASS"
+          echo "DOWNLOAD_OPT_IN=PASS"
+
+      - name: Catalog-only dry run (no product downloads)
+        if: ${{ !inputs.execute_downloads }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.aoi_runner \
+            --request know-place-request.json \
+            --out "$OUTPUT_ROOT" \
+            --dry-run
+
+      - name: Download exact selected GOFF granules and compute measurements
+        if: ${{ inputs.execute_downloads }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.aoi_runner \
+            --request know-place-request.json \
+            --out "$OUTPUT_ROOT" \
+            --cache-dir "$RUNNER_TEMP/know-place-source-cache"
+
+      - name: Upload and byte-verify the derived result bundle in central Drive
+        if: ${{ inputs.execute_downloads && success() }}
+        shell: bash
+        env:
+          BUNDLE_FOLDER_NAME: know-place-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.upload_bundle_to_drive \
+            --run-root "$OUTPUT_ROOT" \
+            --folder-name "$BUNDLE_FOLDER_NAME"
+
+      - name: Emit scientific claim/status summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Know Place AOI analysis"
+            echo
+            echo "- Branch: $GITHUB_REF_NAME"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- AOI input: `know-place-request.json`"
+            if [[ "${{ inputs.execute_downloads }}" == "true" ]]; then
+              echo "- Source downloads: opted in; exact product hashes and receipts are recorded per run"
+            else
+              echo "- Source downloads: not run (catalog/series-plan only)"
+            fi
+            echo "- Result artifact: `$OUTPUT_ROOT/`"
+            echo "- A successful measurement run is not a validated hazard alarm."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -d "$OUTPUT_ROOT" ]]; then
+            find "$OUTPUT_ROOT" -maxdepth 3 -type f | sort | sed 's#^#- #g' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Preserve report, dashboard, maps and Drive receipt as workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: know-place-aoi-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            know-place-request.json
+            know-place-aoi-output/**
+          if-no-files-found: warn
+          retention-days: 30
