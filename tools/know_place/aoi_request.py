@@ -43,6 +43,7 @@ class AOIRequest:
     preferred_granules: tuple[str, ...]
     allowed_maturities: tuple[str, ...]
     reference_wkt: str | None
+    background_correction_policy: str
     reference_buffer_m: float
     geometry_height_m: float | None
     min_snr: float
@@ -69,10 +70,16 @@ class AOIRequest:
             "polarization": self.polarization,
             "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules), "allowed_maturities": list(self.allowed_maturities)},
             "reference": {
-                "policy": "external_reference_polygon_component_median"
-                if self.reference_wkt else "no_background_correction",
+                "policy": self.background_correction_policy,
                 "polygon_wkt": self.reference_wkt,
                 "fallback_buffer_m": self.reference_buffer_m,
+                "warning": (
+                    "Local context assumes most valid pixels outside the AOI are stable; inspect the reference map and sensitivity."
+                    if self.background_correction_policy == "local_context_component_median"
+                    else "Background correction is not applied."
+                    if self.background_correction_policy == "none"
+                    else "Explicit external reference polygon; validity and spatial support are checked during analysis."
+                ),
             },
             "geometry_policy": {
                 "constant_hae_m": self.geometry_height_m,
@@ -190,18 +197,28 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         raise AOIRequestError("CATALOG_MATURITY_UNSUPPORTED")
 
     reference = payload.get("reference")
+    if reference is not None and not isinstance(reference, dict):
+        raise AOIRequestError("REFERENCE_MUST_BE_OBJECT")
+    reference_config = reference or {}
+    reference_policy = str(
+        reference_config.get("policy", "local_context_component_median")
+    )
+    allowed_reference_policies = {
+        "external_reference_polygon_component_median",
+        "local_context_component_median",
+        "none",
+    }
+    if reference_policy not in allowed_reference_policies:
+        raise AOIRequestError("REFERENCE_POLICY_UNSUPPORTED")
     reference_wkt = None
-    if reference is not None:
-        if not isinstance(reference, dict):
-            raise AOIRequestError("REFERENCE_MUST_BE_OBJECT")
-        policy = reference.get("policy", "external_reference_polygon_component_median")
-        if policy != "external_reference_polygon_component_median":
-            raise AOIRequestError("REFERENCE_POLICY_UNSUPPORTED")
-        reference_wkt = _canonical_wkt(reference.get("polygon_wkt"), "reference")
-        # Full geometric containment/intersection is revalidated when the ROI is
-        # rasterized on the actual source grid; this request parser checks syntax.
+    if reference_policy == "external_reference_polygon_component_median":
+        reference_wkt = _canonical_wkt(reference_config.get("polygon_wkt"), "reference")
+    elif reference_config.get("polygon_wkt") is not None:
+        raise AOIRequestError("REFERENCE_POLYGON_NOT_ALLOWED_FOR_SELECTED_POLICY")
+    # Full geometric containment/intersection is revalidated when the ROI is
+    # rasterized on the actual source grid; this parser checks syntax only.
     try:
-        reference_buffer_m = float((reference or {}).get("fallback_buffer_m", 2000.0))
+        reference_buffer_m = float(reference_config.get("fallback_buffer_m", 2000.0))
     except (TypeError, ValueError, OverflowError) as exc:
         raise AOIRequestError("REFERENCE_BUFFER_MUST_BE_NUMERIC") from exc
     if not math.isfinite(reference_buffer_m) or reference_buffer_m < 0:
@@ -267,7 +284,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "source_adapters": list(normalized_adapters),
         "polarization": polarization,
         "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_maturities": list(allowed_maturities)},
-        "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction", "fallback_buffer_m": reference_buffer_m},
+        "reference": {"polygon_wkt": reference_wkt, "policy": reference_policy, "fallback_buffer_m": reference_buffer_m},
         "geometry_policy": {"constant_hae_m": geometry_height_m},
         "quality_policy": {
             "minimum_snr": min_snr,
@@ -294,6 +311,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         preferred_granules=preferred_granules,
         allowed_maturities=allowed_maturities,
         reference_wkt=reference_wkt,
+        background_correction_policy=reference_policy,
         reference_buffer_m=reference_buffer_m,
         geometry_height_m=geometry_height_m,
         min_snr=min_snr,
