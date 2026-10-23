@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -194,8 +195,16 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert "Descriptive motion dynamics — not a hazard score" in dashboard_html
     assert "not a calibrated probability of failure" in dashboard_html
     assert (run_dir / "timeseries.csv").is_file()
+    assert (run_dir / "motion-features.csv").is_file()
+    with (run_dir / "motion-features.csv").open(encoding="utf-8", newline="") as stream:
+        motion_rows = list(csv.DictReader(stream))
+    assert len(motion_rows) == 5
+    assert "vector_rate_acceleration_m_per_day_squared" in motion_rows[0]
+    assert "risk_score" in motion_rows[0]
+    assert all(row["risk_score"] == "" for row in motion_rows)
+    assert all(row["risk_score_status"] == "NOT_CALIBRATED" for row in motion_rows)
     assert (run_dir / "visuals" / "dashboard.html").is_file()
-    assert len(manifest["files"]) >= 15
+    assert len(manifest["files"]) >= 16
     assert all(len(item["sha256"]) == 64 for item in manifest["files"])
     assert manifest["raw_h5_retention"]["raw_h5_in_output_bundle"] is False
     assert manifest["raw_h5_retention"]["raw_h5_retained_in_external_cache"] is False
