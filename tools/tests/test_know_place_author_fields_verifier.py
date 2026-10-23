@@ -15,16 +15,16 @@ from tools.know_place.verify_author_fields import verify_author_archive
 
 
 def _tiny_field_tiff() -> bytes:
-    east = np.ones((9, 9), dtype=np.float32)
-    north = np.zeros((9, 9), dtype=np.float32)
+    east = np.ones((73, 80), dtype=np.float32)
+    north = np.zeros((73, 80), dtype=np.float32)
     east[0, 0] = np.nan
     north[0, 0] = np.nan
     r = author_coherence_map(east.astype(float), north.astype(float)).astype(np.float32)
     with MemoryFile() as mem:
         with mem.open(
             driver="GTiff",
-            width=9,
-            height=9,
+            width=80,
+            height=73,
             count=3,
             dtype="float32",
             crs="EPSG:4326",
@@ -103,3 +103,32 @@ def test_field_verifier_checks_each_manifest_payload_hash(tmp_path: Path) -> Non
     report = verify_author_archive(archive, expected_field_count=1)
     assert report["status"] == "BLOCKED"
     assert report["manifest"]["payload_size_or_md5_mismatches"][0]["path"] == "fields/offsets_synthetic.tif"
+
+
+def test_manifest_allows_readme_and_nc_component_as_separate_zenodo_record_files(tmp_path: Path) -> None:
+    archive = tmp_path / "multipart-record.zip"
+    payload = _tiny_field_tiff()
+    entry = {
+        "path": "fields/offsets_synthetic.tif",
+        "bytes": len(payload),
+        "md5": hashlib.md5(payload).hexdigest(),
+    }
+    external_readme = {"path": "README.md", "bytes": 10, "md5": "1" * 32}
+    external_extent = {
+        "path": "extent_CC-BY-NC-4.0/flow_extent.shp",
+        "bytes": 10,
+        "md5": "2" * 32,
+    }
+    manifest = {
+        "record": "synthetic-multipart-record",
+        "files": 3,
+        "total_bytes": len(payload) + 20,
+        "manifest": [entry, external_readme, external_extent],
+    }
+    with ZipFile(archive, "w", compression=ZIP_DEFLATED) as zf:
+        zf.writestr(entry["path"], payload)
+        zf.writestr("MANIFEST.json", json.dumps(manifest))
+    report = verify_author_archive(archive, expected_field_count=1)
+    assert report["status"] == "PASS_PROCESSED_FIELD_R_VERIFIED"
+    assert report["manifest"]["unexpected_missing_paths"] == []
+    assert report["manifest"]["payload_size_or_md5_mismatches"] == []

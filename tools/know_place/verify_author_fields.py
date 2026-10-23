@@ -28,6 +28,15 @@ def _hash(data: bytes, algorithm: str) -> str:
     return digest.hexdigest()
 
 
+def _hash_path(path: Path, algorithms: tuple[str, ...] = ("md5", "sha256")) -> dict[str, str]:
+    digests = {algorithm: hashlib.new(algorithm) for algorithm in algorithms}
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            for digest in digests.values():
+                digest.update(chunk)
+    return {algorithm: digest.hexdigest() for algorithm, digest in digests.items()}
+
+
 def _check_field_payload(filename: str, payload: bytes) -> dict[str, Any]:
     with MemoryFile(payload) as mem:
         with mem.open() as src:
@@ -89,14 +98,14 @@ def verify_author_archive(archive_path: str | Path, expected_field_count: int = 
         raise FileNotFoundError(f"AUTHOR_ARCHIVE_NOT_FOUND:{archive}")
     if not isinstance(expected_field_count, int) or expected_field_count < 1:
         raise ValueError("EXPECTED_FIELD_COUNT_MUST_BE_POSITIVE")
-    archive_bytes = archive.read_bytes()
+    archive_hashes = _hash_path(archive)
     report: dict[str, Any] = {
         "schema_version": "know-place-author-field-verification/1.0",
         "archive": {
             "filename": archive.name,
-            "bytes": len(archive_bytes),
-            "md5": _hash(archive_bytes, "md5"),
-            "sha256": _hash(archive_bytes, "sha256"),
+            "bytes": archive.stat().st_size,
+            "md5": archive_hashes["md5"],
+            "sha256": archive_hashes["sha256"],
         },
         "manifest": {},
         "site_fields": [],
@@ -146,13 +155,21 @@ def verify_author_archive(archive_path: str | Path, expected_field_count: int = 
             fields: list[dict[str, Any]] = []
             for path in sorted(payloads):
                 fields.append(_check_field_payload(path, payloads[path]))
+            listed_paths = {str(x.get("path", "")) for x in listed}
+            unlisted = sorted(names - listed_paths)
+            expected_external = [p for p in missing if p == "README.md" or p.startswith("extent_CC-BY-NC-4.0/")]
+            unexpected_missing = sorted(set(missing) - set(expected_external))
+            unexpected_unlisted = [p for p in unlisted if p != "MANIFEST.json"]
             report["manifest"] = {
                 "declared_files": int(manifest.get("files", len(listed))),
                 "zip_entry_count": len(names),
                 "manifest_payloads_present": present,
                 "manifest_paths_missing_from_zip": missing,
+                "expected_separate_record_components_missing_from_zip": sorted(expected_external),
+                "unexpected_missing_paths": unexpected_missing,
                 "payload_size_or_md5_mismatches": mismatches,
-                "zip_entries_not_listed_in_manifest": sorted(names - {str(x.get("path", "")) for x in listed}),
+                "zip_entries_not_listed_in_manifest": unlisted,
+                "unexpected_unlisted_entries": unexpected_unlisted,
                 "declared_bytes": int(manifest.get("total_bytes", 0)),
             }
             report["site_fields"] = fields
@@ -160,7 +177,7 @@ def verify_author_archive(archive_path: str | Path, expected_field_count: int = 
             report["full_footprint_per_pair_offset_rasters_in_archive"] = any(
                 field["profile"]["width"] >= 4000 and field["profile"]["height"] >= 4000 for field in fields
             )
-            all_payloads_verified = present > 0 and not missing and not mismatches
+            all_payloads_verified = present > 0 and not unexpected_missing and not unexpected_unlisted and not mismatches
             fields_valid = len(fields) == expected_field_count and all(x["R_band_match"] for x in fields)
             report["status"] = "PASS_PROCESSED_FIELD_R_VERIFIED" if all_payloads_verified and fields_valid else "BLOCKED"
     except BadZipFile as exc:
