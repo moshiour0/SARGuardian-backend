@@ -221,3 +221,37 @@ def test_raw_reader_masks_hdf5_creation_property_fill_without_attribute(tmp_path
     # Zero can be a real offset, so the HDF5 default fill value must not be guessed.
     assert product.along_track_m[0, 0] == pytest.approx(0.0)
     assert product.fill_evidence["along_track"] == []
+
+
+def test_geometry_sampling_supports_per_pixel_hae_values_for_dem_backed_projection(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    cubes = read_geometry_cubes(path, expected_epsg=32645)
+    # Make the synthetic incidence cube vary linearly with HAE so interpolation
+    # against different per-pixel terrain heights has an independent answer.
+    cubes.incidence_deg[0, :, :] = 30.0
+    cubes.incidence_deg[1, :, :] = 50.0
+    sample = sample_geometry(
+        cubes,
+        x_m=np.array([[150.0, 250.0]]),
+        y_m=np.array([[250.0, 350.0]]),
+        height_m=np.array([[5000.0, 5500.0]]),
+        expected_epsg=32645,
+    )
+    assert np.allclose(sample.incidence_deg, [[30.0, 40.0]])
+
+
+def test_geometry_sampling_rejects_mismatched_or_outside_per_pixel_hae_values(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    cubes = read_geometry_cubes(path, expected_epsg=32645)
+    with pytest.raises(GoffReadError, match="GEOMETRY_QUERY_HEIGHT_SHAPE_MISMATCH"):
+        sample_geometry(
+            cubes, x_m=np.array([[150.0, 250.0]]), y_m=np.array([[250.0, 350.0]]),
+            height_m=np.array([5150.0]), expected_epsg=32645,
+        )
+    with pytest.raises(GoffReadError, match="GEOMETRY_HEIGHT_OUTSIDE_METADATA_AXIS"):
+        sample_geometry(
+            cubes, x_m=np.array([[150.0, 250.0]]), y_m=np.array([[250.0, 350.0]]),
+            height_m=np.array([[5150.0, 7000.0]]), expected_epsg=32645,
+        )
