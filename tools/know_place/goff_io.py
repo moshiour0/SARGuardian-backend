@@ -53,6 +53,21 @@ class GoffIdentity:
 
 
 @dataclass(frozen=True)
+class GoffGridInfo:
+    path: str
+    identity: GoffIdentity
+    polarization: str
+    layer: str
+    x_coordinates_m: np.ndarray
+    y_coordinates_m: np.ndarray
+    epsg: int
+    grid_shape: tuple[int, int]
+    file_size_bytes: int
+    file_mtime_ns: int
+    unit_evidence: dict[str, str]
+
+
+@dataclass(frozen=True)
 class RawGoffProduct:
     identity: GoffIdentity
     polarization: str
