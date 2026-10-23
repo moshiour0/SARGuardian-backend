@@ -1,0 +1,192 @@
+"""Explicit polygon handling for Know Place Analysis, independent of reader AOIs."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+import re
+from typing import Iterable
+
+import numpy as np
+
+from .goff_io import GoffReadError
+
+
+@dataclass(frozen=True)
+class AnalysisROI:
+    row_slice: slice
+    col_slice: slice
+    x_coordinates_m: np.ndarray
+    y_coordinates_m: np.ndarray
+    box_mask: np.ndarray
+    crown_mask: np.ndarray
+    box_ring_projected: tuple[tuple[float, float], ...]
+    crown_ring_projected: tuple[tuple[float, float], ...]
+
+
+def parse_polygon_wkt(wkt: str, *, max_vertices: int = 500) -> list[tuple[float, float]]:
+    """Parse one closed WGS84 exterior ring; holes and multipolygons are rejected."""
+    if not isinstance(wkt, str) or not wkt.strip():
+        raise GoffReadError("AOI_WKT_EMPTY")
+    match = re.fullmatch(r"(?is)\s*POLYGON\s*\(\s*\((.*?)\)\s*\)\s*", wkt.strip())
+    if not match:
+        raise GoffReadError("AOI_WKT_MUST_BE_SINGLE_RING_POLYGON_NO_HOLES")
+    body = match.group(1).strip()
+    if re.search(r"\)\s*,\s*\(", body):
+        raise GoffReadError("AOI_WKT_MUST_BE_SINGLE_RING_POLYGON_NO_HOLES")
+    chunks = body.split(",")
+    if len(chunks) > max_vertices:
+        raise GoffReadError(f"AOI_WKT_TOO_MANY_VERTICES_MAX_{max_vertices}")
+    ring: list[tuple[float, float]] = []
+    for chunk in chunks:
+        fields = chunk.split()
+        if len(fields) != 2:
+            raise GoffReadError("AOI_WKT_COORDINATES_MUST_BE_LON_LAT_PAIRS")
+        try:
+            lon, lat = float(fields[0]), float(fields[1])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise GoffReadError("AOI_WKT_COORDINATE_NOT_NUMERIC") from exc
+        if not math.isfinite(lon) or not math.isfinite(lat):
+            raise GoffReadError("AOI_WKT_COORDINATE_NONFINITE")
+        if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+            raise GoffReadError("AOI_WKT_COORDINATE_OUTSIDE_WGS84")
+        point = (lon, lat)
+        if ring and point == ring[-1]:
+            raise GoffReadError("AOI_WKT_DUPLICATE_CONSECUTIVE_VERTEX")
+        ring.append(point)
+    if len(set(ring)) < 3:
+        raise GoffReadError("AOI_WKT_NEEDS_THREE_DISTINCT_VERTICES")
+    if ring[0] != ring[-1]:
+        ring.append(ring[0])
+    if len(set(ring[:-1])) < 3:
+        raise GoffReadError("AOI_WKT_NEEDS_THREE_DISTINCT_VERTICES")
+
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def on_segment(a, b, p):
+        return (
+            min(a[0], b[0]) - 1e-12 <= p[0] <= max(a[0], b[0]) + 1e-12
+            and min(a[1], b[1]) - 1e-12 <= p[1] <= max(a[1], b[1]) + 1e-12
+        )
+
+    edges = list(zip(ring[:-1], ring[1:]))
+    for i, (a, b) in enumerate(edges):
+        for j in range(i + 1, len(edges)):
+            if j == i + 1 or (i == 0 and j == len(edges) - 1):
+                continue
+            c, d = edges[j]
+            values = (orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b))
+            proper_cross = (
+                ((values[0] > 1e-12 and values[1] < -1e-12)
+                 or (values[0] < -1e-12 and values[1] > 1e-12))
+                and ((values[2] > 1e-12 and values[3] < -1e-12)
+                     or (values[2] < -1e-12 and values[3] > 1e-12))
+            )
+            touches = (
+                (abs(values[0]) <= 1e-12 and on_segment(a, b, c))
+                or (abs(values[1]) <= 1e-12 and on_segment(a, b, d))
+                or (abs(values[2]) <= 1e-12 and on_segment(c, d, a))
+                or (abs(values[3]) <= 1e-12 and on_segment(c, d, b))
+            )
+            if proper_cross or touches:
+                raise GoffReadError("AOI_WKT_SELF_INTERSECTING")
+    twice_area = sum(
+        ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]
+        for i in range(len(ring) - 1)
+    )
+    if not math.isfinite(twice_area) or abs(twice_area) < 1e-12:
+        raise GoffReadError("AOI_WKT_ZERO_AREA")
+    return ring
+
+
+def project_wkt_ring(wkt: str, epsg: int) -> tuple[tuple[float, float], ...]:
+    ring = parse_polygon_wkt(wkt)
+    try:
+        from pyproj import Transformer
+    except ImportError as exc:
+        raise GoffReadError("PYPROJ_REQUIRED_FOR_AOI_PROJECTION") from exc
+    if epsg <= 0:
+        raise GoffReadError(f"AOI_TARGET_EPSG_INVALID:{epsg}")
+    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    projected = tuple((float(x), float(y)) for x, y in zip(
+        *transformer.transform([p[0] for p in ring], [p[1] for p in ring])
+    ))
+    if not all(math.isfinite(x) and math.isfinite(y) for x, y in projected):
+        raise GoffReadError("AOI_PROJECTION_NONFINITE")
+    return projected
+
+
+def points_in_ring(x_grid: np.ndarray, y_grid: np.ndarray, ring: Iterable[tuple[float, float]]) -> np.ndarray:
+    """Vectorized even-odd point-in-polygon test on grid-cell centres."""
+    x = np.asarray(x_grid, dtype=float)
+    y = np.asarray(y_grid, dtype=float)
+    if x.shape != y.shape:
+        raise GoffReadError("AOI_GRID_COORDINATE_SHAPE_MISMATCH")
+    vertices = list(ring)
+    inside = np.zeros(x.shape, dtype=bool)
+    for (x1, y1), (x2, y2) in zip(vertices[:-1], vertices[1:]):
+        crosses = (y1 > y) != (y2 > y)
+        denominator = y2 - y1
+        if denominator == 0:
+            continue
+        x_intersection = (x2 - x1) * (y - y1) / denominator + x1
+        inside ^= crosses & (x < x_intersection)
+    return inside
+
+
+def build_analysis_roi(
+    x_coordinates_m: np.ndarray,
+    y_coordinates_m: np.ndarray,
+    epsg: int,
+    *,
+    box_wkt: str,
+    crown_wkt: str,
+) -> AnalysisROI:
+    """Crop to the box bounds, rasterize box/crown by pixel-centre inclusion."""
+    x = np.asarray(x_coordinates_m, dtype=float)
+    y = np.asarray(y_coordinates_m, dtype=float)
+    if x.ndim != 1 or y.ndim != 1:
+        raise GoffReadError("GOFF_XY_COORDINATES_MUST_BE_1D")
+    if not np.isfinite(x).all() or not np.isfinite(y).all():
+        raise GoffReadError("GOFF_XY_COORDINATES_NONFINITE")
+    if len(x) < 2 or len(y) < 2:
+        raise GoffReadError("GOFF_GRID_TOO_SMALL")
+    if not (np.all(np.diff(x) > 0) or np.all(np.diff(x) < 0)):
+        raise GoffReadError("GOFF_X_COORDINATES_NOT_MONOTONIC")
+    if not (np.all(np.diff(y) > 0) or np.all(np.diff(y) < 0)):
+        raise GoffReadError("GOFF_Y_COORDINATES_NOT_MONOTONIC")
+    box = project_wkt_ring(box_wkt, epsg)
+    crown = project_wkt_ring(crown_wkt, epsg)
+    xmin, xmax = min(p[0] for p in box), max(p[0] for p in box)
+    ymin, ymax = min(p[1] for p in box), max(p[1] for p in box)
+    x_hits = np.flatnonzero((x >= xmin) & (x <= xmax))
+    y_hits = np.flatnonzero((y >= ymin) & (y <= ymax))
+    if not x_hits.size or not y_hits.size:
+        raise GoffReadError("REFERENCE_BOX_DOES_NOT_INTERSECT_GOFF_GRID")
+    row0, row1 = int(y_hits.min()), int(y_hits.max()) + 1
+    col0, col1 = int(x_hits.min()), int(x_hits.max()) + 1
+    roi_x, roi_y = x[col0:col1], y[row0:row1]
+    xx, yy = np.meshgrid(roi_x, roi_y)
+    box_mask = points_in_ring(xx, yy, box)
+    crown_mask = points_in_ring(xx, yy, crown)
+    if not box_mask.any():
+        raise GoffReadError("REFERENCE_BOX_HAS_NO_GRID_CELL_CENTRES")
+    if not crown_mask.any():
+        raise GoffReadError("CROWN_HAS_NO_GRID_CELL_CENTRES")
+    if np.any(crown_mask & ~box_mask):
+        raise GoffReadError("CROWN_GRID_CELLS_FALL_OUTSIDE_REFERENCE_BOX")
+    # Ensure no crown polygon vertex lies outside the reference-box polygon.
+    vertex_x = np.asarray([p[0] for p in crown], dtype=float)
+    vertex_y = np.asarray([p[1] for p in crown], dtype=float)
+    if not points_in_ring(vertex_x[:-1], vertex_y[:-1], box).all():
+        raise GoffReadError("CROWN_POLYGON_NOT_CONTAINED_IN_REFERENCE_BOX")
+    return AnalysisROI(
+        row_slice=slice(row0, row1),
+        col_slice=slice(col0, col1),
+        x_coordinates_m=roi_x,
+        y_coordinates_m=roi_y,
+        box_mask=box_mask,
+        crown_mask=crown_mask,
+        box_ring_projected=box,
+        crown_ring_projected=crown,
+    )
