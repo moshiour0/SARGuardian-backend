@@ -1316,6 +1316,12 @@ def run_aoi_analysis(
                 ),
                 "note": "Result bundles include source identities and SHA-256 provenance, not raw source HDF5 files.",
             },
+            "motion_dynamics": {
+                "schema_version": result.get("motion_dynamics", {}).get("schema_version"),
+                "status": result.get("motion_dynamics", {}).get("status", "NOT_COMPUTED"),
+                "risk_score": None,
+                "hazard_detection_status": "NOT_EVALUATED",
+            },
             "claim_boundary": {
                 "measurement_status": result["measurement_status"],
                 "paper_reproduction_status": result["paper_reproduction_status"],
