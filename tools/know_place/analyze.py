@@ -555,7 +555,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         failure_path = output / "know-place-analysis-report.json"
         failure_path.write_text(
-            json.dumps(failed, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            json.dumps(failed, indent=2, ensure_ascii=False, allow_nan=False) + "\n",
             encoding="utf-8",
         )
         print("KNOW_PLACE_ANALYSIS_STATUS=FAIL")
