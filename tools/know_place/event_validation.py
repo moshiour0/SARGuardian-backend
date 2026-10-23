@@ -497,9 +497,6 @@ def evaluate_heldout_events(
     raw_prediction_cases = prediction_payload.get("cases")
     if not isinstance(raw_prediction_cases, list):
         raise EventValidationError("PREDICTIONS_CASES_MUST_BE_ARRAY")
-    validation_cases = [case for case in registry["cases"] if case["split"] == "validation"]
-    if not validation_cases:
-        raise EventValidationError("NO_VALIDATION_SPLIT_CASES")
     test_cases = {case["case_id"]: case for case in registry["cases"]}
     if not test_cases:
         raise EventValidationError("NO_HELDOUT_TEST_CASES")
