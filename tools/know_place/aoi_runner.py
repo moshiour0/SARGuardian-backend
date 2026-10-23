@@ -962,14 +962,23 @@ def run_aoi_analysis(
         if not pairs:
             raise AOIRunError("NO_PAIR_MEASUREMENTS", "No product pair reached metric computation")
         computed = sum(p.get("status") == "METRICS_COMPUTED" for p in pairs)
+        if computed == len(pairs):
+            measurement_status = "METRICS_COMPUTED_ALL_PAIRS"
+            run_status = "SCIENTIFIC_METRICS_COMPUTED"
+        elif computed > 0:
+            measurement_status = "PARTIAL_METRICS_COMPUTED"
+            run_status = "PARTIAL_SCIENTIFIC_METRICS"
+        else:
+            measurement_status = "NOT_MEASURABLE"
+            run_status = "NO_VALID_PAIR_METRICS"
         result = {
             "schema_version": "know-place-aoi-result/1.0",
             "engine_version": ENGINE_VERSION,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "runtime_environment": _runtime_environment(),
-            "status": "SCIENTIFIC_METRICS_COMPUTED" if computed else "NO_VALID_PAIR_METRICS",
-            "structural_status": "PASS" if computed else "PARTIAL_INSUFFICIENT_DATA",
-            "measurement_status": "METRICS_COMPUTED" if computed else "NOT_MEASURABLE",
+            "status": run_status,
+            "structural_status": "PASS",
+            "measurement_status": measurement_status,
             "paper_reproduction_status": "NOT_EVALUATED_GENERIC_AOI",
             "hazard_detection_status": "NOT_EVALUATED",
             "request_sha256": request.request_sha256,
@@ -980,6 +989,11 @@ def run_aoi_analysis(
             "pairs": pairs,
             "download_evidence": download_evidence,
             "output_manifest": "manifest.json",
+            "pair_measurement_counts": {
+                "requested": len(pairs),
+                "metrics_computed": computed,
+                "insufficient_data": sum(p.get("status", "").startswith("INSUFFICIENT_") for p in pairs),
+            },
             "limitations": [
                 "The runner measures displacement; it does not classify landslide/glacier-collapse hazard or issue alarms.",
                 "A constant height per AOI is an approximation. Product-height-axis midpoint is used when no explicit HAE is supplied; use a DEM-backed per-pixel geometry sampler before operational claims.",
@@ -1096,6 +1110,11 @@ def main(argv: list[str] | None = None) -> int:
     except AOIRunError as exc:
         print("KNOW_PLACE_AOI_STATUS=FAIL")
         print(f"ERROR={exc.code}:{exc.safe_message}")
+        return 2
+    except AOIRequestError as exc:
+        code = str(exc).split(":", 1)[0]
+        print("KNOW_PLACE_AOI_STATUS=INVALID_REQUEST")
+        print(f"ERROR={code}")
         return 2
     print(f"KNOW_PLACE_AOI_STATUS={result['status']}")
     print(f"STRUCTURAL_STATUS={result['structural_status']}")
