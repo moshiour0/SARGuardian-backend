@@ -38,6 +38,9 @@ class AOIRequest:
     analysis_mode: str
     source_adapters: tuple[str, ...]
     polarization: str
+    track: str | None
+    direction: str | None
+    preferred_granules: tuple[str, ...]
     reference_wkt: str | None
     min_snr: float
     max_horizontal_magnitude_m: float
@@ -60,6 +63,7 @@ class AOIRequest:
             "analysis_mode": self.analysis_mode,
             "source_adapters": list(self.source_adapters),
             "polarization": self.polarization,
+            "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules)},
             "reference": {
                 "policy": "external_reference_polygon_component_median"
                 if self.reference_wkt else "no_background_correction",
@@ -145,6 +149,24 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
     polarization = str(payload.get("polarization", "HH")).upper()
     if polarization not in {"HH", "HV", "VV", "VH"}:
         raise AOIRequestError("POLARIZATION_UNSUPPORTED")
+    selection = payload.get("product_selection", {})
+    if not isinstance(selection, dict):
+        raise AOIRequestError("PRODUCT_SELECTION_MUST_BE_OBJECT")
+    raw_track = selection.get("track")
+    track = None if raw_track in (None, "") else str(raw_track).zfill(3)
+    if track is not None and (len(track) != 3 or not track.isdigit()):
+        raise AOIRequestError("TRACK_MUST_BE_THREE_DIGITS")
+    raw_direction = selection.get("direction")
+    direction = None if raw_direction in (None, "") else str(raw_direction).upper()
+    direction_aliases = {"A": "A", "ASC": "A", "ASCENDING": "A", "D": "D", "DESC": "D", "DESCENDING": "D"}
+    if direction is not None:
+        if direction not in direction_aliases:
+            raise AOIRequestError("DIRECTION_MUST_BE_ASCENDING_OR_DESCENDING")
+        direction = direction_aliases[direction]
+    raw_preferred = selection.get("preferred_granules", [])
+    if not isinstance(raw_preferred, list) or any(not isinstance(item, str) or not item.strip() for item in raw_preferred):
+        raise AOIRequestError("PREFERRED_GRANULES_MUST_BE_STRING_ARRAY")
+    preferred_granules = tuple(sorted(set(item.strip() for item in raw_preferred)))
 
     reference = payload.get("reference")
     reference_wkt = None
@@ -189,6 +211,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "analysis_mode": analysis_mode,
         "source_adapters": list(normalized_adapters),
         "polarization": polarization,
+        "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules)},
         "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction"},
         "quality_policy": {"minimum_snr": min_snr, "maximum_horizontal_magnitude_m": max_magnitude},
         "coherence_policy": {"window_size": window, "minimum_valid_neighbours": neighbours},
@@ -206,6 +229,9 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         analysis_mode=analysis_mode,
         source_adapters=normalized_adapters,
         polarization=polarization,
+        track=track,
+        direction=direction,
+        preferred_granules=preferred_granules,
         reference_wkt=reference_wkt,
         min_snr=min_snr,
         max_horizontal_magnitude_m=max_magnitude,
