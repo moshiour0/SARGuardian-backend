@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+
+import pytest
+
 from tools.know_place.dashboard import build_dashboard_html, write_dashboard
 
 
@@ -74,3 +80,35 @@ def test_dashboard_escapes_user_html_and_script_terminator():
     rendered = build_dashboard_html(report)
     assert "</script><script>alert(1)" not in rendered
     assert "&lt;/script&gt;&lt;script&gt;alert(1)" in rendered
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_rendered_dashboard_javascript_passes_node_syntax_check(tmp_path):
+    rendered = build_dashboard_html({
+        "request": {
+            "aoi": {"wkt": "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28))"},
+            "date_range": {"start": "2026-06-20", "end": "2026-08-31"},
+        },
+        "pairs": [{
+            "reference_date": "2026-07-26",
+            "secondary_date": "2026-08-19",
+            "chain_id": "098-A-HH-PROVISIONAL-P05023",
+            "relation_to_previous": "CONTIGUOUS",
+            "grid_lattice_compatible_with_previous": True,
+            "map_preview": {
+                "values": [[0.1, 0.2], [0.3, 0.4]],
+                "east_values_m": [[1.0, 0.0], [0.0, -1.0]],
+                "north_values_m": [[0.0, 1.0], [-1.0, 0.0]],
+                "aoi_ring_xy": [[0,0],[1,0],[1,1],[0,1],[0,0]],
+            },
+        }],
+    })
+    match = re.search(r"<script>\s*(.*?)\s*</script>", rendered, flags=re.DOTALL)
+    assert match, "dashboard must contain its self-contained JavaScript"
+    script_path = tmp_path / "dashboard.js"
+    script_path.write_text(match.group(1), encoding="utf-8")
+    checked = subprocess.run(
+        [shutil.which("node"), "--check", str(script_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
