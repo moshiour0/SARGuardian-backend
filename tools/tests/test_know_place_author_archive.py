@@ -62,18 +62,33 @@ def test_archive_granule_ids_and_published_series_match_benchmark_fixture() -> N
         assert all(abs(float(a) - float(b)) <= 1e-9 for a, b in zip(source_values, expected))
 
 
-def test_user_supplied_101_zone_csv_is_byte_identical_to_archive_inventory_record() -> None:
+def test_repository_inventory_round_trips_to_source_hash_after_git_newline_normalization() -> None:
     fixture = _read_json(FIXTURE_PATH)
-    digest = hashlib.sha256(ZONES_PATH.read_bytes()).hexdigest()
     expected = fixture["archive_inventory"]["table_s7_inventory"]
+    repository_bytes = ZONES_PATH.read_bytes()
+
+    # The author/uploaded CSV uses CRLF; Git's text checkout uses LF and this
+    # checked-in copy has no terminal newline. Normalize line endings and restore
+    # the final record delimiter before verifying the original source-byte hash.
+    normalized_lf = repository_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    if not normalized_lf.endswith(b"\n"):
+        normalized_lf += b"\n"
+    source_style = normalized_lf.replace(b"\n", b"\r\n")
+    assert len(source_style) == expected["bytes"] == 9085
+    assert hashlib.sha256(source_style).hexdigest() == expected["sha256"]
     assert expected["rows"] == 101
     assert expected["columns"] == 15
-    assert digest == expected["sha256"]
+
     with ZONES_PATH.open("r", encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 101
     assert sum(row["glacier"] == "True" for row in rows) == 93
     assert sum(row["glacier"] == "False" for row in rows) == 8
+    source = next(row for row in rows if row["zone_id"] == "43")
+    assert source["lon"] == "85.5294"
+    assert source["lat"] == "28.29161"
+    assert source["res_mag_m"] == "4.38"
+    assert source["RGIId"] == "RGI60-15.04173"
 
 
 def test_author_method_parity_blockers_and_nonhazard_status_are_explicit() -> None:
