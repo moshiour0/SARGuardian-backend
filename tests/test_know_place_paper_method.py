@@ -72,7 +72,7 @@ def test_componentwise_background_correction_removes_known_bias():
 def test_background_correction_fails_if_reference_has_no_valid_pixels():
     box = np.ones((2, 2), bool)
     crown = box.copy()
-    with pytest.raises(ScientificInputError, match="contained"):
+    with pytest.raises(ScientificInputError, match="NO_VALID_BACKGROUND_PIXELS"):
         componentwise_background_correction(
             np.ones((2, 2)), np.ones((2, 2)), box, box, crown
         )
