@@ -12,7 +12,7 @@
 - [x] Record current GOFF-015 outputs and make clear they are not paper-equivalent crown magnitude.
 - [x] Record zero complete GUNW series pixels and the custom-AOI candidate-check skip.
 - [x] Record that raw HDF5 was removed after derived-only retention; reprocessing needs verified re-download.
-- [ ] Save baseline manifest/report/diagnostics under `docs/know-place/evidence/` with hashes or durable artifact references.
+- [x] Save the baseline run URL, artifact IDs, downloaded-archive SHA-256 values and findings under `docs/know-place/evidence/BASELINE_RUN_39942529304.md`.
 
 ## Milestone 1 — Lock method and provenance contract
 
@@ -21,28 +21,28 @@
 - [ ] Locate and verify author supplementary scripts/rasters/statistics; preserve original licence and checksums.
 - [ ] Pin exact five raw HDF5 product IDs and releases from the paper supplement; do not infer from date alone.
 - [ ] Confirm GOFF HDF5 paths, units, sign convention, metadata-grid coordinates and unit-vector sampling against the exact five files and product specification.
-- [ ] Define strict JSON schema and separate structural / method-reproduction / interpretation statuses.
-- [ ] Define masks explicitly: background box, crown, box-minus-crown, and optional core. Persist exact WKT/geometry checksum.
+- [x] Define a versioned input/output JSON schema and separate structural / method-reproduction / interpretation statuses.
+- [x] Define separate WKT masks for the reference box, crown and box-minus-crown; persist crown-WKT SHA-256 and geometry provenance. (An author-exact crown polygon is still outstanding.)
 - [ ] Define deterministic spatial-null sample count, PRNG/seed, draw rejection policy and quantile convention; compare these with author scripts before claiming parity.
 
 ## Milestone 2 — Implement pure scientific kernels (no downloads in unit tests)
 
-- [ ] Test horizontal dE/dN projection against hand-computed vectors including sign checks.
-- [ ] Test quality gate order: finite/required quality → SNR ≥ 5 → projection → reject horizontal magnitude > 10 m; verify a blunder is removed, never clipped.
-- [ ] Test component-wise background median correction on synthetic arrays with known bias.
-- [ ] Test crown median magnitude, mean vector magnitude/azimuth, and day-normalized descriptive rate separately.
+- [x] Unit-test horizontal dE/dN projection against hand-computed vectors including sign checks.
+- [x] Unit-test quality gate order, SNR ≥ 5, magnitude ≤ 10 m, reject-not-clip behavior, and per-gate rejection counts.
+- [x] Unit-test component-wise background median correction on synthetic arrays with known bias.
+- [x] Unit-test crown median magnitude, mean-vector magnitude/azimuth, and day-normalized descriptive rate as distinct statistics.
 - [ ] Test 5×5 mean resultant length using known uniform and aligned vectors, edge windows and nodata.
-- [ ] Test deterministic size-matched spatial sampling and empirical percentile on fixed synthetic arrays.
-- [ ] Test the algorithm does not treat missing values as zero and fails on zero/no-valid-pixel inputs.
-- [ ] Test single-product/track/polarization mismatch and malformed metadata fail closed.
+- [x] Unit-test deterministic size-matched control sampling, accepted/rejected draw accounting and empirical percentile.
+- [x] Unit-test missing/finite/nodata behavior and explicit failure when background/crown support is empty; test HDF5 attribute and creation-property fill handling without mistaking a default zero for nodata.
+- [x] Unit-test missing or duplicate products, wrong track/direction, invalid geometry, unit/CRS mismatches and ambiguous metadata fail closed.
 
 ## Milestone 3 — Strict raw GOFF HDF5 reader
 
 - [ ] Find exact layer2 AT, SR, SNR, coordinate vectors, CRS/projection, valid mask and radar geometry datasets.
-- [ ] Interpolate/sampling geometry metadata to the crown grid cell using documented HDF5 geolocation-grid axes, with bounds/unit checks.
-- [ ] Refuse ambiguous dataset paths, missing fields, non-finite geometry, unit mismatch, or unverified sign convention.
+- [x] Implement geometry metadata interpolation with explicit cube selection, axis/unit/CRS checks and no extrapolation; synthetic schema tests pass. Actual five-product metadata verification remains pending.
+- [x] Refuse ambiguous geometry groups, missing fields, non-finite geometry, unit mismatches and out-of-domain interpolation. Confirm actual product sign convention from the five raw files before scientific use.
 - [ ] Validate all five products are compatible on the same native grid; do not silently resample.
-- [ ] Compute and record source SHA-256, granule name, maturity, CRID, exact pair dates, track direction/number, polarization and layer.
+- [x] Implement source SHA-256 and record granule name, catalog maturity evidence, CRID, exact pair dates, track, direction, polarization and layer in the report.
 
 ## Milestone 4 — Paper-method analysis
 
@@ -66,14 +66,17 @@
 
 ## Milestone 6 — Operational isolation and review
 
-- [ ] Add a separate manual workflow on this feature branch only after code/tests are ready; no edits to the current main workflow.
+- [x] Add an isolated expensive replay workflow gated by the explicit `[run-know-place]` commit marker; it exists only on this feature branch.
 - [ ] Verify output artifacts include compact CSV/JSON, geometry and source hashes, per-pair maps, quality-gate accounting and caveats.
-- [ ] Run automated tests and workflow syntax checks from the feature branch.
-- [ ] Inspect the commit list to ensure no main-branch changes or unrelated feature scope.
+- [x] Run automated tests, YAML parsing and `actionlint` from the feature branch: 43 tests passed; both workflows parsed and actionlint passed in [run 40004184248](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40004184248).
+- [x] Keep every Know Place Analysis commit on `feat/know-place-analysis`; no `main` changes or merge were made.
 - [ ] Do not merge to `main`. Any later integration requires explicit review and approval.
 
-## Current gate status
+## Current gate status (updated 2026-10-24)
 
-- **Milestone 0:** evidence review complete, local evidence bundle persistence pending.
-- **Milestone 1:** blueprint/checklist committed; raw field schema, supplementary scripts and exact metadata confirmation pending.
-- **Milestones 2–6:** not yet complete. No scientific reproduction claim is authorized.
+- **Milestone 0:** baseline review and artifact-hash note saved. The downloaded manifest/dashboard ZIP SHA-256 values identify the exact review bundles, not the original HDF5 input bytes.
+- **Milestone 1:** blueprint and input/output provenance contract implemented; live ASF identity gate currently passes for five exact candidate granules without downloading raw products. The Research Square/EGUsphere paper's author-supplement raster/script package and exact crown WKT have not yet been independently recovered. The selected CRID variants therefore remain `NOT_VERIFIED_AGAINST_AUTHOR_SUPPLEMENT`.
+- **Milestone 2:** isolated pure-kernel and synthetic HDF5/geometry tests pass: **43 passed**.
+- **Milestone 3:** strict raw reader and metadata interpolation are implemented and synthetic-tested; exact source HDF5 inspection, signs, grids and product geometry remain pending until the protected five-product replay.
+- **Milestones 4–5:** code path is implemented, but raw five-pair metrics have not yet been run. Author-golden parity is explicitly blocked until exact crown geometry and author outputs/variants are verified. No scientific reproduction or hazard-detection claim is authorized.
+- **Milestone 6:** isolated CI passes. The raw replay is launched only by an explicit commit marker; Drive secrets and Earthdata credentials must pass preflight, raw bytes/SHA must match the recorded historical files, derived outputs must be durably verified before local raw cleanup. `main` remains unchanged.
