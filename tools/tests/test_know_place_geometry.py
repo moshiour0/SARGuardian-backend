@@ -48,8 +48,8 @@ def test_build_roi_crops_to_reference_box_and_rasterizes_crown():
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
     ring = parse_polygon_wkt(BOX_WKT)
     px, py = transformer.transform([p[0] for p in ring], [p[1] for p in ring])
-    xs = np.arange(np.floor(min(px) / 80) * 80, np.ceil(max(px) / 80) * 80 + 1, 80.0)
-    ys = np.arange(np.floor(min(py) / 80) * 80, np.ceil(max(py) / 80) * 80 + 1, 80.0)
+    xs = np.arange(np.floor((min(px) - 500.0) / 80) * 80, np.ceil((max(px) + 500.0) / 80) * 80 + 1, 80.0)
+    ys = np.arange(np.floor((min(py) - 500.0) / 80) * 80, np.ceil((max(py) + 500.0) / 80) * 80 + 1, 80.0)
     roi = build_analysis_roi(xs, ys, 32645, box_wkt=BOX_WKT, crown_wkt=CROWN_WKT)
     assert roi.box_mask.any()
     assert roi.crown_mask.any()
@@ -57,14 +57,19 @@ def test_build_roi_crops_to_reference_box_and_rasterizes_crown():
     assert roi.box_mask.shape == (len(roi.y_coordinates_m), len(roi.x_coordinates_m))
     assert roi.crown_mask.sum() < roi.box_mask.sum()
     assert len(roi.crown_ring_projected) == 5
+    # The processing window contains the full two-cell halo required by 5x5 R.
+    assert not roi.box_mask[0, :].any()
+    assert not roi.box_mask[-1, :].any()
+    assert not roi.box_mask[:, 0].any()
+    assert not roi.box_mask[:, -1].any()
 
 
 def test_build_roi_rejects_crown_outside_reference_box():
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
     ring = parse_polygon_wkt(BOX_WKT)
     px, py = transformer.transform([p[0] for p in ring], [p[1] for p in ring])
-    xs = np.arange(np.floor(min(px) / 80) * 80, np.ceil(max(px) / 80) * 80 + 1, 80.0)
-    ys = np.arange(np.floor(min(py) / 80) * 80, np.ceil(max(py) / 80) * 80 + 1, 80.0)
+    xs = np.arange(np.floor((min(px) - 500.0) / 80) * 80, np.ceil((max(px) + 500.0) / 80) * 80 + 1, 80.0)
+    ys = np.arange(np.floor((min(py) - 500.0) / 80) * 80, np.ceil((max(py) + 500.0) / 80) * 80 + 1, 80.0)
     outside = (
         "POLYGON ((85.560 28.290, 85.570 28.290, 85.570 28.300, "
         "85.560 28.300, 85.560 28.290))"
