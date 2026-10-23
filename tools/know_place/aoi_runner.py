@@ -658,6 +658,8 @@ def run_aoi_analysis(
                 pairs.append({
                     "reference_date": planned["reference_date"],
                     "secondary_date": planned["secondary_date"],
+                    "chain_id": planned.get("chain_id", "UNASSIGNED"),
+                    "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                     "granule_name": raw.identity.granule_name,
                     "release_id": raw.identity.release_id,
                     "catalog_maturity": record["maturity"],
@@ -680,6 +682,8 @@ def run_aoi_analysis(
                     pairs.append({
                         "reference_date": planned["reference_date"],
                         "secondary_date": planned["secondary_date"],
+                        "chain_id": planned.get("chain_id", "UNASSIGNED"),
+                        "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                         "granule_name": raw.identity.granule_name,
                         "release_id": raw.identity.release_id,
                         "catalog_maturity": record["maturity"],
@@ -718,6 +722,8 @@ def run_aoi_analysis(
             base = {
                 "reference_date": planned["reference_date"],
                 "secondary_date": planned["secondary_date"],
+                "chain_id": planned.get("chain_id", "UNASSIGNED"),
+                "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                 "granule_name": raw.identity.granule_name,
                 "release_id": raw.identity.release_id,
                 "catalog_maturity": record["maturity"],
@@ -814,7 +820,7 @@ def run_aoi_analysis(
                 "statistics": summary,
                 "spatial_block_bootstrap_uncertainty": uncertainty,
                 "exploratory_control_comparison": controls,
-                "geotiff_file": "../" + geotiff_relative,
+                "geotiff_file": geotiff_relative,
                 "diagnostic_arrays_file": npz_relative,
                 "map_preview": _preview(
                     magnitude, roi.x_coordinates_m, roi.y_coordinates_m,
