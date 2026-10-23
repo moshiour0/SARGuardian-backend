@@ -19,3 +19,9 @@ The original user-uploaded CSV SHA-256 is `b800d90bd6e7322ef2f8548370de0fb922ef0
 - Supplementary Table 1 specifies `P05023` for all five GOFF granules. The earlier historical raw replay used `X05026` for 20 June-2 July. That previous replay remains historical/checksum-verified, but it is not an exact reproduction of the author's five-input series.
 - The article reports that no pre-event pair reaches the 95th percentile on displacement or directional coherence and that no acceleration is resolved. Do not reinterpret the 101-zone screen as an operational hazard detector.
 - Preserve the published distinction between the site-series crown-local geometry and per-pixel GLO-90 geometry in the footprint-wide screen. Exact geometry sampling/datum and pixelwise parity still require the author's code/golden archive.
+
+## Manuscript-version and catalog caveat
+
+The existing `docs/KNOW_PLACE_ANALYSIS_BLUEPRINT.md` cites a differently titled EGUsphere preprint (DOI `10.5194/egusphere-2026-5462`). It has not been established here whether that source is the same revision as the user-supplied Research Square article. The benchmark values in this folder are transcribed only from the supplied Research Square PDF and its Supplementary Information; source IDs or measurements must not be silently merged across those records.
+
+A live ASF query in [validation run 40035193088](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40035193088) confirmed four of the five P05023 author IDs by trusted collection URL. The exact 20 June–2 July P05023 ID was not found, while the historical lookup reports X05026 for that interval. The check downloaded zero raw granules. A `NOT_FOUND` catalog result is not proof that the author's archive lacks the file; exact-input reproduction remains blocked.
