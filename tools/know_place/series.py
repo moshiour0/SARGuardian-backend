@@ -39,6 +39,12 @@ class PairCandidate:
     def geometry_key(self) -> tuple[str, str, str]:
         return self.track, self.direction, self.polarization
 
+    @property
+    def processing_chain_key(self) -> tuple[str, str, str, str, str]:
+        # CRID/release identity is part of temporal comparability. Do not connect
+        # measurements across processing releases or maturity classes.
+        return self.track, self.direction, self.polarization, self.maturity, self.release_id
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "granule_name": self.granule_name,
@@ -167,42 +173,44 @@ def build_pairwise_series_plan(
     if not candidates:
         raise SeriesPlanError("NO_GOFF_PRODUCTS_FULLY_WITHIN_REQUEST_DATE_RANGE")
 
-    # Keep each track/direction/polarization chain separate. A generic AOI
-    # commonly intersects multiple acquisitions; failing the whole request due
-    # to multiple chains is unnecessary, but pooling those chains is forbidden.
-    geometry_groups: dict[tuple[str, str, str], list[PairCandidate]] = {}
+    # Detect same-pair release ambiguity before dividing products into chains.
+    # A user may resolve this only by pinning exact granule names in the request.
+    variants: dict[tuple[tuple[str, str, str], tuple[datetime, datetime]], list[PairCandidate]] = {}
     for candidate in candidates:
-        geometry_groups.setdefault(candidate.geometry_key, []).append(candidate)
+        variants.setdefault((candidate.geometry_key, candidate.pair_key), []).append(candidate)
+    ambiguous = {
+        (geometry, pair): sorted(item.granule_name for item in group)
+        for (geometry, pair), group in variants.items() if len(group) > 1
+    }
+    if ambiguous:
+        raise SeriesPlanError(
+            "AMBIGUOUS_PRODUCT_RELEASE_VARIANTS:"
+            + str({
+                f"{geometry[0]}-{geometry[1]}-{geometry[2]}:"
+                f"{pair[0].isoformat()}__{pair[1].isoformat()}": names
+                for (geometry, pair), names in ambiguous.items()
+            })
+        )
+
+    # Same sensor geometry is not enough to make products temporally comparable.
+    # Keep distinct CRIDs/releases and maturity classes as separate chains.
+    chain_groups: dict[tuple[str, str, str, str, str], list[PairCandidate]] = {}
+    for candidate in candidates:
+        chain_groups.setdefault(candidate.processing_chain_key, []).append(candidate)
 
     chains: list[dict[str, Any]] = []
     flattened_pairs: list[dict[str, Any]] = []
-    for geometry_key, geometry_candidates in sorted(geometry_groups.items()):
-        variants: dict[tuple[datetime, datetime], list[PairCandidate]] = {}
-        for candidate in geometry_candidates:
-            variants.setdefault(candidate.pair_key, []).append(candidate)
-        ambiguous = {
-            pair: sorted(item.granule_name for item in group)
-            for pair, group in variants.items() if len(group) > 1
-        }
-        if ambiguous:
-            raise SeriesPlanError(
-                "AMBIGUOUS_PRODUCT_RELEASE_VARIANTS:"
-                + str({
-                    "geometry": geometry_key,
-                    "pairs": {
-                        f"{pair[0].isoformat()}__{pair[1].isoformat()}": names
-                        for pair, names in ambiguous.items()
-                    },
-                })
-            )
-
+    for chain_key, chain_candidates in sorted(chain_groups.items()):
         ordered = sorted(
-            geometry_candidates,
+            chain_candidates,
             key=lambda candidate: (
                 candidate.reference_start, candidate.secondary_start, candidate.granule_name
             ),
         )
-        chain_id = f"{geometry_key[0]}-{geometry_key[1]}-{geometry_key[2]}"
+        chain_id = (
+            f"{chain_key[0]}-{chain_key[1]}-{chain_key[2]}-"
+            f"{chain_key[3]}-{chain_key[4]}"
+        )
         chain_rows: list[dict[str, Any]] = []
         previous: PairCandidate | None = None
         continuous = True
@@ -232,9 +240,13 @@ def build_pairwise_series_plan(
         chain_record = {
             "chain_id": chain_id,
             "geometry_key": {
-                "track": geometry_key[0],
-                "direction": geometry_key[1],
-                "polarization": geometry_key[2],
+                "track": chain_key[0],
+                "direction": chain_key[1],
+                "polarization": chain_key[2],
+            },
+            "processing_identity": {
+                "maturity": chain_key[3],
+                "release_id": chain_key[4],
             },
             "pair_count": len(chain_rows),
             "pairs": chain_rows,
@@ -262,7 +274,10 @@ def build_pairwise_series_plan(
         "date_range_inclusive": {"start": start_date.isoformat(), "end": end_date.isoformat()},
         "chain_count": len(chains),
         "chains": chains,
-        "geometry_key": chains[0]["geometry_key"] if one_chain else None,
+        "geometry_key": (
+            {**chains[0]["geometry_key"], **chains[0]["processing_identity"]}
+            if one_chain else None
+        ),
         "pair_count": len(flattened_pairs),
         "pairs": flattened_pairs,
         "pairwise_metrics_are_not_cumulative": True,
@@ -275,6 +290,7 @@ def build_pairwise_series_plan(
         "selection_policy": {
             "release_substitution": "forbidden",
             "geometry_mixing": "forbidden; each chain is calculated separately",
+            "processing_maturity_or_release_mixing": "forbidden; separate chains are emitted for each exact maturity/release identity",
             "date_policy": "both pair acquisitions must lie inside inclusive user date range",
             "pairwise_metric_policy": "report each product interval independently; do not sum overlapping/gapped pair estimates",
         },
