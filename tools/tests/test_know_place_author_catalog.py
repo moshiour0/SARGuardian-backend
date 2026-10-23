@@ -53,3 +53,33 @@ def test_author_identity_gate_rejects_conflicting_maturity() -> None:
     target = load_author_granules()[0]
     with pytest.raises(CatalogIdentityError, match="ASF_AUTHOR_MATURITY_CONFLICT"):
         validate_author_catalog_product(target, [_fake_product(target, maturity="OPERATIONAL")])
+
+def test_discovery_records_missing_author_pair_and_continues_all_queries(monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    from tools.know_place.author_catalog import discover_author_products
+
+    targets = load_author_granules()
+    missing = targets[0]["granule_name"]
+    calls: list[str] = []
+
+    def fake_search(*, dataset: str, granule_list: list[str]):
+        assert dataset == "NISAR"
+        assert len(granule_list) == 1
+        name = granule_list[0]
+        calls.append(name)
+        if name == missing:
+            return []
+        target = next(row for row in targets if row["granule_name"] == name)
+        return [_fake_product(target)]
+
+    monkeypatch.setitem(sys.modules, "asf_search", SimpleNamespace(search=fake_search))
+    rows = discover_author_products()
+
+    assert len(calls) == 5
+    assert calls == [row["granule_name"] for row in targets]
+    assert len(rows) == 5
+    assert rows[0]["catalog_identity_status"] == "NOT_FOUND"
+    assert rows[0]["source_sha256"] is None
+    assert all(row["catalog_identity_status"] == "EXACT_URL_CONFIRMED" for row in rows[1:])
