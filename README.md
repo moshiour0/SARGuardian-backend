@@ -79,14 +79,20 @@ The two-granule pilot and the 33-product source-baseline replay have now passed.
 
 
 
-## Dynamic AOI WKT processing (isolated feature branch)
+## Final integration branch: dynamic AOI + reproducible science
 
-The new WKT-driven NISAR acquisition and dashboard flow is documented in
-[docs/DYNAMIC_AOI_WKT_E2E.md](docs/DYNAMIC_AOI_WKT_E2E.md). It lives on
-`feat/final-aoi-science-integration` and uses the scientific AOI parser in
-`science/aoi-wkt-dynamic-e2e`. The original
-`feat/e2e-pinned-science-pipeline` workflow remains separate and unchanged.
+The integration branch is **feat/final-aoi-science-integration**. It is based on
+**feat/e2e-aoi-wkt-date-dashboard**, which already contains the pinned source-AOI
+streaming work and the dynamic WKT/date workflow. The combined behavior,
+separate science pins, candidate-check limitations, and merge acceptance gates
+are documented in [docs/FINAL_INTEGRATION_BRANCH.md](docs/FINAL_INTEGRATION_BRANCH.md)
+and [docs/DYNAMIC_AOI_WKT_E2E.md](docs/DYNAMIC_AOI_WKT_E2E.md).
 
-The default-branch entry point
-`.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` only forwards inputs to
-the isolated workflow; it does not replace or call the original source-AOI run.
+Both the full source-AOI baseline and dynamic-WKT aggregation now invoke
+tools/run_export_science_diagnostics.py to run pixel_stack.py on retained
+GUNW exports. Candidate screening is integrated for the named source AOI only;
+for arbitrary WKT, the current scientific script's named-polygon assumptions
+are explicitly reported as a skip rather than applied incorrectly. A workflow
+PASS is structural/reproducibility evidence, not proof of a landslide alert.
+The default-branch WKT dispatcher is still only an input-forwarding entry point;
+it does not replace the original source-AOI workflow.
