@@ -46,6 +46,7 @@ The official paper page currently states that no pre-event interval exceeds the 
 - Exact author crown/source polygon, coordinate order/CRS, and geometry-file checksum.
 - The five author-derived GeoTIFF checksums and the statistic tables used as golden references.
 - Author implementation of spatial-control sampling and 5×5 R centre/edge/valid-neighbour policies.
+- Provenance and effect of the current fixed `geometry_height_m=5151.0 m` HAE query applied to every ROI pixel. The radar-geometry cubes are elevation-dependent; the author code/golden rasters must establish whether this constant-height sampling is equivalent or quantify its effect. This is an unresolved assumption, not a proven defect; do not tune the height to force scalar agreement.
 - Pixelwise parity and all-five-interval statistic parity.
 
 Current candidate GOFF HDF5 source files have already been downloaded, historical byte sizes/SHA-256 matched, and processed in Raw Replay Run 40006999011. Do not repeat that expensive download merely to search for the supplement. Use the existing derived arrays for any analysis that does not require a source input absent from them.
