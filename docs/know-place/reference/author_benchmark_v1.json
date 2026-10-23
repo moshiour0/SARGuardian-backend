@@ -26,7 +26,20 @@
       }
     ],
     "local_reference_inventory": "docs/know-place/reference/author_validated_zones_supplementary_data_1.csv",
-    "archive_status": "DOI identified in the paper; archive payload/checksum not yet verified in this run"
+    "archive_status": "DOI identified in the paper; archive payload/checksum not yet verified in this run",
+    "manuscript_version_note": "The existing Know Place blueprint cites a differently titled EGUsphere preprint (DOI 10.5194/egusphere-2026-5462). The relationship between the EGUsphere and supplied Research Square records has not been formally verified. All IDs and scalar values in this manifest are transcribed only from the user-supplied Research Square PDF and its supplement; do not silently merge records.",
+    "live_author_catalog_check": {
+      "validation_run_id": 40035193088,
+      "validation_run_url": "https://github.com/moshiour0/SARGuardian-backend/actions/runs/40035193088",
+      "queries_completed": 5,
+      "trusted_collection_route_confirmed": 4,
+      "not_found": [
+        "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001"
+      ],
+      "result": "BLOCKED",
+      "raw_product_downloads": 0,
+      "caution": "A live catalog NOT_FOUND result is not proof the author's archived file does not exist. The separate historical catalog gate reports X05026 for the first pair; do not substitute it silently."
+    }
   },
   "spatial_definition": {
     "crs": "EPSG:4326",
@@ -314,7 +327,7 @@
     "paper_conclusion": "Pre-failure motion is measurable, but the source is not distinctive against the calibrated population; no pre-event interval clears the 95th percentile for displacement or directional coherence, and no acceleration is resolved.",
     "paper_reproduction_status": "BLOCKED_AUTHOR_CODE_GOLDEN_RASTERS_AND_EXACT_FIRST_GRANULE_VARIANT_UNVERIFIED",
     "hazard_detection_status": "NOT_EVALUATED",
-    "source_variant_mismatch": "The existing historical raw replay used X05026 for 20 Jun-2 Jul; Supplementary Table 1 specifies P05023. The old result is historically checksum-verified but is not an exact five-granule author reproduction.",
+    "source_variant_mismatch": "Supplementary Table 1 lists P05023 for the first pair, but the historical raw replay used X05026. Live ASF identity lookup confirmed four author IDs and returned NOT_FOUND for the exact first P05023 ID; preserve historical X05026 only as historical evidence. Raw-data hashes for the exact first P05023 file are unavailable.",
     "next_gate": "Download/hash the Zenodo archive at the DOI above, verify all author code/data files, validate exact P05023 first-pair identity in ASF, then perform pixelwise and all-five-pair golden comparison."
   }
 }
