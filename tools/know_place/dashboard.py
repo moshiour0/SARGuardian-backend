@@ -41,6 +41,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
     width, height, left, right, top, bottom = 860, 300, 76, 28, 24, 58
     plot_w, plot_h = width - left - right, height - top - bottom
     points = []
+    point_by_pair_index: dict[int, tuple[float, float]] = {}
     n = max(1, len(pairs))
     for i, pair in enumerate(pairs):
         stats = pair.get("statistics", {})
@@ -51,7 +52,22 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
         y = top + plot_h * (1 - (float(val) - ymin) / (ymax - ymin or 1))
         label = f"{pair.get('reference_date', '?')} → {pair.get('secondary_date', '?')}: {_number(val)} m"
         points.append((x, y, label, i))
-    polyline = " ".join(f"{x:.2f},{y:.2f}" for x, y, _, _ in points)
+        point_by_pair_index[i] = (x, y)
+    line_segments = []
+    for i in range(1, len(pairs)):
+        prev_pair, pair = pairs[i - 1], pairs[i]
+        same_chain = (
+            prev_pair.get("chain_id") is not None
+            and prev_pair.get("chain_id") == pair.get("chain_id")
+        )
+        contiguous = pair.get("relation_to_previous") == "CONTIGUOUS"
+        if not (same_chain and contiguous and i - 1 in point_by_pair_index and i in point_by_pair_index):
+            continue
+        x1, y1 = point_by_pair_index[i - 1]
+        x2, y2 = point_by_pair_index[i]
+        line_segments.append(
+            f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" class="trend-segment"/>'
+        )
     circles = "".join(
         f'<circle cx="{x:.2f}" cy="{y:.2f}" r="5"><title>{html.escape(label)}</title></circle>'
         for x, y, label, _ in points
@@ -68,7 +84,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
     )
     trend_svg = (
         f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="AOI median displacement per product pair">'
-        f'{y_ticks}<polyline points="{polyline}" class="trend"/>{circles}{x_labels}'
+        f'{y_ticks}{"".join(line_segments)}{circles}{x_labels}'
         f'<text x="18" y="{height/2:.0f}" transform="rotate(-90 18 {height/2:.0f})" text-anchor="middle">Median magnitude (m)</text>'
         f'<text x="{width/2}" y="{height-8}" text-anchor="middle">Pair end date (UTC)</text></svg>'
     )
@@ -111,6 +127,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             "<tr>"
             f"<td>{html.escape(str(pair.get('reference_date','')))} → {html.escape(str(pair.get('secondary_date','')))}</td>"
             f"<td>{html.escape(str(pair.get('release_id','')))}</td>"
+            f"<td>{html.escape(str(pair.get('chain_id','not assigned')))}</td>"
             f"<td>{html.escape(str(pair.get('valid_aoi_pixels','—')))}</td>"
             f"<td>{_number(stats.get('crown_median_horizontal_magnitude_m'))} m</td>"
             f"<td>{html.escape(magnitude_ci_label)}</td>"
@@ -146,7 +163,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
 main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(26px,4vw,38px);line-height:1.1;margin:0 0 8px}}h2{{font-size:21px;margin:0 0 14px}}h3{{font-size:16px;margin:0 0 4px}}p{{margin:6px 0;color:var(--muted)}}a{{color:var(--accent)}}.eyebrow{{text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-size:12px;font-weight:700}}
 .hero{{display:flex;gap:20px;justify-content:space-between;align-items:end;flex-wrap:wrap;margin-bottom:22px}}.subhead{{max-width:780px}}.chips{{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}}.chip{{border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted)}}.chip strong{{color:var(--text);font-weight:650}}
 .grid4{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}}.metric,.panel,.map-card{{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}}.metric span{{display:block;color:var(--muted);font-size:12px}}.metric strong{{display:block;font-size:14px;overflow-wrap:anywhere;margin-top:6px}}
-.two-col{{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);gap:14px;margin:16px 0}}.chart svg{{width:100%;height:auto;overflow:visible}}.chart text{{fill:var(--muted);font-size:12px}}.grid{{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4}}.trend{{fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}}circle{{fill:var(--accent);stroke:var(--panel);stroke-width:2}}
+.two-col{{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);gap:14px;margin:16px 0}}.chart svg{{width:100%;height:auto;overflow:visible}}.chart text{{fill:var(--muted);font-size:12px}}.grid{{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4}}.trend{{fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;stroke-linecap:round}}.trend-segment{{stroke:var(--accent);stroke-width:3;stroke-linecap:round}}circle{{fill:var(--accent);stroke:var(--panel);stroke-width:2}}
 .code{{font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;white-space:pre-wrap;color:#cbd5e1}}.alert{{border-left:3px solid var(--warn);padding:10px 16px;margin:18px 0;background:#2a2417;border-radius:0 10px 10px 0}}.alert p{{color:#f5dfae}}
 .table-wrap{{overflow:auto}}table{{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}}th,td{{border-bottom:1px solid var(--line);padding:10px;text-align:left;white-space:nowrap}}th{{color:var(--muted);font-weight:650}}
 .map-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}}.map-card canvas{{width:100%;height:auto;display:block;background:#0b1220;border:1px solid var(--line);border-radius:9px;margin-top:12px}}.map-heading{{display:flex;justify-content:space-between;gap:10px}}.map-heading p{{font-size:11px;overflow-wrap:anywhere}}.status{{color:var(--muted);font-size:11px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;height:max-content;white-space:nowrap}}
@@ -168,7 +185,7 @@ main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(2
 <div class="panel chart"><h2>AOI displacement by product interval</h2><p>Each point is a pairwise median magnitude. Intervals are not summed into cumulative movement unless an independently reviewed continuous-chain policy permits it.</p>{trend_svg}</div>
 <div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Output checksums</p><div class="code">{html.escape(str(report.get('output_checksums_sha256','not recorded')))}</div></div>
 </section>
-<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Valid AOI pixels</th><th>Median magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th><th>Spatial-block 95% interval</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
+<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Orbit chain</th><th>Valid AOI pixels</th><th>Median magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th><th>Spatial-block 95% interval</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
 <section style="margin-top:18px"><h2>Spatial displacement previews</h2><p>Native projected grids downsampled for quick inspection. Use the linked GeoTIFF for full-resolution GIS analysis; the preview is not a substitute for pixel-level data.</p><div class="map-grid">{''.join(map_cards)}</div></section>
 <section class="panel" style="margin-top:18px"><h2>Normalized request</h2><div class="code">{html.escape(json.dumps(request, ensure_ascii=False, indent=2))}</div></section>
 <footer class="footer">Generated by SARGuardian Know Place Analysis. A successful processing run means calculations and provenance checks completed; it does not prove a hazard detection, prediction, or warning. Always inspect acquisition coverage, valid pixel support, control distributions and uncertainty.</footer>
