@@ -1,0 +1,154 @@
+# Know Place Analysis — Scientific Architecture Blueprint
+
+**Status:** design baseline v1.0; implementation is intentionally isolated  
+**Branch:** `feat/know-place-analysis`  
+**Parent:** `feat/final-aoi-science-integration` at `830b054e0f60c4957d64c289e49dea86ff808803`  
+**Protected boundary:** no commits, workflow edits, or merges to `main` from this work.  
+**Study site:** Bhote Koshi source/crown, Nepal; NISAR GOFF pair series around the 26 August 2026 event.
+
+## 1. Objective and scientific claim boundary
+
+Build a reproducible, paper-method-compatible analysis path for one named study site. First priority is to reproduce the reported **measurements and comparison statistics**, not to manufacture a landslide alarm.
+
+The paper is the 24 September 2026 EGUsphere preprint, under review at NHESS: Meena, “NISAR pixel offsets measure but do not statistically resolve pre-failure motion at the 26 August 2026 Bhote Koshi ice–rock avalanche, Nepal,” DOI [10.5194/egusphere-2026-5462](https://doi.org/10.5194/egusphere-2026-5462). It reports a 0.96 m crown median horizontal displacement for 26 July–19 August, but explicitly says **no pre-event polygon-scale result exceeds the 95th percentile of its spatial comparison distributions**. The benchmark target is a numerical reproduction, not a hazard-detection pass.
+
+Required result classes must remain separate:
+- **Pipeline/structural status:** downloads, file integrity, masks, manifests and outputs are valid.
+- **Method reproduction status:** paper-method inputs and calculations have passed parity checks.
+- **Scientific interpretation:** measurement estimates, quality support, comparison percentiles, uncertainty and limitations. No automatic “landslide detected” label is permitted.
+
+## 2. Forensic baseline: Run 39942529304
+
+Evidence: [GitHub Actions run 39942529304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39942529304), manifest and dashboard artifacts downloaded and inspected.
+
+- Run status was structural **PASS**; 20 products were selected and validated (10 GUNW + 10 GOFF); 17 had at least one valid science pixel.
+- Actual time inputs in the manifest were **2026-06-17 to 2026-08-31**, not 2026-06-20 to 2026-08-31. The reference pairs are still present, but the extra start-window products should not enter the paper-matched benchmark.
+- The selected inventory mixed ascending T098 and descending D048, multiple acquisition pairs, and GUNW/GOFF families. The paper's primary comparison is five ascending T098, L-SAR HH GOFF pairs on an 80 m EPSG:32645 grid.
+- The expected five target pair dates are 20 Jun–2 Jul, 2–14 Jul, 14–26 Jul, 26 Jul–19 Aug (24 days), and 19–31 Aug. The matching GOFF entries in this run are GOFF-003, GOFF-007, GOFF-011, GOFF-015 and GOFF-019. All other selected products must be excluded from the strict benchmark, not silently pooled into the series.
+- For GOFF-015, the current reader produced an AOI-wide median slant-range offset of 18.07 mm and along-track median of 11.89 mm after the SARGuardian auto-reference/deramp/outlier policy. Those are **not** the paper's crown-only median horizontal displacement magnitude of 0.96 m.
+- The current GUNW stack reports zero pixels with a complete time series in both the A098 and D048 chains; no velocity fit was produced. A normal script exit is not a usable scientific time-series result.
+- `derived-only` cleanup removed the raw HDF5 from the worker after remote retention. Current artifacts do not preserve all inputs the paper's calculation needs (notably raw GOFF SNR, radar geometry metadata, and uncorrected paired offset layers); they cannot support exact reprocessing by themselves. The required raw GOFF granules must be reacquired, verified, and hashed for this analysis.
+
+## 3. Author-reported method to reproduce
+
+Reference: paper PDF, Data and methods, pp. 2–3 and Results, pp. 4–7.
+
+### 3.1 Benchmark inventory
+
+Strict target set (all five required; fail closed when any are absent):
+1. 2026-06-20 → 2026-07-02, 12 days
+2. 2026-07-02 → 2026-07-14, 12 days
+3. 2026-07-14 → 2026-07-26, 12 days
+4. 2026-07-26 → 2026-08-19, 24 days
+5. 2026-08-19 → 2026-08-31, 12 days
+
+Expected geometry: ascending T098, L-SAR HH, GOFF layer2, same native 80 m grid / EPSG:32645. Each exact granule ID, maturity/CRID, product checksum and source URL must be recorded. Product release variants must not be substituted without an explicit sensitivity run.
+
+### 3.2 Three distinct geometries
+
+- **Background/reference box:** WGS84 bounds 85.500–85.565° E, 28.265–28.318° N. The user's rectangle represents this background box.
+- **Crown polygon:** WGS84 bounds 85.5245–85.5400° E, 28.2847–28.2970° N. It is a separate target region.
+- **Compact core (~0.19 km²):** an explicitly different, selection-sensitive diagnostic from the paper. Do not silently treat it as the crown or use it as the primary benchmark.
+
+The source polygon is inside the background box. Background correction uses valid pixels in the box outside the crown; the reported paper's coherence comparison also discussed the box including the crown, so outputs must label which exact mask policy was used rather than conflating the two.
+
+### 3.3 Pixel-level processing order
+
+For every exact GOFF pair:
+1. Read **raw layer2** along-track offset (AT), slant-range offset (SR), signal-to-noise ratio (SNR), correlation/validity metadata and grid definition from the source HDF5. Do not use the current reader's already auto-referenced or deramped GeoTIFF as if it were raw.
+2. Validate the product's orbit/track, polarisation, dates, CRID/maturity, grid, units, nodata and required metadata.
+3. Select finite, usable pixels with **SNR ≥ 5**. Project the offset observations to horizontal displacement using that product's geometry. Reject (do not clip) pixels with projected horizontal magnitude **> 10 m**.
+4. Use local geometry at the crown grid cell; the paper reports incidence angle near 39.1°. Do not hardcode an assumed angle without checking the product metadata and recording the extracted value.
+5. Using the NISAR product convention, compute:
+   - dE = AT × atuX − (SR / sin(θ)) × (losX / |los_h|)
+   - dN = AT × atuY − (SR / sin(θ)) × (losY / |los_h|)
+   
+   The paper assumes vertical motion is zero. Record this assumption. Derive signs from the file's unit-vector convention; never flip signs to force agreement with the paper.
+6. For each pair, remove bulk co-registration bias by subtracting the component-wise median dE and dN over valid pixels inside the background box but **outside the crown**. Do not substitute the current global AOI auto-reference plus plane deramp in the reproduction path.
+7. Calculate horizontal magnitude per valid pixel: sqrt(dE² + dN²). Report crown median magnitude, mean displacement vector and direction separately. Do not compare the paper's 0.96 m crown median with a box-wide range/azimuth median.
+8. Compute the 5×5 mean resultant length (R) from unit horizontal-displacement vectors. Because offset estimates use overlapping matching windows, pixels are not independent; do not use the textbook independent-direction null as the benchmark.
+9. Reproduce size-matched spatial controls inside the background box, with deterministic random seed, accepted/rejected draw counts and exact masks saved. Report empirical percentile for crown displacement and R, including the paper's caveat that neither pre-event polygon-scale statistic exceeded the 95th percentile.
+10. The co-event 19–31 August pair must have a quality/directional-organisation check. Metre-scale magnitude in a decorrelated field is not a valid movement estimate by itself.
+
+### 3.4 Expected published reference values (acceptance targets, not forced output)
+
+- 26 Jul–19 Aug: crown median displacement magnitude ≈ 0.96 m over 24 d; crown mean vector ≈ 1.72 m toward 278°; R ≈ 0.87 versus full-box R ≈ 0.69.
+- Size-matched displacement controls: median ≈ 0.14 m; crown ranks at ≈ 94.7th percentile, below 95th.
+- Four pre-event polygon-scale interval percentile results reported by the author do not exceed 95th; the 19–31 Aug co-event pair has directional disorder/decorrelation and must not be treated as a clean displacement estimate.
+- The paper gives earlier crown medians of ≈ 0.99 m for 20 Jun–2 Jul, ≈ 0.47 m for 2–14 Jul and ≈ 0.28 m for 14–26 Jul in its figures/results. These do not establish acceleration; the 24-day pair's average rate is lower than the earlier 12-day pair's rate.
+
+These rounded publication values are sanity/reference targets, not exact pixel-wise acceptance constants. Author supplementary rasters/scripts and their checksums must be obtained where available to build a true golden-data parity test. If supplementary data cannot be fetched, mark independent parity as BLOCKED, not PASS.
+
+## 4. Architecture and data flow
+
+```text
+Exact five raw GOFF HDF5 files
+        │
+        ▼
+A. Source/metadata gate ── fail if wrong pair/track/pol/maturity/grid/units
+        │
+        ▼
+B. Raw layer2 arrays + product geometry sampling/interpolation
+        │
+        ▼
+C. SNR + finite + projected-magnitude quality mask
+        │
+        ▼
+D. Geometry-derived East/North displacement (vertical motion = 0)
+        │
+        ▼
+E. Pair-specific box-outside-crown component median correction
+        │
+        ├───────────────┐
+        ▼               ▼
+F. Crown metrics    G. 5×5 directional coherence R
+        │               │
+        └───────┬───────┘
+                ▼
+H. Deterministic size-matched spatial null / percentile analysis
+                │
+                ▼
+I. Per-pair GeoTIFFs + CSV + JSON provenance + audit report
+                │
+                ▼
+J. Separate structural / reproduction / interpretation statuses
+```
+
+Recommended modules (all isolated within this feature branch):
+- `tools/know_place_analysis.py`: strict CLI, input identity checks, orchestration and machine-readable report.
+- `tools/know_place/goff_io.py`: GOFF HDF5 field discovery, metadata/geolocation sampling, no fuzzy substitution when multiple dataset paths match.
+- `tools/know_place/paper_method.py`: pure, unit-tested quality gates, geometry projection, component correction, magnitude, 5×5 R and deterministic control sampling.
+- `tools/know_place/benchmark.py`: strict five-pair inventory, supplement/golden-data parity and tolerance report.
+- `tests/test_know_place_*.py`: small synthetic arrays with analytically known answers and negative tests.
+- `docs/KNOW_PLACE_ANALYSIS_CHECKLIST.md`: gates and completion evidence.
+
+No edit to the existing streaming/Dynamic AOI workflow, existing scientific engine, default branch, or source-AOI baseline is allowed in this phase.
+
+## 5. Scientific invariants / fail-closed rules
+
+- Do not classify structural pipeline success as method reproduction or hazard detection.
+- Never pool tracks, polarizations, processing families, geometries or different date intervals into one comparable series.
+- Never use pre-corrected/clipped output as raw AT/SR/SNR or geometry.
+- Never fill missing pixels with zero, infer missing metadata from output magnitude, or silently choose among multiple metadata matches.
+- Missing SNR, geometry, units, exact pair, CRS, or reference/crown polygon => explicit failure or blocked status with cause.
+- The selected background/crown masks, projected grid dimensions and pixel counts are written to provenance.
+- Same seed + same exact input bytes + same analysis commit must produce byte-stable scalar tables (timestamps may differ in a separately identified run metadata field).
+- A 95th-percentile gate is a paper comparison criterion, not a universally validated early-warning threshold.
+- The output may conclude “measured but not statistically distinctive,” “insufficient data,” or “not reproducible from available inputs.” It must never change those results to PASS to satisfy an expected value.
+
+## 6. Acceptance gates
+
+A benchmark run is eligible for method reproduction only if:
+- exactly the five target GOFF pairs are represented once each;
+- all five have verifiable raw-source SHA-256 and matching expected track/polarization/maturity fields;
+- HDF5 field units/conventions and geometry source are documented and checked;
+- each pair's valid-pixel counts and rejected counts are preserved by reason;
+- the 26 Jul–19 Aug pair's paper metrics can be compared with independent author-supplement outputs, if available;
+- scalar discrepancies, raster extent/CRS disagreements, signs, null sampling and mask differences are disclosed;
+- the no-detection interpretation matches what the source supports.
+
+## 7. Sources
+
+- Meena (2026), EGUsphere preprint, DOI 10.5194/egusphere-2026-5462, especially Data and methods pp. 2–3, Results pp. 4–7. [Preprint page](https://egusphere.copernicus.org/preprints/2026/egusphere-2026-5462/).
+- [ASF/NISAR GOFF product guide](https://nisar-docs.asf.alaska.edu/goff/): GOFF is geocoded pixel offsets, 80 m posting; raw product contains offsets and SNR layers and is not conventionally post-processed.
+- Current Dynamic AOI audit baseline: [Run 39942529304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39942529304).
