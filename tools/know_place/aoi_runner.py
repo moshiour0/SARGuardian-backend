@@ -28,7 +28,7 @@ import numpy as np
 
 from .aoi_request import AOIRequest, AOIRequestError, validate_aoi_request
 from .dashboard import write_dashboard
-from .geometry import build_analysis_roi, parse_polygon_wkt
+from .geometry import build_analysis_roi, parse_polygon_wkt, project_wkt_ring
 from .goff_io import (
     GoffReadError,
     inspect_goff_grid,
@@ -50,6 +50,8 @@ from .uncertainty import spatial_block_bootstrap_sensitivity, spatial_block_boot
 
 ENGINE_VERSION = "1.0.0"
 MAX_PRODUCTS_PER_DOWNLOADED_JOB = 30
+MAX_AOI_GRID_CELLS = 2_000_000
+COHERENCE_CONTEXT_HALO_CELLS = 2
 TRUSTED_ASF_HOSTS = ("asf.alaska.edu", ".asf.earthdatacloud.nasa.gov")
 
 
@@ -103,6 +105,38 @@ def _safe_json(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
+
+
+def _estimate_roi_window_cells(
+    x_coordinates_m: Any,
+    y_coordinates_m: Any,
+    box_wkt: str,
+    epsg: int,
+    *,
+    halo_cells: int = COHERENCE_CONTEXT_HALO_CELLS,
+    max_window_cells: int = MAX_AOI_GRID_CELLS,
+) -> int:
+    """Bound ROI allocation from the projected reference-box extent before rasterizing."""
+    x = np.asarray(x_coordinates_m, dtype=float)
+    y = np.asarray(y_coordinates_m, dtype=float)
+    projected = project_wkt_ring(box_wkt, epsg)
+    xmin, xmax = min(point[0] for point in projected), max(point[0] for point in projected)
+    ymin, ymax = min(point[1] for point in projected), max(point[1] for point in projected)
+    x_hits = np.flatnonzero((x >= xmin) & (x <= xmax))
+    y_hits = np.flatnonzero((y >= ymin) & (y <= ymax))
+    if not x_hits.size or not y_hits.size:
+        return 0
+    col_start = max(0, int(x_hits.min()) - halo_cells)
+    col_stop = min(len(x), int(x_hits.max()) + 1 + halo_cells)
+    row_start = max(0, int(y_hits.min()) - halo_cells)
+    row_stop = min(len(y), int(y_hits.max()) + 1 + halo_cells)
+    cells = max(0, row_stop - row_start) * max(0, col_stop - col_start)
+    if cells > max_window_cells:
+        raise AOIRunError(
+            "AOI_WINDOW_TOO_LARGE",
+            f"Projected AOI/reference window requests {cells} grid cells; cap is {max_window_cells}. Use a smaller polygon or split the AOI into documented tiles.",
+        )
+    return cells
 
 
 def _grid_identity_sha256(grid: Any) -> str:
@@ -839,6 +873,14 @@ def run_aoi_analysis(
             roi_box_wkt = request.reference_wkt or _processing_extent_wkt(
                 request.aoi_wkt, grid.epsg, request.reference_buffer_m
             )
+            estimated_window_cells = _estimate_roi_window_cells(
+                grid.x_coordinates_m, grid.y_coordinates_m, roi_box_wkt, grid.epsg,
+            )
+            if estimated_window_cells == 0:
+                raise AOIRunError(
+                    "REFERENCE_BOX_DOES_NOT_INTERSECT_GOFF_GRID",
+                    "The requested AOI/reference context has no grid-cell centres in this GOFF product",
+                )
             roi = build_analysis_roi(
                 grid.x_coordinates_m, grid.y_coordinates_m, grid.epsg,
                 box_wkt=roi_box_wkt, crown_wkt=request.aoi_wkt,
@@ -993,6 +1035,7 @@ def run_aoi_analysis(
                 "epsg": raw.epsg,
                 "grid_identity_sha256": grid_identity,
                 "grid_lattice_compatible_with_previous": grid_aligned,
+                "roi_estimated_window_cells": estimated_window_cells,
                 "direction": raw.identity.direction,
                 "track": raw.identity.track,
                 "polarization": raw.polarization,
