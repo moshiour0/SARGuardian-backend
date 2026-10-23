@@ -109,3 +109,33 @@ def test_exact_object_url_must_name_expected_provisional_collection():
     )
     with pytest.raises(CatalogIdentityError, match="ASF_EXACT_GRANULE_NOT_FOUND"):
         validate_exact_catalog_product(target, [wrong])
+
+def test_catalog_gate_defers_formatted_file_size_to_downloaded_sha256():
+    target = TARGET_PRODUCTS[0]
+    formatted = {
+        target["granule_name"] + ".h5": {"bytes": 1.09, "format": "GB"}
+    }
+    row = validate_exact_catalog_product(
+        target, [valid_result(target, bytes_value=formatted)]
+    )
+    assert row["catalog_size_bytes"] is None
+    assert row["catalog_size_evidence"]["status"] == (
+        "NON_EXACT_FORMATTED_SIZE_DEFERRED_TO_SOURCE_SHA256"
+    )
+    assert row["expected_source_sha256"] == target["historical_source_sha256"]
+
+
+def test_catalog_gate_rejects_exact_raw_umm_size_mismatch():
+    target = TARGET_PRODUCTS[0]
+    record = valid_result(target)
+    record.umm = {
+        "DataGranule": {
+            "ArchiveAndDistributionInformation": [{
+                "Name": target["granule_name"] + ".h5",
+                "SizeInBytes": target["expected_source_bytes"] + 2,
+            }]
+        }
+    }
+    with pytest.raises(CatalogIdentityError, match="ASF_BYTE_SIZE_CHANGED"):
+        validate_exact_catalog_product(target, [record])
+
