@@ -6,6 +6,11 @@ on:
   push:
     branches:
       - feat/know-place-analysis
+    paths:
+      - ".github/workflows/know-place-analysis-reanalysis.yml"
+      - "tools/know_place/reanalyse_saved_arrays.py"
+      - "tools/know_place/analyze.py"
+      - "tools/know_place/paper_method.py"
   workflow_dispatch:
 
 permissions:
