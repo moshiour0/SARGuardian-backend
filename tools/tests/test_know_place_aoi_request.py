@@ -109,3 +109,24 @@ def test_no_reference_polygon_is_labeled_unreferenced_not_background_corrected()
     payload.pop("reference")
     normalized = validate_aoi_request(payload).to_dict()
     assert normalized["reference"]["policy"] == "no_background_correction"
+
+
+def test_allowed_maturity_and_geometry_policy_are_preserved_in_request_provenance():
+    payload = request()
+    payload["product_selection"]["allowed_maturities"] = ["BETA", "PROVISIONAL"]
+    payload["geometry_policy"] = {"constant_hae_m": 5151.0}
+
+    parsed = validate_aoi_request(payload)
+    serialized = parsed.to_dict()
+
+    assert serialized["product_selection"]["allowed_maturities"] == ["BETA", "PROVISIONAL"]
+    assert serialized["geometry_policy"]["constant_hae_m"] == pytest.approx(5151.0)
+    assert "A constant height is an approximation" in serialized["geometry_policy"]["warning"]
+
+
+def test_operational_monitoring_fails_closed_until_dem_backed_geometry_is_available():
+    payload = request()
+    payload["analysis_mode"] = "operational_monitoring"
+
+    with pytest.raises(AOIRequestError, match="OPERATIONAL_MODE_BLOCKED_DEM_BACKED_GEOMETRY_REQUIRED"):
+        validate_aoi_request(payload)
