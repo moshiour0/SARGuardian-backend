@@ -684,10 +684,11 @@ def _preview(
 def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
     fields = [
         "reference_date", "secondary_date", "granule_name", "release_id",
-        "status", "chain_id", "relation_to_previous", "valid_aoi_pixels",
-        "aoi_total_grid_cells", "valid_aoi_fraction", "high_magnitude_flagged_pixels",
+        "status", "chain_id", "relation_to_previous", "interval_days",
+        "valid_aoi_pixels", "aoi_total_grid_cells", "valid_aoi_fraction", "high_magnitude_flagged_pixels",
         "aoi_median_horizontal_magnitude_m",
-        "aoi_mean_vector_magnitude_m", "aoi_mean_vector_azimuth_deg_clockwise_from_north",
+        "aoi_mean_vector_magnitude_m", "aoi_median_magnitude_rate_m_per_day",
+        "aoi_mean_vector_azimuth_deg_clockwise_from_north",
         "aoi_median_directional_coherence_R", "source_sha256", "geotiff_file",
     ]
     with path.open("w", newline="", encoding="utf-8") as stream:
@@ -703,12 +704,14 @@ def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
                 "status": pair.get("status"),
                 "chain_id": pair.get("chain_id"),
                 "relation_to_previous": pair.get("relation_to_previous"),
+                "interval_days": pair.get("interval_days"),
                 "valid_aoi_pixels": pair.get("valid_aoi_pixels"),
                 "aoi_total_grid_cells": pair.get("aoi_total_grid_cells"),
                 "valid_aoi_fraction": pair.get("valid_aoi_fraction"),
                 "high_magnitude_flagged_pixels": pair.get("high_magnitude_flagged_pixels"),
                 "aoi_median_horizontal_magnitude_m": stats.get("aoi_median_horizontal_magnitude_m", stats.get("crown_median_horizontal_magnitude_m")),
                 "aoi_mean_vector_magnitude_m": stats.get("aoi_mean_vector_magnitude_m", stats.get("crown_mean_vector_magnitude_m")),
+                "aoi_median_magnitude_rate_m_per_day": stats.get("aoi_median_magnitude_rate_m_per_day", stats.get("crown_median_magnitude_rate_m_per_day")),
                 "aoi_mean_vector_azimuth_deg_clockwise_from_north": stats.get("aoi_mean_vector_azimuth_deg_clockwise_from_north", stats.get("crown_mean_vector_azimuth_deg_clockwise_from_north")),
                 "aoi_median_directional_coherence_R": stats.get("aoi_median_directional_coherence_R", stats.get("crown_median_directional_coherence_R")),
                 "source_sha256": pair.get("source_sha256"),
@@ -907,6 +910,18 @@ def run_aoi_analysis(
                 sample.along_track_x, sample.along_track_y,
                 sample.los_x, sample.los_y, sample.incidence_deg,
             )
+            reference_midpoint = raw.identity.reference_start + (
+                raw.identity.reference_end - raw.identity.reference_start
+            ) / 2
+            secondary_midpoint = raw.identity.secondary_start + (
+                raw.identity.secondary_end - raw.identity.secondary_start
+            ) / 2
+            interval_days = (secondary_midpoint - reference_midpoint).total_seconds() / 86400.0
+            if not math.isfinite(interval_days) or interval_days <= 0:
+                raise AOIRunError(
+                    "ACQUISITION_INTERVAL_DURATION_INVALID",
+                    "The exact acquisition midpoints do not define a positive finite observation interval",
+                )
             input_valid = np.isfinite(raw.correlation)
             valid, gate_counts, uncorrected_mag = apply_paper_quality_gates(
                 east, north, raw.snr, input_valid=input_valid,
@@ -921,6 +936,8 @@ def run_aoi_analysis(
                 pairs.append({
                     "reference_date": planned["reference_date"],
                     "secondary_date": planned["secondary_date"],
+                    "interval_days": interval_days,
+                    "interval_average_rate_definition": "pairwise displacement / exact acquisition-midpoint separation; not instantaneous velocity",
                     "chain_id": planned.get("chain_id", "UNASSIGNED"),
                     "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                     "known_instrument_data_gaps": planned.get("known_instrument_data_gaps", []),
@@ -959,6 +976,8 @@ def run_aoi_analysis(
                     pairs.append({
                         "reference_date": planned["reference_date"],
                         "secondary_date": planned["secondary_date"],
+                        "interval_days": interval_days,
+                        "interval_average_rate_definition": "pairwise displacement / exact acquisition-midpoint separation; not instantaneous velocity",
                         "chain_id": planned.get("chain_id", "UNASSIGNED"),
                         "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                         "known_instrument_data_gaps": planned.get("known_instrument_data_gaps", []),
@@ -1023,6 +1042,8 @@ def run_aoi_analysis(
             base = {
                 "reference_date": planned["reference_date"],
                 "secondary_date": planned["secondary_date"],
+                "interval_days": interval_days,
+                "interval_average_rate_definition": "pairwise displacement / exact acquisition-midpoint separation; not instantaneous velocity",
                 "chain_id": planned.get("chain_id", "UNASSIGNED"),
                 "relation_to_previous": planned.get("relation_to_previous", "UNVERIFIED"),
                 "known_instrument_data_gaps": planned.get("known_instrument_data_gaps", []),
@@ -1084,7 +1105,7 @@ def run_aoi_analysis(
 
             summary = summarize_crown(
                 corrected_east, corrected_north, valid, roi.crown_mask,
-                coherence, interval_days=max(1, (raw.identity.secondary_start.date() - raw.identity.reference_start.date()).days),
+                coherence, interval_days=interval_days,
             )
             # Generic UI/API names refer to the user's AOI. Legacy crown_* fields
             # remain alongside them so the isolated paper-reproduction path and
