@@ -353,9 +353,17 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
             full_records.append(pair_reportsafe)
             continue
 
-        corrected_east, corrected_north, bias = componentwise_background_correction(
-            east, north, valid, roi.box_mask, roi.crown_mask,
-        )
+        try:
+            corrected_east, corrected_north, bias = componentwise_background_correction(
+                east, north, valid, roi.box_mask, roi.crown_mask,
+            )
+        except ScientificInputError as exc:
+            pair_report["status"] = "INSUFFICIENT_BACKGROUND_SUPPORT"
+            pair_report["reason"] = f"{type(exc).__name__}:{exc}"
+            pair_reportsafe = _json_safe(pair_report)
+            row_reports.append(pair_reportsafe)
+            full_records.append(pair_reportsafe)
+            continue
         valid_box = valid & roi.box_mask & np.isfinite(corrected_east) & np.isfinite(corrected_north)
         magnitude = np.full(valid.shape, np.nan, dtype=float)
         magnitude[valid_box] = np.hypot(corrected_east[valid_box], corrected_north[valid_box])
