@@ -67,7 +67,7 @@ class RawGoffProduct:
     source_sha256: str
     dataset_paths: dict[str, str]
     unit_evidence: dict[str, str]
-    fill_evidence: dict[str, list[float]]
+    fill_evidence: dict[str, list[float | str]]
     metadata: dict[str, Any]
 
 
@@ -129,10 +129,12 @@ def _array_units(dataset: h5py.Dataset) -> str | None:
     return _text(raw).lower().replace(" ", "")
 
 
-def _read_float_dataset_masking_declared_fill(dataset: h5py.Dataset) -> tuple[np.ndarray, list[float]]:
+def _read_float_dataset_masking_declared_fill(
+    dataset: h5py.Dataset, selection: tuple[slice, slice] | None = None,
+) -> tuple[np.ndarray, list[float | str]]:
     """Replace only explicit HDF5 fill/missing sentinels with NaN, recording each."""
-    values = np.asarray(dataset[()], dtype=np.float64)
-    markers: list[float] = []
+    values = np.asarray(dataset[()] if selection is None else dataset[selection], dtype=np.float64)
+    markers: list[float | str] = []
     for attribute in ("_FillValue", "missing_value", "fill_value", "noDataValue"):
         if attribute not in dataset.attrs:
             continue
@@ -142,10 +144,14 @@ def _read_float_dataset_masking_declared_fill(dataset: h5py.Dataset) -> tuple[np
                 marker = float(item)
             except (TypeError, ValueError, OverflowError):
                 raise GoffReadError(f"NONNUMERIC_FILL_MARKER:{dataset.name}:{attribute}") from None
-            markers.append(marker)
             if np.isnan(marker):
+                markers.append("NaN")
                 values[np.isnan(values)] = np.nan
+            elif not np.isfinite(marker):
+                markers.append("Infinity" if marker > 0 else "-Infinity")
+                values[values == marker] = np.nan
             else:
+                markers.append(marker)
                 values[values == marker] = np.nan
     return values, markers
 
@@ -237,19 +243,28 @@ def _validate_coordinate_axis(values: np.ndarray, name: str) -> np.ndarray:
     return axis
 
 
-def read_raw_goff(
-    path: str | Path,
-    *,
-    polarization: str = "HH",
-    layer: int = 2,
-    expected_track: str | None = None,
-    expected_direction: str | None = None,
-    expected_processing: str = "PR",
-) -> RawGoffProduct:
-    """Load raw layer-2 GOFF arrays. No filter, bias removal or deramping."""
-    source = Path(path).expanduser().resolve()
-    if not source.is_file():
-        raise GoffReadError(f"GOFF_SOURCE_FILE_NOT_FOUND:{source}")
+def _goff_dataset_paths(polarization: str, layer: int) -> dict[str, str]:
+    base = f"{PRODUCT_PREFIX}/{polarization}/layer{layer}"
+    names = {
+        "along_track": "alongTrackOffset",
+        "slant_range": "slantRangeOffset",
+        "snr": "snr",
+        "correlation": "correlationSurfacePeak",
+        "x": "xCoordinates",
+        "y": "yCoordinates",
+        "projection": "projection",
+    }
+    return {key: f"{base}/{value}" for key, value in names.items()}
+
+
+def _validate_granule_request(
+    source: Path,
+    polarization: str,
+    layer: int,
+    expected_track: str | None,
+    expected_direction: str | None,
+    expected_processing: str,
+) -> tuple[GoffIdentity, str]:
     identity = parse_granule_identity(source)
     pol = polarization.strip().upper()
     if pol not in {"HH", "HV", "VH", "VV"}:
@@ -268,69 +283,186 @@ def read_raw_goff(
         raise GoffReadError(
             f"GOFF_DIRECTION_MISMATCH:expected={expected_direction}:actual={identity.direction}"
         )
+    return identity, pol
 
-    base = f"{PRODUCT_PREFIX}/{pol}/layer{layer}"
-    names = {
-        "along_track": "alongTrackOffset",
-        "slant_range": "slantRangeOffset",
-        "snr": "snr",
-        "correlation": "correlationSurfacePeak",
-        "x": "xCoordinates",
-        "y": "yCoordinates",
-        "projection": "projection",
-    }
-    data_paths = {key: f"{base}/{value}" for key, value in names.items()}
-    fields: dict[str, np.ndarray] = {}
+
+def inspect_goff_grid(
+    path: str | Path,
+    *,
+    polarization: str = "HH",
+    layer: int = 2,
+    expected_track: str | None = None,
+    expected_direction: str | None = None,
+    expected_processing: str = "PR",
+) -> GoffGridInfo:
+    """Read only granule identity, grid axes and schema; do not load full pixel layers."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise GoffReadError(f"GOFF_SOURCE_FILE_NOT_FOUND:{source}")
+    identity, pol = _validate_granule_request(
+        source, polarization, layer, expected_track, expected_direction, expected_processing
+    )
+    data_paths = _goff_dataset_paths(pol, layer)
     unit_evidence: dict[str, str] = {}
-    fill_evidence: dict[str, list[float]] = {}
     with h5py.File(source, "r") as handle:
         datasets = {key: _require_dataset(handle, value) for key, value in data_paths.items()}
-        for key in ("along_track", "slant_range", "snr", "correlation"):
-            dataset = datasets[key]
-            if dataset.ndim != 2:
-                raise GoffReadError(f"GOFF_MEASUREMENT_NOT_2D:{dataset.name}:{dataset.shape}")
-            fields[key], fill_evidence[key] = _read_float_dataset_masking_declared_fill(dataset)
-        shape = fields["along_track"].shape
+        full_shape = datasets["along_track"].shape
+        if len(full_shape) != 2:
+            raise GoffReadError(f"GOFF_MEASUREMENT_NOT_2D:{datasets['along_track'].name}:{full_shape}")
         for key in ("slant_range", "snr", "correlation"):
-            if fields[key].shape != shape:
+            if datasets[key].shape != full_shape:
                 raise GoffReadError(
-                    f"GOFF_MEASUREMENT_SHAPE_MISMATCH:{key}:{fields[key].shape}:expected={shape}"
+                    f"GOFF_MEASUREMENT_SHAPE_MISMATCH:{key}:{datasets[key].shape}:expected={full_shape}"
                 )
         for key in ("along_track", "slant_range"):
             unit_evidence[key] = _offset_units_evidence(datasets[key], key)
-        snr_units = _array_units(datasets["snr"])
-        if snr_units not in (None, "1", "unitless", "dimensionless"):
-            raise GoffReadError(f"GOFF_SNR_UNIT_MISMATCH:{snr_units}")
-        unit_evidence["snr"] = (
-            f"dataset_attribute:{snr_units}" if snr_units is not None
-            else "NISAR_L2_GOFF_product_specification:dimensionless"
-        )
-        corr_units = _array_units(datasets["correlation"])
-        if corr_units not in (None, "1", "unitless", "dimensionless"):
-            raise GoffReadError(f"GOFF_CORRELATION_UNIT_MISMATCH:{corr_units}")
-        unit_evidence["correlation"] = (
-            f"dataset_attribute:{corr_units}" if corr_units is not None
-            else "NISAR_L2_GOFF_product_specification:dimensionless"
-        )
-
+        for key in ("snr", "correlation"):
+            units = _array_units(datasets[key])
+            if units not in (None, "1", "unitless", "dimensionless"):
+                raise GoffReadError(f"GOFF_QUALITY_LAYER_UNIT_MISMATCH:{key}:{units}")
+            unit_evidence[key] = (
+                f"dataset_attribute:{units}" if units is not None
+                else f"NISAR_L2_GOFF_product_specification:dimensionless:{key}"
+            )
         x = _validate_coordinate_axis(np.asarray(datasets["x"][()], dtype=float), datasets["x"].name)
         y = _validate_coordinate_axis(np.asarray(datasets["y"][()], dtype=float), datasets["y"].name)
-        if len(x) != shape[1] or len(y) != shape[0]:
+        if len(x) != full_shape[1] or len(y) != full_shape[0]:
             raise GoffReadError(
-                f"GOFF_COORDINATE_SHAPE_MISMATCH:grid={shape}:x={len(x)}:y={len(y)}"
+                f"GOFF_COORDINATE_SHAPE_MISMATCH:grid={full_shape}:x={len(x)}:y={len(y)}"
             )
         epsg = _epsg_from_projection(datasets["projection"])
         unit_evidence["x_coordinates"] = _coordinate_units_evidence(datasets["x"], "x")
         unit_evidence["y_coordinates"] = _coordinate_units_evidence(datasets["y"], "y")
+    stat = source.stat()
+    return GoffGridInfo(
+        path=str(source),
+        identity=identity,
+        polarization=pol,
+        layer=f"layer{layer}",
+        x_coordinates_m=x,
+        y_coordinates_m=y,
+        epsg=epsg,
+        grid_shape=(int(full_shape[0]), int(full_shape[1])),
+        file_size_bytes=stat.st_size,
+        file_mtime_ns=stat.st_mtime_ns,
+        unit_evidence=unit_evidence,
+    )
+
+
+def _validate_window(
+    window_slices: tuple[slice, slice] | None,
+    shape: tuple[int, int],
+) -> tuple[slice, slice]:
+    if window_slices is None:
+        return slice(0, shape[0]), slice(0, shape[1])
+    if len(window_slices) != 2:
+        raise GoffReadError("GOFF_WINDOW_MUST_HAVE_ROW_AND_COLUMN_SLICE")
+    out = []
+    for label, item, limit in zip(("row", "column"), window_slices, shape):
+        if not isinstance(item, slice) or item.step not in (None, 1):
+            raise GoffReadError(f"GOFF_WINDOW_SLICE_INVALID:{label}")
+        start = 0 if item.start is None else item.start
+        stop = limit if item.stop is None else item.stop
+        if (not isinstance(start, int) or not isinstance(stop, int)
+                or start < 0 or stop > limit or stop <= start):
+            raise GoffReadError(f"GOFF_WINDOW_SLICE_OUT_OF_RANGE:{label}:{start}:{stop}:{limit}")
+        out.append(slice(start, stop))
+    return out[0], out[1]
+
+
+def read_raw_goff(
+    path: str | Path,
+    *,
+    polarization: str = "HH",
+    layer: int = 2,
+    expected_track: str | None = None,
+    expected_direction: str | None = None,
+    expected_processing: str = "PR",
+    window_slices: tuple[slice, slice] | None = None,
+    expected_grid: GoffGridInfo | None = None,
+) -> RawGoffProduct:
+    """Load raw GOFF arrays, optionally reading a bounded ROI directly from HDF5."""
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise GoffReadError(f"GOFF_SOURCE_FILE_NOT_FOUND:{source}")
+    identity, pol = _validate_granule_request(
+        source, polarization, layer, expected_track, expected_direction, expected_processing
+    )
+    stat_before = source.stat()
+    if expected_grid is not None:
+        if str(source) != expected_grid.path:
+            raise GoffReadError("GOFF_INSPECTED_PATH_CHANGED")
+        if (stat_before.st_size, stat_before.st_mtime_ns) != (
+            expected_grid.file_size_bytes, expected_grid.file_mtime_ns
+        ):
+            raise GoffReadError("GOFF_SOURCE_FILE_CHANGED_AFTER_GRID_INSPECTION")
+    data_paths = _goff_dataset_paths(pol, layer)
+    fields: dict[str, np.ndarray] = {}
+    unit_evidence: dict[str, str] = {}
+    fill_evidence: dict[str, list[float | str]] = {}
+    with h5py.File(source, "r") as handle:
+        datasets = {key: _require_dataset(handle, value) for key, value in data_paths.items()}
+        full_shape = datasets["along_track"].shape
+        if len(full_shape) != 2:
+            raise GoffReadError(f"GOFF_MEASUREMENT_NOT_2D:{datasets['along_track'].name}:{full_shape}")
+        for key in ("slant_range", "snr", "correlation"):
+            if datasets[key].shape != full_shape:
+                raise GoffReadError(
+                    f"GOFF_MEASUREMENT_SHAPE_MISMATCH:{key}:{datasets[key].shape}:expected={full_shape}"
+                )
+        rows, cols = _validate_window(window_slices, (int(full_shape[0]), int(full_shape[1])))
+        selection = (rows, cols)
         for key in ("along_track", "slant_range", "snr", "correlation"):
-            ds = datasets[key]
-            grid_mapping = ds.attrs.get("grid_mapping")
+            fields[key], fill_evidence[key] = _read_float_dataset_masking_declared_fill(
+                datasets[key], selection=selection
+            )
+        x_full = _validate_coordinate_axis(
+            np.asarray(datasets["x"][()], dtype=float), datasets["x"].name
+        )
+        y_full = _validate_coordinate_axis(
+            np.asarray(datasets["y"][()], dtype=float), datasets["y"].name
+        )
+        if len(x_full) != full_shape[1] or len(y_full) != full_shape[0]:
+            raise GoffReadError(
+                f"GOFF_COORDINATE_SHAPE_MISMATCH:grid={full_shape}:x={len(x_full)}:y={len(y_full)}"
+            )
+        epsg = _epsg_from_projection(datasets["projection"])
+        unit_evidence["along_track"] = _offset_units_evidence(datasets["along_track"], "along_track")
+        unit_evidence["slant_range"] = _offset_units_evidence(datasets["slant_range"], "slant_range")
+        for key in ("snr", "correlation"):
+            units = _array_units(datasets[key])
+            if units not in (None, "1", "unitless", "dimensionless"):
+                raise GoffReadError(f"GOFF_QUALITY_LAYER_UNIT_MISMATCH:{key}:{units}")
+            unit_evidence[key] = (
+                f"dataset_attribute:{units}" if units is not None
+                else f"NISAR_L2_GOFF_product_specification:dimensionless:{key}"
+            )
+        unit_evidence["x_coordinates"] = _coordinate_units_evidence(datasets["x"], "x")
+        unit_evidence["y_coordinates"] = _coordinate_units_evidence(datasets["y"], "y")
+        for key in ("along_track", "slant_range", "snr", "correlation"):
+            grid_mapping = datasets[key].attrs.get("grid_mapping")
             if grid_mapping is not None and _text(grid_mapping) != "projection":
                 raise GoffReadError(
-                    f"GOFF_GRID_MAPPING_CONFLICT:{ds.name}:{_text(grid_mapping)}"
+                    f"GOFF_GRID_MAPPING_CONFLICT:{datasets[key].name}:{_text(grid_mapping)}"
                 )
-        field_paths = {key: datasets[key].name for key in datasets}
+        field_paths = {key: datasets[key].name for key in data_paths}
 
+    x = x_full[cols]
+    y = y_full[rows]
+    for key in ("along_track", "slant_range", "snr", "correlation"):
+        if fields[key].shape != (len(y), len(x)):
+            raise GoffReadError(f"GOFF_WINDOW_ARRAY_SHAPE_MISMATCH:{key}:{fields[key].shape}")
+    digest = _sha256(source)
+    stat_after = source.stat()
+    if (stat_before.st_size, stat_before.st_mtime_ns) != (stat_after.st_size, stat_after.st_mtime_ns):
+        raise GoffReadError("GOFF_SOURCE_FILE_CHANGED_DURING_READ_OR_HASH")
+    if expected_grid is not None:
+        if epsg != expected_grid.epsg:
+            raise GoffReadError("GOFF_EPSG_CHANGED_AFTER_GRID_INSPECTION")
+        if not np.array_equal(x_full, expected_grid.x_coordinates_m) or not np.array_equal(
+            y_full, expected_grid.y_coordinates_m
+        ):
+            raise GoffReadError("GOFF_GRID_COORDINATES_CHANGED_AFTER_INSPECTION")
     return RawGoffProduct(
         identity=identity,
         polarization=pol,
@@ -342,7 +474,7 @@ def read_raw_goff(
         x_coordinates_m=x,
         y_coordinates_m=y,
         epsg=epsg,
-        source_sha256=_sha256(source),
+        source_sha256=digest,
         dataset_paths=field_paths,
         unit_evidence=unit_evidence,
         fill_evidence=fill_evidence,
@@ -352,6 +484,11 @@ def read_raw_goff(
             "correction_applied": False,
             "quality_filter_applied": False,
             "aoi_clip_applied": False,
+            "original_grid_shape": list(full_shape),
+            "read_window": {
+                "row_start": rows.start, "row_stop": rows.stop,
+                "column_start": cols.start, "column_stop": cols.stop,
+            },
             "release_id": identity.release_id,
             "reference_date": identity.reference_start.date().isoformat(),
             "secondary_date": identity.secondary_start.date().isoformat(),
