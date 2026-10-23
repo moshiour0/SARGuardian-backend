@@ -327,7 +327,10 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
             sample.los_x, sample.los_y,
             sample.incidence_deg,
         )
-        input_valid = roi.box_mask & np.isfinite(corr)
+        # The read window includes a two-cell halo. Its valid pixels may
+        # supply neighbouring vectors for R windows centred inside the box;
+        # only roi.box_mask cells enter the box/crown scalar summaries.
+        input_valid = np.isfinite(corr)
         valid, gates, uncorrected_magnitude = apply_paper_quality_gates(
             east, north, snr, input_valid=input_valid,
             minimum_snr=5.0, maximum_horizontal_magnitude_m=10.0,
@@ -338,11 +341,16 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
             "maximum_projected_horizontal_magnitude_m": 10.0,
             "gross_magnitude_policy": "reject pixel, do not clip",
             "correlation_policy": "finite correlation required for source-valid flag; no correlation threshold applied",
+            "coherence_context_halo_cells": 2,
+            "off_box_halo_pixels_may_support_neighbourhood_R": True,
+            "off_box_halo_pixels_excluded_from_box_crown_summaries": True,
         }
         pair_report["geometry_metadata_group"] = sample.metadata_group
         pair_report["geometry_unit_evidence"] = cubes.unit_evidence
-        pair_report["valid_correlation_pixels_in_box"] = int(input_valid.sum())
-        pair_report["valid_pixels_in_box_after_paper_gates"] = int(valid.sum())
+        pair_report["valid_correlation_pixels_in_box"] = int((input_valid & roi.box_mask).sum())
+        pair_report["valid_correlation_pixels_in_coherence_halo"] = int((input_valid & ~roi.box_mask).sum())
+        pair_report["valid_pixels_in_box_after_paper_gates"] = int((valid & roi.box_mask).sum())
+        pair_report["valid_pixels_outside_box_for_coherence_context"] = int((valid & ~roi.box_mask).sum())
         pair_report["valid_pixels_in_crown_after_paper_gates"] = int((valid & roi.crown_mask).sum())
 
         if not np.any(valid & roi.crown_mask):
@@ -368,7 +376,7 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
         magnitude = np.full(valid.shape, np.nan, dtype=float)
         magnitude[valid_box] = np.hypot(corrected_east[valid_box], corrected_north[valid_box])
         coherence = directional_coherence(
-            corrected_east, corrected_north, valid_box,
+            corrected_east, corrected_north, valid,
             window_size=5, minimum_valid_cells=minimum_R,
         )
         summary = summarize_crown(
