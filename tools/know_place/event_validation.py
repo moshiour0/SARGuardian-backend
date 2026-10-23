@@ -421,3 +421,60 @@ def evaluate_heldout_events(
             "A low false-alarm count is not informative without the recorded monitored AOI-month exposure.",
         ],
     }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Evaluate a prepared case registry and precomputed held-out predictions."""
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        description="Score a frozen, held-out event/non-event prediction set; does not build a detector."
+    )
+    parser.add_argument("--registry", required=True, type=Path, help="Independently labelled event registry JSON")
+    parser.add_argument("--predictions", required=True, type=Path, help="Per-case ALERT/NO_ALERT/NO_RESULT JSON")
+    parser.add_argument("--threshold-policy", required=True, type=Path, help="Content-addressed threshold policy frozen on validation split")
+    parser.add_argument("--out", required=True, type=Path, help="Evaluation JSON output")
+    parser.add_argument("--bootstrap-replicates", type=int, default=2000)
+    parser.add_argument("--bootstrap-seed", type=int, default=260826)
+    parser.add_argument("--minimum-independent-sites-for-ci", type=int, default=5)
+    args = parser.parse_args(argv)
+
+    try:
+        registry_payload = json.loads(args.registry.read_text(encoding="utf-8"))
+        prediction_payload = json.loads(args.predictions.read_text(encoding="utf-8"))
+        threshold_policy = json.loads(args.threshold_policy.read_text(encoding="utf-8"))
+        result = evaluate_heldout_events(
+            registry_payload,
+            prediction_payload,
+            threshold_policy,
+            bootstrap_replicates=args.bootstrap_replicates,
+            bootstrap_seed=args.bootstrap_seed,
+            minimum_independent_sites_for_ci=args.minimum_independent_sites_for_ci,
+        )
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        print("EVENT_VALIDATION_STATUS=FAIL")
+        print(f"ERROR={type(exc).__name__}:INPUT_OR_OUTPUT_IO_FAILED")
+        return 2
+    except EventValidationError as exc:
+        code = str(exc).split(":", 1)[0]
+        print("EVENT_VALIDATION_STATUS=FAIL")
+        print(f"ERROR={code}")
+        return 2
+
+    print(f"EVENT_VALIDATION_STATUS={result['status']}")
+    print(f"REGISTRY_SHA256={result['registry_sha256']}")
+    print(f"THRESHOLD_POLICY_SHA256={result['threshold_policy_sha256']}")
+    print(f"HELDOUT_CASES={result['total_heldout_cases']}")
+    print(f"NO_RESULT_CASES={result['availability']['no_result_cases']}")
+    print(f"OUTPUT={args.out.resolve()}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
