@@ -40,6 +40,7 @@ from .paper_method import (
     apply_paper_quality_gates,
     componentwise_background_correction,
     directional_coherence,
+    project_offsets_to_horizontal,
     summarize_crown,
 )
 from .series import SeriesPlanError, build_pairwise_series_plan
@@ -603,9 +604,7 @@ def run_aoi_analysis(
             sample = sample_geometry(
                 cubes, x_m=xx, y_m=yy, height_m=height_m, expected_epsg=raw.epsg,
             )
-            east, north = __import__(
-                "tools.know_place.paper_method", fromlist=["project_offsets_to_horizontal"]
-            ).project_offsets_to_horizontal(
+            east, north = project_offsets_to_horizontal(
                 raw.along_track_m, raw.slant_range_m,
                 sample.along_track_x, sample.along_track_y,
                 sample.los_x, sample.los_y, sample.incidence_deg,
@@ -616,11 +615,44 @@ def run_aoi_analysis(
                 minimum_snr=request.min_snr,
                 maximum_horizontal_magnitude_m=request.max_horizontal_magnitude_m,
             )
+            aoi_valid_before_reference = valid & roi.crown_mask & np.isfinite(east) & np.isfinite(north)
+            if not aoi_valid_before_reference.any():
+                pairs.append({
+                    "reference_date": planned["reference_date"],
+                    "secondary_date": planned["secondary_date"],
+                    "granule_name": raw.identity.granule_name,
+                    "release_id": raw.identity.release_id,
+                    "catalog_maturity": record["maturity"],
+                    "source_sha256": raw.source_sha256,
+                    "epsg": raw.epsg,
+                    "status": "INSUFFICIENT_AOI_VALID_PIXELS",
+                    "valid_aoi_pixels": 0,
+                    "quality_gate_counts": asdict(gate_counts),
+                    "interpretation": "No AOI pixels passed the finite-data, SNR and magnitude gates; no displacement summary is emitted.",
+                })
+                continue
+
             background_info: dict[str, Any]
             if request.reference_wkt:
-                corrected_east, corrected_north, background_info = componentwise_background_correction(
-                    east, north, valid, roi.box_mask, roi.crown_mask,
-                )
+                try:
+                    corrected_east, corrected_north, background_info = componentwise_background_correction(
+                        east, north, valid, roi.box_mask, roi.crown_mask,
+                    )
+                except ScientificInputError as exc:
+                    pairs.append({
+                        "reference_date": planned["reference_date"],
+                        "secondary_date": planned["secondary_date"],
+                        "granule_name": raw.identity.granule_name,
+                        "release_id": raw.identity.release_id,
+                        "catalog_maturity": record["maturity"],
+                        "source_sha256": raw.source_sha256,
+                        "epsg": raw.epsg,
+                        "status": "INSUFFICIENT_REFERENCE_SUPPORT",
+                        "valid_aoi_pixels": int(aoi_valid_before_reference.sum()),
+                        "quality_gate_counts": asdict(gate_counts),
+                        "reason_code": str(exc).split(":", 1)[0],
+                    })
+                    continue
                 reference_status = "APPLIED_EXTERNAL_REFERENCE_POLYGON"
             else:
                 corrected_east, corrected_north = east.copy(), north.copy()
@@ -630,6 +662,12 @@ def run_aoi_analysis(
                 }
                 reference_status = "NOT_APPLIED_NO_REFERENCE_POLYGON"
 
+            # Invalid raw offsets must not be mistaken for usable displacement in
+            # the raster outputs when no external reference correction is applied.
+            corrected_east = np.asarray(corrected_east, dtype=float)
+            corrected_north = np.asarray(corrected_north, dtype=float)
+            corrected_east[~valid] = np.nan
+            corrected_north[~valid] = np.nan
             valid_box = valid & roi.box_mask & np.isfinite(corrected_east) & np.isfinite(corrected_north)
             magnitude = np.full(valid.shape, np.nan, dtype=float)
             magnitude[valid_box] = np.hypot(corrected_east[valid_box], corrected_north[valid_box])
@@ -762,6 +800,7 @@ def run_aoi_analysis(
             "pairwise_series_plan": plan,
             "pairs": pairs,
             "download_evidence": download_evidence,
+            "output_manifest": "manifest.json",
             "limitations": [
                 "The runner measures displacement; it does not classify landslide/glacier-collapse hazard or issue alarms.",
                 "A constant height per AOI is an approximation. Product-height-axis midpoint is used when no explicit HAE is supplied; use a DEM-backed per-pixel geometry sampler before operational claims.",
@@ -797,8 +836,8 @@ def run_aoi_analysis(
             ],
             "raw_h5_retention": {
                 "raw_h5_in_output_bundle": False,
-                "source_cache_root_configured": str(cache_base),
-                "note": "Raw HDF5 remains in the separately configured private cache; result bundles only include source identities and SHA-256 provenance.",
+                "source_cache_policy": "Raw HDF5 remains in a private external cache; absolute paths are intentionally not written to the result manifest.",
+                "note": "Result bundles include source identities and SHA-256 provenance, not raw source HDF5 files.",
             },
             "claim_boundary": {
                 "measurement_status": result["measurement_status"],
@@ -807,12 +846,6 @@ def run_aoi_analysis(
             },
         }
         (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        result["output_manifest"] = "manifest.json"
-        result["output_files"] = len(manifest["files"])
-        result["output_checksums_sha256"] = _sha256(run_dir / "manifest.json")
-        (run_dir / "result.json").write_text(json.dumps(_safe_json(result), indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
-        # Rebuild dashboard after adding the final manifest digest.
-        write_dashboard(result, run_dir / "visuals" / "dashboard.html")
         return result
     except (AOIRunError, AOIRequestError, SeriesPlanError, GoffReadError, ScientificInputError) as exc:
         code = getattr(exc, "code", str(exc).split(":", 1)[0]) or type(exc).__name__
