@@ -240,7 +240,8 @@ jobs:
               "geometry_height_m":height,
               "control_seed":260826,
               "control_draws":draws,
-              "coherence_minimum_valid_cells":25,
+              "coherence_minimum_valid_cells":1,
+              "coherence_neighbour_policy":"primary minimum 1 because the preprint omits a minimum neighbour count; sensitivity is reported for 1,5,10,15,20,25",
               "products":products,
           }
           with open(config_path,"w",encoding="utf-8") as f:
@@ -256,7 +257,7 @@ jobs:
               "geometry_height_m":height,
               "control_seed":260826,
               "control_draws":draws,
-              "coherence_minimum_valid_cells":25,
+              "coherence_minimum_valid_cells":1,
               "source_reference_run_id":catalog.get("source_reference_run_id"),
               "author_product_variant_status":"NOT_VERIFIED_AGAINST_AUTHOR_SUPPLEMENT",
               "scientific_scope":"measurement reproduction study only; not a hazard detector",
