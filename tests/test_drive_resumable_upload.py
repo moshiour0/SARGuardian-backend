@@ -176,3 +176,98 @@ def test_folder_creation_recovers_if_post_response_is_transiently_ambiguous(monk
 
     assert folder_id == "folder-created-before-500"
     assert len(session.request_calls) == 3
+
+
+class FakeExistingFilesDrive:
+    def __init__(self, existing_by_name):
+        self.existing_by_name = existing_by_name
+
+    def list_named_children(self, _folder, name):
+        return self.existing_by_name.get(name, [])
+
+
+def _existing_record(name: str, data: bytes, *, file_id: str = "remote-old-id"):
+    return {
+        "id": file_id,
+        "name": name,
+        "size": str(len(data)),
+        "md5Checksum": hashlib.md5(data).hexdigest(),
+        "mimeType": "application/octet-stream",
+    }
+
+
+def test_same_run_retry_reuse_counts_files_once_as_new_in_this_run():
+    row = {
+        "id": "remote-file-id",
+        "name": "export_src.tif",
+        "bytes": 4096,
+        "reused": True,
+        "webViewLink": "https://drive.google.com/file/d/remote-file-id/view",
+    }
+
+    normalized = drive_upload.normalise_run_scoped_receipt_row(
+        row, existing_files_are_new=True
+    )
+
+    assert normalized["reused"] is False
+    assert normalized["upload_action_reused"] is True
+    assert normalized["id"] == row["id"]
+    assert row["reused"] is True  # The source record isn't mutated.
+
+
+def test_only_known_receipt_files_can_be_replaced_during_same_run_retry(tmp_path):
+    path = tmp_path / "drive-retention-receipt.json"
+    path.write_bytes(b"fresh receipt")
+    md5, sha, size = drive_upload.hashes(path)
+    old = _existing_record(path.name, b"old receipt")
+    drive = FakeExistingFilesDrive({path.name: [old]})
+
+    missing, replacements = drive_upload.plan_existing_uploads(
+        drive,
+        "run-folder-id",
+        [(path, md5, sha, size, "application/json")],
+        replace_existing_retry_sidecars=True,
+    )
+
+    assert missing == size
+    assert replacements == [{
+        "id": "remote-old-id",
+        "name": "drive-retention-receipt.json",
+        "bytes": size,
+    }]
+
+
+def test_retry_never_replaces_a_scientific_output_with_different_content(tmp_path):
+    path = tmp_path / "export_src.tif"
+    path.write_bytes(b"new raster bytes")
+    md5, sha, size = drive_upload.hashes(path)
+    old = _existing_record(path.name, b"old raster bytes")
+    drive = FakeExistingFilesDrive({path.name: [old]})
+
+    with pytest.raises(drive_upload.DriveError, match="DRIVE_EXISTING_FILE_CONFLICT"):
+        drive_upload.plan_existing_uploads(
+            drive,
+            "run-folder-id",
+            [(path, md5, sha, size, "image/tiff")],
+            replace_existing_retry_sidecars=True,
+        )
+
+
+def test_identical_run_scoped_files_do_not_require_new_drive_bytes(tmp_path):
+    path = tmp_path / "export_src.tif"
+    data = b"same immutable output"
+    path.write_bytes(data)
+    md5, sha, size = drive_upload.hashes(path)
+    old = _existing_record(path.name, data)
+    drive = FakeExistingFilesDrive({path.name: [old]})
+
+    missing, replacements = drive_upload.plan_existing_uploads(
+        drive,
+        "run-folder-id",
+        [(path, md5, sha, size, "image/tiff")],
+        replace_existing_retry_sidecars=True,
+    )
+
+    assert missing == 0
+    assert replacements == []
+

@@ -85,9 +85,20 @@ For each granule the workflow does the following:
    not preserved unless a compact equivalent was explicitly exported.
 
 A failed upload or failed verification never reaches the explicit `rm` step.
-GitHub-hosted runners are disposable; if a run fails before retention succeeds,
-rerun that granule from its exact ID. The manifest is deterministic and the
-Drive uploader refuses to overwrite a same-name file with different content.
+After the initial product matrix completes, the workflow checks all processed
+product and cleanup receipts and retries each incomplete product once through
+the same full processing worker. The separate preassembly gate verifies every
+selected product—including valid checkpoints reused from a compatible resume
+source—before any reassembly starts. If a product is still incomplete after
+that retry, the final verification report is preserved and reassembly is
+blocked; inspect the per-product diagnostic and retry report rather than
+treating a partial set as success. The manifest is deterministic. The Drive
+uploader refuses to overwrite a same-name scientific/derived output with
+different checksums. On a bounded same-workflow-run retry, only the allowlisted
+attempt-dependent sidecar receipts (`product-processing.json`,
+`drive-retention-receipt.json`, and `local-cleanup-receipt.json`) may be
+replaced in the unique current-run folder; all replacements remain subject to
+remote size/MD5 verification.
 
 ## What is regenerated in full-source-baseline
 
@@ -124,13 +135,41 @@ pixel-for-pixel parity against absent TIFF files.
 The output bundle is not marked PASS if any required table differs or any
 product artifact is missing.
 
-Independent experiments such as detectability/revisit sweeps, terrain/dam
-rankings or map-only products that do not form this documented raw
-GUNW/GOFF → bound chain are not claimed to have been recalculated by this
-workflow; their committed versions remain in the pinned source repository.
-If a later project result depends on another raw HDF5 dataset, use the Drive
-full-lossless archive and add an equivalence-gated stage before enabling its
-source deletion.
+## Complete documented science suite
+
+For a `full-source-baseline` run, aggregation also executes the supplementary
+Results 1, 2, 3 and 6 from the exact pinned `SARGuardian/src/` tree:
+
+- Result 1 regenerates the noise-gated and legacy fixed-gate detectability
+  sweeps, plus the pinned Blatten phase and offset-tracking comparisons.
+- Result 2 runs SRTM-based track sensitivity/stencil tests and the explicit
+  north-face aspect hypothesis.
+- Result 3 regenerates the terrain impoundment GeoJSON outputs for source,
+  Langtang, Lhende and Blatten.
+- Result 6 surveys the Sentinel-2 scenes, re-generates the candidate map, and
+  probes the reported point. The point must be observed and the pinned script
+  must produce its documented `NOT A SCAR` evidence; missing data is not a
+  negative detection.
+
+Results 4, 5 and 7 remain built from the raw-product jobs' pinned scientific
+readers and their verified source-AOI GeoTIFFs: GOFF/GUNW exports,
+time-series/inverse-velocity checks, troposphere, local floors, common
+reference and final bounds. The supplementary runner requires the exact
+`ab547ecc82bcc4d6ccef545a59852536c2beacc6` commit and a clean `src/` tree,
+removes generated targets before executing each command, validates newly
+generated CSV/GeoJSON outputs, records exact arguments/logs, and retries
+transient errors for network-dependent steps. A remaining required failure
+keeps the batch result at FAIL. Terrain GeoJSON hashes are reported for
+inspection, not treated as strict parity gates because public elevation
+services can change independently.
+
+The final aggregation job does not need original raw HDF5: it consumes the
+validated, AOI-clipped GeoTIFFs produced by each product job. Any operation
+that must compare raw against a retained lossless HDF5 copy runs while the
+raw file still exists, before that product can pass its cleanup gate. If a
+future analysis depends on a dataset not represented in the validated derived
+outputs, retain `full-lossless` and add the required science/equivalence gate
+before enabling source deletion.
 
 ## Drive layout
 
@@ -144,9 +183,11 @@ Aggregate run-level output remains separate:
 
 Each folder contains checksummed receipts. Identical content is reused within
 the same run folder; a later run gets a new folder rather than overwriting a
-previous archive with the same filename. Filename/content conflicts and
-insufficient Drive quota still fail closed. This intentionally retains older
-archives; do not delete them merely to make space. Raw .h5 source files are
+previous archive with the same filename. Conflicting scientific/derived
+filenames and insufficient Drive quota still fail closed. Only the three
+allowlisted attempt-dependent sidecar receipts may be refreshed inside the
+same workflow run's unique version folder during its bounded retry. This
+intentionally retains older archives; do not delete them merely to make space. Raw .h5 source files are
 excluded from uploads; only explicitly named `*.science.h5` retained archives
 are accepted by the upload helper.
 
@@ -165,12 +206,104 @@ No credentials should be put into committed files or workflow inputs.
 
 ## Resuming a failed full-baseline run
 
-To continue a run after a transient network/authentication failure, select the branch that contains the retry/resume changes and run the SARGuardian Streaming Batch (source AOI) workflow from Actions. Choose full-source-baseline, keep the same date range and retention mode, and enter the failed run's numeric ID in resume_from_run_id.
+To resume a failed full-baseline run, use the test branch
+`feat/e2e-pinned-science-pipeline` and choose `full-source-baseline`, keeping
+the same date window and retention mode.
 
-The workflow downloads the prior manifest, product artifacts and cleanup receipts. It rejects reuse if the AOI, pinned science commit, dates, retention mode or ordered product identities differ. A checkpoint is reusable only when the derived-output baseline validation and remote-retention receipt pass, required local export/provenance files are present, and the cleanup receipt has been remotely verified. Every incomplete/ambiguous product is processed again.
+- Leave `resume_from_run_id` blank to search for the newest compatible
+  failed/cancelled/timed-out manual run from this workflow on the testing
+  branch or `main`.
+- Enter a numeric run ID to select a specific run.
+- Enter `none` to disable discovery and force a cold run.
+
+Discovery checks the old manifest, the pinned science commit, source AOI,
+date window, retention mode and ordered product identities. Only products with
+passing derived-output validation, verified Drive retention, required local
+checkpoint files, and a remotely verified cleanup receipt are reusable.
+Missing/incomplete per-product or cleanup artifacts are treated as unverified,
+so those products are processed again. In the aggregation job, current-run and
+prior-run product/cleanup artifact-family downloads are optional: this permits
+an all-reused resume (which may have an empty processing matrix) to reach the
+same evidence and science gates instead of failing just because there are no
+new artifacts to download.
+
+Storage accounting uses unique verified Drive file IDs and actual receipt sizes.
+Its `net_new_remote_bytes_in_run` excludes products reused from a prior checkpoint;
+the receipt's `reused` flag describes the original upload attempt and is not by
+itself proof that those bytes were uploaded during this new run.
+
+A green auto-resume CI test does not replace a live resumed full-baseline run;
+operational status remains pending until the branch's manual run succeeds
+end-to-end.
 
 The aggregation job combines the prior checkpoint artifacts with results from the new attempt. A failed retry's diagnostics-only artifact cannot replace a previously verified product checkpoint. Use this for transient infrastructure failures, not to bypass a scientific parity failure. The final run must still reproduce all required baseline rows, downstream tables and receipt/accounting gates. The retry/resume implementation needs one live resumed run before being treated as operationally proven.
 
+
+## Why the automatic retry gate exists
+
+The prior live failure evidence shows why a granule must not be labelled
+permanently bad just because one run exhausts its retry budget:
+
+- In [Run #31](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39529540908),
+  `GOFF-018`, `GOFF-022`, and `GOFF-025` exhausted four download attempts
+  after a `ConnectionError` while reaching the Earthdata Login token endpoint
+  `urs.earthdata.nasa.gov/oauth/tokens/user`. These errors occurred during
+  authentication/probing, before the granule bytes were successfully obtained;
+  they are not evidence of a corrupt HDF5 file.
+- In the same run, `GOFF-021` completed the download and scientific processing,
+  uploaded its derived products, and then failed while uploading metadata due
+  to `DRIVE_CHUNK_UPLOAD_HTTP_500`. That is a separate transient Drive upload
+  failure, and it can leave some same-run outputs remotely present.
+- In [Run #51](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39602014392),
+  those four product jobs later completed successfully. This supports retrying
+  the product job after the initial sequential matrix and checking the actual
+  receipts, rather than assuming the previous failure is a permanent granule
+  problem.
+
+The gate therefore tests the resulting product/retention/cleanup evidence,
+not merely the initial job's green/red state. It retries only incomplete
+products, verifies source SHA-256 before refreshing attempt-dependent Drive
+sidecars, does not replace changed scientific outputs, and blocks reassembly
+if any product still lacks a valid complete receipt pair.
+
+## Retry failed products before reassembly
+
+The streaming workflow factors the existing per-product processing sequence
+into a reusable worker. The initial matrix still honors the selected
+`resume_from_run_id` behavior: `none` forces a fresh run, blank selects the
+automatic compatible-resume path, and a numeric ID selects a manual resume
+source.
+
+After the initial matrix is complete, `retry-plan` validates each product's
+`product-processing.json`, derived-output validation and remote-retention
+receipt, required export inventory, and both post-cleanup receipts. Only
+products with a missing or invalid granule/cleanup receipt pair are added to
+the retry-only matrix. The original downloader retains its four-attempt
+bounded retry for transient download failures; if the whole product job still
+fails or its output receipt is incomplete, that product gets one additional
+full-worker attempt. A retry reuses the same run-scoped Drive folder: matching
+scientific outputs are reused and counted once as retained by this run, while
+a changed same-name science output remains a hard conflict. Because receipt
+timestamps and same-run reuse evidence can differ between attempts, only the
+three allowlisted metadata/cleanup receipts may be replaced on retry; the
+replacement is recorded and final receipts still verify remote file IDs, sizes
+and MD5 checksums.
+
+The `preassembly-verify` job then checks every product in the complete manifest,
+not only the products processed in the latest matrix. In full-baseline mode it
+requires exactly 33 ordered product identities (15 GUNW and 18 GOFF). It
+accepts a product only when its granule and cleanup receipts form one complete,
+compatible pair from either this run or the selected compatible resume source.
+Reassembly is gated on this job passing. If any product remains missing or
+invalid after retry, the workflow fails closed, retains
+`sarguardian-preassembly-retry-plan` and
+`sarguardian-preassembly-verification` reports when available, and skips the
+aggregate/reassembly job. The science commit, pinned source scripts and
+scientific comparison tolerances are not changed by this retry orchestration.
+
+A manual full-baseline run on the updated testing branch is still required to
+verify this exact retry-before-reassembly path against all live 33 products;
+regression CI alone does not count as live end-to-end proof.
 
 ## Optional Earthdata user-token authentication
 

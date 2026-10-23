@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Resolve a safe SARGuardian full-baseline resume source.
 
-A blank resume_from_run_id means: for full-source-baseline runs only, find the
-newest completed failed/cancelled run from this same workflow whose manifest is
-compatible with this request and whose checkpoint artifacts still exist.
+A blank resume_from_run_id means: for full-source-baseline runs only, find a
+compatible failed/cancelled run with the greatest available granule/cleanup
+checkpoint coverage (the newest run wins ties). Checkpoint contents are still
+validated before reuse.
 Type "none" to force a cold run, or provide a numeric run ID to select it
 explicitly. Authentication tokens are never printed.
 """
@@ -14,6 +15,7 @@ import io
 import json
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +23,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
+
+# GitHub Actions executes this file as `python tools/resolve_resume_run.py`.
+# In that mode Python puts tools/ (not the repository root) on sys.path, so
+# namespace-package imports such as `from tools.time_window ...` otherwise fail.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from tools.resume_streamed_run import validate_resume_compatibility
 from tools.time_window import filter_products_by_time_window
@@ -170,61 +179,91 @@ def get_run(repo: str, run_id: str, token: str) -> dict[str, Any]:
 
 
 def list_workflow_runs(repo: str, branch: str, token: str) -> list[dict[str, Any]]:
-    query = urllib.parse.urlencode({"branch": branch, "event": "workflow_dispatch", "per_page": 50})
-    result = api_json(f"{API_ROOT}/repos/{repo}/actions/workflows/{WORKFLOW_ID}/runs?{query}", token)
-    runs = result.get("workflow_runs")
-    if not isinstance(runs, list):
-        raise ValueError("GITHUB_WORKFLOW_RUN_LIST_INVALID")
-    return [x for x in runs if isinstance(x, dict)]
+    # Include main-run checkpoints while testing this flow on a feature branch.
+    # Candidate eligibility below still limits reuse to the current branch or main.
+    # Paginate the bounded GitHub Actions run list so a compatible checkpoint is
+    # not silently missed once this workflow has more than one API page of runs.
+    all_runs: list[dict[str, Any]] = []
+    page_size = 100
+    max_pages = 10  # GitHub's Actions API exposes at most 1,000 runs per query.
+    for page in range(1, max_pages + 1):
+        query = urllib.parse.urlencode({
+            "event": "workflow_dispatch",
+            "per_page": page_size,
+            "page": page,
+        })
+        result = api_json(
+            f"{API_ROOT}/repos/{repo}/actions/workflows/{WORKFLOW_ID}/runs?{query}", token
+        )
+        runs = result.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise ValueError("GITHUB_WORKFLOW_RUN_LIST_INVALID")
+        all_runs.extend(x for x in runs if isinstance(x, dict))
+        if len(runs) < page_size:
+            break
+    return all_runs
 
 
-def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any] | None, bool]:
-    """Return the run manifest and whether at least one product checkpoint exists."""
+def get_run_manifest(repo: str, run_id: str, token: str) -> tuple[dict[str, Any] | None, int]:
+    """Return the run manifest and its advertised granule/cleanup checkpoint-pair count."""
     result = api_json(
         f"{API_ROOT}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", token
     )
     artifacts = result.get("artifacts")
     if not isinstance(artifacts, list):
-        return None, False
+        return None, 0
     manifest_artifact = next((
         x for x in artifacts
         if isinstance(x, dict) and x.get("name") == "sarguardian-stream-run-manifest"
         and not x.get("expired")
     ), None)
-    has_checkpoint = any(
-        isinstance(x, dict) and not x.get("expired")
-        and str(x.get("name", "")).startswith(("sarguardian-granule-", "sarguardian-cleanup-"))
+    # Estimate usable checkpoint coverage from matching granule + cleanup
+    # artifact names. Content-level receipt validation still happens in
+    # plan_resume; this count only avoids preferring a recent four-product retry
+    # over an older run with many reusable checkpoints.
+    granule_ids = {
+        str(x.get("name", "")).removeprefix("sarguardian-granule-")
         for x in artifacts
-    )
+        if isinstance(x, dict) and not x.get("expired")
+        and re.fullmatch(r"sarguardian-granule-(?:GUNW|GOFF)-\d{3}", str(x.get("name", "")))
+    }
+    cleanup_ids = {
+        str(x.get("name", "")).removeprefix("sarguardian-cleanup-")
+        for x in artifacts
+        if isinstance(x, dict) and not x.get("expired")
+        and re.fullmatch(r"sarguardian-cleanup-(?:GUNW|GOFF)-\d{3}", str(x.get("name", "")))
+    }
+    checkpoint_pairs = len(granule_ids & cleanup_ids)
     if not manifest_artifact:
-        return None, has_checkpoint
+        return None, checkpoint_pairs
     artifact_id = manifest_artifact.get("id")
     if not artifact_id:
-        return None, has_checkpoint
+        return None, checkpoint_pairs
     archive_url = f"{API_ROOT}/repos/{repo}/actions/artifacts/{artifact_id}/zip"
     archive_bytes = request_bytes(archive_url, token, allow_redirect=True)
     if len(archive_bytes) > 10 * 1024 * 1024:
-        return None, has_checkpoint
+        return None, checkpoint_pairs
     try:
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
             names = [n for n in archive.namelist() if Path(n).name == "manifest.json"]
             if len(names) != 1:
-                return None, has_checkpoint
+                return None, checkpoint_pairs
             parsed = json.loads(archive.read(names[0]).decode("utf-8"))
     except (OSError, ValueError, zipfile.BadZipFile, KeyError, UnicodeDecodeError):
-        return None, has_checkpoint
-    return (parsed if isinstance(parsed, dict) else None), has_checkpoint
+        return None, checkpoint_pairs
+    return (parsed if isinstance(parsed, dict) else None), checkpoint_pairs
 
 
 def _eligible_failed_run(
     run: dict[str, Any], *, current_run_id: str, branch: str, workflow_path: str,
 ) -> bool:
+    allowed_branches = {branch, "main"}
     return (
         str(run.get("id", "")) != str(current_run_id)
         and run.get("status") == "completed"
         and run.get("conclusion") in {"failure", "cancelled", "timed_out"}
         and run.get("event") == "workflow_dispatch"
-        and run.get("head_branch") == branch
+        and run.get("head_branch") in allowed_branches
         and run.get("path") == workflow_path
     )
 
@@ -232,10 +271,10 @@ def _eligible_failed_run(
 def choose_compatible_failed_run(
     runs: list[dict[str, Any]], current_manifest: dict[str, Any], *,
     current_run_id: str, branch: str, workflow_path: str,
-    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, bool]],
+    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, int]],
 ) -> tuple[str, int]:
-    """Choose the newest compatible failed run that still has checkpoint artifacts."""
-    compatible: list[tuple[str, str]] = []
+    """Prefer the compatible failed run with most checkpoint pairs; newest breaks ties."""
+    best: tuple[int, str, str] | None = None
     scanned = 0
     candidates = sorted(
         (r for r in runs if _eligible_failed_run(
@@ -247,8 +286,8 @@ def choose_compatible_failed_run(
     for run in candidates:
         run_id = str(run.get("id", ""))
         scanned += 1
-        previous, has_checkpoint = manifest_loader(run_id)
-        if not previous or not has_checkpoint:
+        previous, checkpoint_pairs = manifest_loader(run_id)
+        if not previous or checkpoint_pairs <= 0:
             continue
         if not str(previous.get("run_id", "")).startswith(run_id + "-"):
             continue
@@ -256,17 +295,17 @@ def choose_compatible_failed_run(
             validate_resume_compatibility(current_manifest, previous)
         except ValueError:
             continue
-        compatible.append((str(run.get("created_at", "")), run_id))
-        # Candidates are in descending created_at order; first compatible wins.
-        return run_id, scanned
-    return "", scanned
+        candidate = (int(checkpoint_pairs), str(run.get("created_at", "")), run_id)
+        if best is None or candidate[:2] > best[:2]:
+            best = candidate
+    return (best[2] if best else ""), scanned
 
 
 def resolve(
     requested: str, *, run_profile: str, current_manifest: dict[str, Any] | None,
     repo: str, branch: str, current_run_id: str, workflow_path: str,
     token: str, runs_loader: Callable[[], list[dict[str, Any]]] | None = None,
-    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, bool]] | None = None,
+    manifest_loader: Callable[[str], tuple[dict[str, Any] | None, int]] | None = None,
 ) -> tuple[str, str, int]:
     """Return (run_id, selection mode, candidate runs inspected)."""
     value = (requested or "").strip().lower()

@@ -77,3 +77,25 @@ downstream parity gates are documented in
 [docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md](docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md).
 The two-granule pilot and the 33-product source-baseline replay have now passed. See the run evidence and remaining scientific limits in `docs/STREAMING_BATCH.md` and `docs/RAW_HDF5_DEPENDENCY_AND_PARITY_PLAN.md`. The artifact-only replay is proven; the distinct full live `resume_from_run_id` recovery mode remains separately unverified.
 
+
+
+## Final integration branch: dynamic AOI + reproducible science
+
+The integration branch is **feat/final-aoi-science-integration**. It is based on
+**feat/e2e-aoi-wkt-date-dashboard**, which already contains the pinned source-AOI
+streaming work and the dynamic WKT/date workflow. The combined behavior,
+separate science pins, candidate-check limitations, and merge acceptance gates
+are documented in [docs/FINAL_INTEGRATION_BRANCH.md](docs/FINAL_INTEGRATION_BRANCH.md)
+and [docs/DYNAMIC_AOI_WKT_E2E.md](docs/DYNAMIC_AOI_WKT_E2E.md).
+
+Both the full source-AOI baseline and dynamic-WKT aggregation now invoke
+tools/run_export_science_diagnostics.py to run pixel_stack.py on retained
+GUNW exports. Candidate screening is integrated for the named source AOI only;
+for arbitrary WKT, the current scientific script's named-polygon assumptions
+are explicitly reported as a skip rather than applied incorrectly. A workflow
+PASS is structural/reproducibility evidence, not proof of a landslide alert.
+The default-branch WKT dispatcher remains an input-forwarding entry point and
+currently targets the older AOI-only branch. To exercise this integration, run
+the WKT workflow directly from `feat/final-aoi-science-integration`; update the
+default dispatcher reference separately after this branch is reviewed. The
+source-AOI streaming workflow remains independently callable.

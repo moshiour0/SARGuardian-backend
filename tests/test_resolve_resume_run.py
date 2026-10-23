@@ -4,7 +4,9 @@ import csv
 from pathlib import Path
 
 import pytest
+from urllib.parse import parse_qs, urlparse
 
+import tools.resolve_resume_run as resolver
 from tools.resolve_resume_run import (
     build_target_manifest,
     choose_compatible_failed_run,
@@ -76,6 +78,50 @@ def test_auto_resume_picks_newest_compatible_failed_run_and_skips_invalid_candid
     assert chosen == "100"
     assert scanned == 2
 
+
+
+def test_auto_resume_prefers_more_checkpoint_coverage_over_newer_partial_retry():
+    current = _manifest("999-1")
+    runs = [
+        _run("110", "2026-10-21T12:00:00Z"),  # latest retry completed only four products
+        _run("100", "2026-10-21T07:00:00Z"),  # older full attempt has 29 reusable checkpoints
+    ]
+
+    def load_manifest(run_id: str):
+        coverage = {"110": 4, "100": 29}[run_id]
+        return _manifest(f"{run_id}-1"), coverage
+
+    chosen, scanned = choose_compatible_failed_run(
+        runs,
+        current,
+        current_run_id="999",
+        branch="feat/e2e-pinned-science-pipeline",
+        workflow_path=".github/workflows/sarguardian-streaming-batch.yml",
+        manifest_loader=load_manifest,
+    )
+
+    assert chosen == "100"
+    assert scanned == 2
+
+
+def test_feature_branch_can_resume_compatible_main_checkpoint():
+    current = _manifest("999-1")
+    runs = [
+        _run("108", "2026-10-21T11:00:00Z", branch="unrelated-feature"),
+        _run("107", "2026-10-21T10:00:00Z", branch="main"),
+    ]
+
+    chosen, scanned = choose_compatible_failed_run(
+        runs,
+        current,
+        current_run_id="999",
+        branch="feat/e2e-pinned-science-pipeline",
+        workflow_path=".github/workflows/sarguardian-streaming-batch.yml",
+        manifest_loader=lambda run_id: (_manifest(f"{run_id}-1"), True),
+    )
+
+    assert chosen == "107"
+    assert scanned == 1
 
 def test_auto_resume_returns_none_when_no_compatible_checkpoint_exists():
     current = _manifest("999-1")
@@ -178,3 +224,26 @@ def test_build_target_manifest_requires_entire_pinned_33_product_window(tmp_path
         "derived-only",
     )
     assert partial is None
+
+def test_run_discovery_paginates_beyond_first_hundred_runs(monkeypatch):
+    requested_pages = []
+
+    def fake_api_json(url, token):
+        assert token == "test-token"
+        query = parse_qs(urlparse(url).query)
+        page = int(query["page"][0])
+        requested_pages.append(page)
+        assert query["per_page"] == ["100"]
+        if page == 1:
+            return {"workflow_runs": [{"id": n} for n in range(100)]}
+        if page == 2:
+            return {"workflow_runs": [{"id": 100}]}
+        return {"workflow_runs": []}
+
+    monkeypatch.setattr(resolver, "api_json", fake_api_json)
+    runs = resolver.list_workflow_runs("owner/repo", "feat/test", "test-token")
+
+    assert requested_pages == [1, 2]
+    assert len(runs) == 101
+    assert runs[-1]["id"] == 100
+

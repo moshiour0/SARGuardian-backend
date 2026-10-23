@@ -61,7 +61,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--input",required=True,type=Path)
     p.add_argument("--product-type",required=True,choices=["GUNW","GOFF"])
-    p.add_argument("--aoi",required=True,choices=["source","langtang","lhende"])
+    p.add_argument("--aoi",required=True,choices=["source","langtang","lhende","custom"])
     p.add_argument("--science-root",required=True,type=Path)
     p.add_argument("--science-commit",required=True)
     p.add_argument("--out",required=True,type=Path)

@@ -20,6 +20,15 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+# This script is also invoked directly by the workflow. Ensure imports from the
+# repository's tools namespace work when cwd and sys.path[0] are tools/ or an
+# unrelated directory, not the repository root.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from tools.run_pinned_science_suite import run_suite
+
 NUMERIC_REL_TOL = 1e-5
 NUMERIC_ABS_TOL = 1e-3
 IGNORE_STAT_FIELDS = {"export_mb"}  # file sizes can vary slightly across GDAL builds
@@ -34,6 +43,18 @@ BASELINE_DOWNSTREAM = [
     "local_floor_cand4_as_floors.csv",
     "common_ref_summer.csv",
     "bound_source.csv",
+    # Deterministic model outputs and the optical candidate classification are
+    # recalculated from the unchanged pinned source scripts and compared.
+    "detectability.csv",
+    "detectability_fixed_gate.csv",
+    "scar_candidates_source.csv",
+]
+
+AUXILIARY_JSON_REFERENCES = [
+    "dam_sites_source.geojson",
+    "dam_sites_langtang.geojson",
+    "dam_sites_lhende.geojson",
+    "dam_sites_blatten.geojson",
 ]
 
 
@@ -87,6 +108,10 @@ def row_key(row: dict[str, str], fields: list[str]) -> tuple[str, ...]:
     # Each scientific table has a different natural key. Prefer the most
     # specific one so candidate-level rows never collide on their input file.
     candidates = (
+        # Determinability sweeps identify an experiment by its input parameters,
+        # not by floating-point result columns whose last decimal can vary
+        # across supported numerical-library builds.
+        ("precursor_days", "revisit_days", "noise_mm", "creep_mm", "gate", "gate_mm_day"),
         ("file", "layer"),
         ("target_id", "file", "window_px", "reading"),
         ("target_id", "file", "window_px"),
@@ -292,6 +317,14 @@ def summarize_retained_storage(
     new_file_ids: set[str] = set()
     accounted = 0
     products = manifest.get("products", [])
+    resume_record = manifest.get("resume")
+    reused_checkpoint_ids = {
+        str(item) for item in (
+            resume_record.get("reused_product_ids", [])
+            if isinstance(resume_record, dict) and isinstance(resume_record.get("reused_product_ids", []), list)
+            else []
+        )
+    }
     retention_profile = str(manifest.get("retention_profile", manifest.get("archive_profile", "full-lossless")))
     expected_archive_count = 1 if retention_profile == "full-lossless" else 0
 
@@ -420,7 +453,11 @@ def summarize_retained_storage(
                 })
                 continue
             unique_files[file_id] = row
-            if not row["reused"]:
+            # The receipt's "reused" flag describes the upload attempt that
+            # originally created this checkpoint. On a later workflow run, a
+            # reused product's historical receipt must not inflate this run's
+            # net-new byte count.
+            if pid not in reused_checkpoint_ids and not row["reused"]:
                 new_file_ids.add(file_id)
 
         product_bytes = sum(row["bytes"] for row in product_files.values())
@@ -447,6 +484,10 @@ def summarize_retained_storage(
         "accounting_basis": "verified Google Drive upload receipt file sizes after processing; not raw source-size estimates",
         "products_expected": expected,
         "products_accounted": accounted,
+        "products_reused_from_checkpoint": sum(
+            str(product.get("id", "")) in reused_checkpoint_ids for product in products
+        ),
+        "new_bytes_excludes_reused_checkpoints": True,
         "unique_remote_file_count": len(unique_files),
         "actual_remote_retained_bytes": total_bytes,
         "actual_remote_retained_gib": round(total_bytes / (1024 ** 3), 6),
@@ -877,8 +918,37 @@ def run_time_series_from_exports(
 
 
 def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -> None:
-    """Recreate the documented source-AOI summary and bound chain from compact data."""
+    """Run the pinned supplemental science suite and rebuild Results 4, 5 and 7."""
     outputs = science_root / "outputs"
+
+    # Results 1, 2, 3 and 6 are independent documented experiments. Run the
+    # exact entry points from the pinned SARGuardian source tree, not rewritten
+    # formulas or alternate implementations. These checks happen after product
+    # jobs have read/validated raw HDF5 and passed their cleanup gates; their
+    # inputs are committed reference data plus public terrain/optical services.
+    suite = run_suite(science_root, out_root)
+    report["pinned_science_suite"] = {
+        "status": suite.get("status"),
+        "pinned_science_commit_expected": suite.get("pinned_science_commit_expected"),
+        "pinned_science_commit_actual": suite.get("pinned_science_commit_actual"),
+        "raw_hdf5_used": suite.get("raw_hdf5_used_by_supplementary_suite"),
+        "source_scripts_modified": suite.get("source_scripts_modified"),
+        "reference_checks": suite.get("reference_checks", []),
+        "report_log": "logs/pinned-science-suite/pinned-science-suite.json",
+    }
+    for command in suite.get("commands", []):
+        report["commands"].append({
+            "name": command.get("name"),
+            "exit_code": 0 if command.get("status") == "PASS" else 2,
+            "status": command.get("status"),
+            "argv": command.get("argv"),
+            "log": command.get("log"),
+            "source": "unchanged entry point from pinned SARGuardian/src/",
+        })
+    if suite.get("status") != "PASS":
+        report["errors"].extend(suite.get("errors", []))
+        return
+
     for family in ("GOFF", "GUNW"):
         try:
             run_time_series_from_exports(science_root, family, out_root, report)
@@ -890,6 +960,61 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
                 "detail": str(exc)[:400],
             })
             return
+
+    # The two source scripts that were not yet connected to this workflow are
+    # now run against the retained, AOI-clipped products. This adapter measures
+    # target windows from exported GeoTIFFs rather than redownloading raw HDF5.
+    backend_tool = Path(__file__).resolve().parent / "run_export_science_diagnostics.py"
+    diagnostics_root = out_root / "logs" / "export-science-diagnostics"
+    diagnostics_argv = [
+        sys.executable, str(backend_tool),
+        "--science-root", str(science_root),
+        "--exports-root", str(science_root / "outputs" / "export_src"),
+        "--out-root", str(diagnostics_root),
+        "--expected-science-commit", str(report.get("science_commit") or ""),
+        "--aoi", "source",
+        "--stats-csv", str(science_root / "outputs" / "gunw_stats_source.csv"),
+        "--candidates-csv", str(science_root / "outputs" / "scar_candidates_source.csv"),
+        "--run-candidate-check",
+    ]
+    diagnostics_done = subprocess.run(
+        diagnostics_argv, cwd=science_root, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False, timeout=2400,
+    )
+    diagnostics_log = out_root / "logs" / "export_science_diagnostics_runner.log"
+    diagnostics_log.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics_log.write_text(diagnostics_done.stdout or "", encoding="utf-8")
+    diagnostics_path = diagnostics_root / "science-diagnostics.json"
+    if diagnostics_path.is_file():
+        try:
+            report["export_science_diagnostics"] = json.loads(
+                diagnostics_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            report["export_science_diagnostics"] = {
+                "status": "FAIL", "problem": "DIAGNOSTICS_REPORT_INVALID",
+                "detail": str(exc)[:300],
+            }
+    else:
+        report["export_science_diagnostics"] = {
+            "status": "FAIL", "problem": "DIAGNOSTICS_REPORT_MISSING",
+        }
+    report["commands"].append({
+        "name": "pixel_stack and candidate_check on retained GUNW exports",
+        "argv": diagnostics_argv[1:],
+        "exit_code": diagnostics_done.returncode,
+        "log": str(diagnostics_log.relative_to(out_root)),
+        "status": report["export_science_diagnostics"].get("status"),
+        "source": "unchanged scripts from the exact pinned SARGuardian source commit",
+    })
+    if diagnostics_done.returncode != 0 or report["export_science_diagnostics"].get("status") == "FAIL":
+        report["errors"].append({
+            "problem": "EXPORT_SCIENCE_DIAGNOSTICS_FAILED",
+            "exit_code": diagnostics_done.returncode,
+            "diagnostics_status": report["export_science_diagnostics"].get("status"),
+            "log": str(diagnostics_log.relative_to(out_root)),
+        })
+        return
 
     # Keep the pre-event cutoff explicit to prevent the event and post-event
     # observations from leaking into an alleged warning-time estimate.
@@ -1037,13 +1162,31 @@ def run_downstream(science_root: Path, out_root: Path, report: dict[str, Any]) -
                                  "exit_code": done.returncode, "log_tail": done.stdout[-1200:]})
         return
 
-    # The science ZIP contains no committed ts_gunw_source.csv; report it as
-    # generated but unbaselined, never as a parity PASS.
-    report["unbaselined_outputs"] = [{
-        "file": "ts_gunw_source.csv",
-        "status": "GENERATED_NO_COMMITTED_BASELINE",
-        "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline.",
-    }]
+    # These experiments are generated from the exact pinned source entry points,
+    # but the supplied SARGuardian-main.zip has no committed result file for them.
+    # Record that explicitly; generation/structure checks are not baseline parity.
+    report["unbaselined_outputs"] = [
+        {
+            "file": "outputs/detectability_blatten_phase.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Scenario sweep has no committed CSV reference in SARGuardian-main.zip; pinned script and parameters are recorded in the science-suite report.",
+        },
+        {
+            "file": "outputs/detectability_blatten_offsets.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Offset/noise sweep has no committed CSV reference in SARGuardian-main.zip; pinned script and parameters are recorded in the science-suite report.",
+        },
+        {
+            "file": "outputs/geometry_sensitivity_source.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "Live DEM stencil-sensitivity output has no committed CSV reference in SARGuardian-main.zip.",
+        },
+        {
+            "file": "outputs/ts_gunw_source.csv",
+            "status": "GENERATED_NO_COMMITTED_BASELINE",
+            "reason": "The supplied SARGuardian-main.zip has no outputs/ts_gunw_source.csv baseline; this is reconstructed from the retained AOI-clipped exports.",
+        },
+    ]
 
     # Compare regenerated key outputs with the pinned repository's committed baselines.
     baseline_dir = out_root / "baseline-snapshot"
@@ -1111,6 +1254,12 @@ def main() -> int:
     baseline_dir = out_root / "baseline-snapshot"
     baseline_dir.mkdir(parents=True, exist_ok=True)
     for filename in BASELINE_DOWNSTREAM:
+        src = outputs / filename
+        if src.exists():
+            shutil.copy2(src, baseline_dir / filename)
+    # Preserve baseline terrain outputs before network-backed commands replace
+    # working copies; resulting hash differences are diagnostic only.
+    for filename in AUXILIARY_JSON_REFERENCES:
         src = outputs / filename
         if src.exists():
             shutil.copy2(src, baseline_dir / filename)

@@ -90,7 +90,7 @@ def main() -> int:
     p.add_argument("--source", required=True, type=Path)
     p.add_argument("--archive", required=True, type=Path)
     p.add_argument("--science-root", required=True, type=Path)
-    p.add_argument("--aoi", default="langtang", choices=["source", "langtang", "lhende"])
+    p.add_argument("--aoi", default="langtang", choices=["source", "langtang", "lhende", "custom"])
     p.add_argument("--science-commit", required=True, help="Exact pinned Git commit of the source reader")
     p.add_argument("--preflight-report", type=Path, help="Verified AOI grid-intersection report from validate_product_aoi.py")
     p.add_argument("--out", required=True, type=Path)

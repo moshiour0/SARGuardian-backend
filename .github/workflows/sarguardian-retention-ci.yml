@@ -43,6 +43,7 @@ jobs:
           set -euo pipefail
           ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path); puts "YAML_PARSE_PASS=#{path}" }' \
             .github/workflows/sarguardian-retention-pilot.yml \
+            .github/workflows/sarguardian-product-worker.yml \
             .github/workflows/sarguardian-streaming-batch.yml \
             .github/workflows/sarguardian-reassemble-existing.yml \
             .github/workflows/sarguardian-live-validation.yml \
