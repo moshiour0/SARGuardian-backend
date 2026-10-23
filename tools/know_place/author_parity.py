@@ -1,9 +1,11 @@
 """Author-source-compatible kernels kept separate from the exploratory runner.
 
-Recovered from the CC BY 4.0 Zenodo source archive. These functions implement
-specific site-series methods; they do not fetch source data or certify a full
-paper reproduction. Raw GOFF source hashes and end-to-end golden parity remain
-independent gates.
+Adapted from Sansar Raj Meena (2026), "Bhote Koshi 2026 ice-rock avalanche:
+NISAR L2 GOFF site series and footprint-wide offset-tracking screen — data and
+code", Zenodo, https://doi.org/10.5281/zenodo.22730419, CC BY 4.0.
+Changes: extracted kernels into typed, independently testable functions and
+added validation. These functions do not fetch data or certify a full paper
+reproduction. Raw GOFF source hashes and end-to-end golden parity remain gates.
 """
 from __future__ import annotations
 

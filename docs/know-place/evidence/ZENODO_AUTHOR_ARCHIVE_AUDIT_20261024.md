@@ -29,7 +29,7 @@ It does **not** include the five original NISAR GOFF HDF5 granules. TableS1 list
 
 The README describes fields/offsets_*.tif as EPSG:32645 at 80 m posting, with east, north, magnitude, and coherence bands. Actual profiles inspected from all five TIFF files are **73 x 80 pixels, EPSG:4326, and three bands**: dE, dN, and R. Magnitude can be derived from dE/dN but is not stored as a band. The separate footprint screen rasters use EPSG:32645 at 80 m. This is a README-versus-file-profile discrepancy; the audit preserves both facts rather than silently normalizing the record.
 
-The stored R band was independently recomputed from dE/dN with the author's 5 x 5 reflected-edge normalized uniform-filter rule. Across all five fields, median absolute differences were about 1.1–1.5e-8 and maximum differences were at most 1.2e-7 on common valid cells, consistent with float32 storage. This verifies that particular derived band in the supplied site fields; it does not validate source HDF5 decoding or the crown mask.
+The stored R band was independently recomputed from dE/dN using the author’s reflected-edge normalized uniform-filter rule. All five rasters have exactly matching finite-R masks on this comparison; common finite cells by pair are 4,539, 4,676, 4,802, 4,657 and 4,461. Median absolute errors are 1.03e-8–1.14e-8, 95th-percentile absolute errors 2.74e-8–2.79e-8, and the maximum absolute error over all five is 3.50e-8; zero cells exceed 1e-6. Each source TIFF SHA-256 and pair-level error metric is recorded in author_archive_golden_v1.json. This verifies the stored R band from the same exported dE/dN grids; it is not raw HDF5 source replay and does not validate crown-mask or full-footprint parity.
 
 ## 3. Exact match to Supplementary Data 1
 
@@ -64,3 +64,8 @@ Next work is a separately tested author-parity path, comparison against the five
 ## Author-parity kernels (separate exploratory/reproduction boundary)
 
 The branch now has a separate `tools/know_place/author_parity.py` module. It contains recovered kernels for reflected-edge 5×5 coherence with strict >0.5 finite support, source quality gate without a correlation threshold, author LOS projection, crown-local geometry median over height, WIDE window selection, midline-coordinate rectangular AOI mask, stable-ground correction only when ring-valid count exceeds 200, north-up flip/extent, endpoint-linear crown slicing, P1 crown-cropped coherence, and the source polygon-null algorithm. Synthetic regression tests are in `tools/tests/test_know_place_author_parity.py`. The existing exploratory `tools/know_place/analyze.py` is unchanged; the recovered kernels have not yet been integrated into a full raw-input replay, and no paper-reproduction claim is made.
+
+
+## Re-running the processed-field check
+
+Use `python -m tools.know_place.verify_author_fields /path/to/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip --output author-field-verification.json`. The verifier checks ZIP payload entries against the archived manifest, records hashes/profiles for all five small field rasters, recomputes R from bands 1–2, and compares it with band 3. It does not extract or copy the separately licensed CC BY-NC runout outline, download raw GOFF products, or claim source-to-output parity.

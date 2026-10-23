@@ -224,5 +224,86 @@
     "Author P1 crown R is computed after cropping to crown; current generic summary computes neighbourhood field before selecting crown centres, closer to the separate polygon-null estimate. P1, P2 and polygon-null columns are distinct estimands."
   ],
   "raw_replay_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-  "hazard_detection_status": "NOT_EVALUATED"
+  "hazard_detection_status": "NOT_EVALUATED",
+  "field_raster_verification": {
+    "source_method": "Archived author coherence: unit vectors, scipy.ndimage.uniform_filter default reflect edges, normalize by finite support, retain support fraction > 0.5.",
+    "comparison_method": "Recomputed R from bands 1 and 2 of each uploaded site-field GeoTIFF and compared with band 3 on common finite cells. Read float32 bands were promoted to float64 for calculations; output is then compared with archived float32 R.",
+    "tolerance": 0.000001,
+    "all_five_profiles": {
+      "width": 80,
+      "height": 73,
+      "crs": "EPSG:4326",
+      "bands": 3,
+      "dtypes": [
+        "float32",
+        "float32",
+        "float32"
+      ],
+      "nodata": "NaN"
+    },
+    "field_files": [
+      {
+        "file": "offsets_20260620_20260702.tif",
+        "bytes": 50576,
+        "sha256": "9b2ad8628a0d85dff0e589aeac8df4dbb71866800f5f13517936c3a231ccc6a1",
+        "finite_e_n_cells": 4062,
+        "finite_r_cells": 4539,
+        "common_r_cells": 4539,
+        "median_abs_error": 1.0663037008917797e-8,
+        "p95_abs_error": 2.7442564898283446e-8,
+        "max_abs_error": 3.343086929508132e-8,
+        "errors_gt_1e6": 0
+      },
+      {
+        "file": "offsets_20260702_20260714.tif",
+        "bytes": 52325,
+        "sha256": "d5ffcbb8fe53bfb467837e2e3032cd4889051e4b47eff06da9276cac84df66f1",
+        "finite_e_n_cells": 4277,
+        "finite_r_cells": 4676,
+        "common_r_cells": 4676,
+        "median_abs_error": 1.1265008315053393e-8,
+        "p95_abs_error": 2.7811737413063753e-8,
+        "max_abs_error": 3.4930149217515805e-8,
+        "errors_gt_1e6": 0
+      },
+      {
+        "file": "offsets_20260714_20260726.tif",
+        "bytes": 53331,
+        "sha256": "3421e697bf279292aaf3a11d4d2e90f1f74fc2a574fb1dbc276806552caf32bd",
+        "finite_e_n_cells": 4361,
+        "finite_r_cells": 4802,
+        "common_r_cells": 4802,
+        "median_abs_error": 1.139117244974841e-8,
+        "p95_abs_error": 2.7892829795872487e-8,
+        "max_abs_error": 3.261290359990454e-8,
+        "errors_gt_1e6": 0
+      },
+      {
+        "file": "offsets_20260726_20260819.tif",
+        "bytes": 52500,
+        "sha256": "0ac703908f1483f03469eae64dfe7d4f2722853386da419edafb6a378a4afc74",
+        "finite_e_n_cells": 4296,
+        "finite_r_cells": 4657,
+        "common_r_cells": 4657,
+        "median_abs_error": 1.1045980463642024e-8,
+        "p95_abs_error": 2.774138643246715e-8,
+        "max_abs_error": 3.361975842164355e-8,
+        "errors_gt_1e6": 0
+      },
+      {
+        "file": "offsets_20260819_20260831.tif",
+        "bytes": 49915,
+        "sha256": "2bf4685f932725107c5bc5bf4ea2abf5fce62115ccf151177e84a3ff6a554156",
+        "finite_e_n_cells": 4100,
+        "finite_r_cells": 4461,
+        "common_r_cells": 4461,
+        "median_abs_error": 1.0347610657213124e-8,
+        "p95_abs_error": 2.7602049978980858e-8,
+        "max_abs_error": 3.3599545590234925e-8,
+        "errors_gt_1e6": 0
+      }
+    ],
+    "result": "PASS_STORED_R_BAND_MATCHES_D_E_D_N",
+    "interpretation": "Validates the archived derived R band against archived dE/dN in the same exported WGS84 rasters. It is not a source-HDF5 replay and does not validate the crown mask or full-footprint products."
+  }
 }
