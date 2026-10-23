@@ -1,0 +1,412 @@
+"""Held-out event-level evaluation for future calibrated hazard detectors.
+
+This module evaluates an independently labelled event registry plus frozen
+per-case predictions. It does not create a detector, invent a risk score, or
+allow a threshold to be selected using held-out test labels.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+import math
+from typing import Any, Iterable
+
+import numpy as np
+
+from .geometry import parse_polygon_wkt
+from .goff_io import GoffReadError
+
+REGISTRY_SCHEMA = "know-place-event-registry/1.0"
+THRESHOLD_SCHEMA = "know-place-frozen-threshold-policy/1.0"
+PREDICTION_SCHEMA = "know-place-event-predictions/1.0"
+SPLITS = {"development", "validation", "test"}
+PREDICTION_STATES = {"ALERT", "NO_ALERT", "NO_RESULT"}
+METRIC_NAMES = ("precision", "recall", "specificity", "f1")
+
+
+class EventValidationError(ValueError):
+    """Registry, frozen threshold or held-out prediction contract failed."""
+
+
+def _canonical_sha256(value: dict[str, Any], *, exclude: set[str] = frozenset()) -> str:
+    body = {key: item for key, item in value.items() if key not in exclude}
+    encoded = json.dumps(
+        body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _required_text(value: Any, code: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise EventValidationError(code)
+    return value.strip()
+
+
+def _utc_datetime(value: Any, code: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise EventValidationError(code)
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise EventValidationError(code) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise EventValidationError(f"{code}_TIMEZONE_REQUIRED")
+    return parsed.astimezone(timezone.utc)
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    return float(numerator / denominator) if denominator else None
+
+
+def seal_threshold_policy(policy_without_hash: dict[str, Any]) -> dict[str, Any]:
+    """Return a content-addressed threshold policy which must be frozen pre-test."""
+    policy = dict(policy_without_hash)
+    if "policy_sha256" in policy:
+        raise EventValidationError("THRESHOLD_POLICY_MUST_NOT_PREDECLARE_HASH")
+    policy["policy_sha256"] = _canonical_sha256(policy)
+    return policy
+
+
+def validate_event_registry(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate independent event labels and return a canonical registry identity."""
+    if not isinstance(payload, dict) or payload.get("schema_version") != REGISTRY_SCHEMA:
+        raise EventValidationError("EVENT_REGISTRY_SCHEMA_UNSUPPORTED")
+    raw_cases = payload.get("cases")
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise EventValidationError("EVENT_REGISTRY_CASES_MUST_BE_NONEMPTY_ARRAY")
+
+    normalized_cases: list[dict[str, Any]] = []
+    case_ids: set[str] = set()
+    for index, raw in enumerate(raw_cases):
+        prefix = f"CASE_{index}"
+        if not isinstance(raw, dict):
+            raise EventValidationError(f"{prefix}_MUST_BE_OBJECT")
+        case_id = _required_text(raw.get("case_id"), f"{prefix}_ID_REQUIRED")
+        if case_id in case_ids:
+            raise EventValidationError(f"CASE_ID_DUPLICATE:{case_id}")
+        case_ids.add(case_id)
+
+        site_id = _required_text(raw.get("site_id"), f"{case_id}_SITE_ID_REQUIRED")
+        split = raw.get("split")
+        if split not in SPLITS:
+            raise EventValidationError(f"{case_id}_SPLIT_UNSUPPORTED")
+        label = raw.get("event_label")
+        if not isinstance(label, bool):
+            raise EventValidationError(f"{case_id}_INDEPENDENT_EVENT_LABEL_REQUIRED")
+        hazard = _required_text(raw.get("hazard_type"), f"{case_id}_HAZARD_TYPE_REQUIRED").lower()
+        if hazard not in {"landslide", "glacier_collapse", "ice_rock_avalanche", "non_event"}:
+            raise EventValidationError(f"{case_id}_HAZARD_TYPE_UNSUPPORTED")
+        if (hazard == "non_event") == label:
+            raise EventValidationError(f"{case_id}_HAZARD_TYPE_LABEL_CONFLICT")
+
+        aoi_wkt = _required_text(raw.get("aoi_wkt"), f"{case_id}_AOI_WKT_REQUIRED")
+        try:
+            parse_polygon_wkt(aoi_wkt)
+        except GoffReadError as exc:
+            raise EventValidationError(f"{case_id}_AOI_GEOMETRY_INVALID:{exc}") from exc
+        geometry_sha = _canonical_sha256({"aoi_wkt": aoi_wkt})
+        declared_geometry_sha = raw.get("aoi_geometry_sha256")
+        if declared_geometry_sha is not None and declared_geometry_sha != geometry_sha:
+            raise EventValidationError(f"{case_id}_AOI_GEOMETRY_CHECKSUM_MISMATCH")
+
+        evidence = raw.get("independent_label_evidence")
+        if not isinstance(evidence, dict):
+            raise EventValidationError(f"{case_id}_INDEPENDENT_LABEL_EVIDENCE_REQUIRED")
+        source_url = _required_text(
+            evidence.get("source_url_or_doi"), f"{case_id}_INDEPENDENT_EVIDENCE_REFERENCE_REQUIRED"
+        )
+        label_method = _required_text(
+            evidence.get("label_method"), f"{case_id}_LABEL_METHOD_REQUIRED"
+        )
+        if evidence.get("reviewed_independently") is not True:
+            raise EventValidationError(f"{case_id}_LABEL_NOT_INDEPENDENTLY_REVIEWED")
+
+        observation = raw.get("observation_window_utc")
+        if not isinstance(observation, dict):
+            raise EventValidationError(f"{case_id}_OBSERVATION_WINDOW_REQUIRED")
+        obs_start = _utc_datetime(observation.get("start"), f"{case_id}_OBSERVATION_START_INVALID")
+        obs_end = _utc_datetime(observation.get("end"), f"{case_id}_OBSERVATION_END_INVALID")
+        if obs_end <= obs_start:
+            raise EventValidationError(f"{case_id}_OBSERVATION_WINDOW_ORDER_INVALID")
+
+        event_time_value = raw.get("event_time_utc")
+        event_time = None
+        if label:
+            event_time = _utc_datetime(event_time_value, f"{case_id}_EVENT_TIME_REQUIRED")
+        elif event_time_value is not None:
+            event_time = _utc_datetime(event_time_value, f"{case_id}_EVENT_TIME_INVALID")
+
+        exposure = raw.get("monitoring_exposure_aoi_months")
+        if isinstance(exposure, bool) or not isinstance(exposure, (int, float)):
+            raise EventValidationError(f"{case_id}_MONITORING_EXPOSURE_MUST_BE_NUMERIC")
+        if not math.isfinite(float(exposure)) or exposure < 0:
+            raise EventValidationError(f"{case_id}_MONITORING_EXPOSURE_INVALID")
+
+        products = raw.get("source_products", [])
+        if not isinstance(products, list):
+            raise EventValidationError(f"{case_id}_SOURCE_PRODUCTS_MUST_BE_ARRAY")
+        product_rows = []
+        seen_products: set[str] = set()
+        for product_index, product in enumerate(products):
+            if not isinstance(product, dict):
+                raise EventValidationError(f"{case_id}_SOURCE_PRODUCT_{product_index}_INVALID")
+            granule = _required_text(product.get("granule_name"), f"{case_id}_SOURCE_GRANULE_NAME_REQUIRED")
+            sha = _required_text(product.get("sha256"), f"{case_id}_SOURCE_SHA256_REQUIRED").lower()
+            if len(sha) != 64 or any(char not in "0123456789abcdef" for char in sha):
+                raise EventValidationError(f"{case_id}_SOURCE_SHA256_INVALID")
+            if granule in seen_products:
+                raise EventValidationError(f"{case_id}_SOURCE_GRANULE_DUPLICATE:{granule}")
+            seen_products.add(granule)
+            product_rows.append({"granule_name": granule, "sha256": sha})
+
+        normalized_cases.append({
+            "case_id": case_id,
+            "site_id": site_id,
+            "split": split,
+            "event_label": label,
+            "hazard_type": hazard,
+            "aoi_wkt": aoi_wkt,
+            "aoi_geometry_sha256": geometry_sha,
+            "independent_label_evidence": {
+                "source_url_or_doi": source_url,
+                "label_method": label_method,
+                "reviewed_independently": True,
+            },
+            "observation_window_utc": {
+                "start": obs_start.isoformat().replace("+00:00", "Z"),
+                "end": obs_end.isoformat().replace("+00:00", "Z"),
+            },
+            "event_time_utc": event_time.isoformat().replace("+00:00", "Z") if event_time else None,
+            "monitoring_exposure_aoi_months": float(exposure),
+            "source_products": product_rows,
+        })
+
+    registry_body = {
+        "schema_version": REGISTRY_SCHEMA,
+        "label_policy": _required_text(payload.get("label_policy"), "EVENT_REGISTRY_LABEL_POLICY_REQUIRED"),
+        "cases": normalized_cases,
+    }
+    declared_registry_sha = payload.get("registry_sha256")
+    registry_sha = _canonical_sha256(registry_body)
+    if declared_registry_sha is not None and declared_registry_sha != registry_sha:
+        raise EventValidationError("EVENT_REGISTRY_CHECKSUM_MISMATCH")
+    return {**registry_body, "registry_sha256": registry_sha}
+
+
+def _confusion_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    tp = sum(row["event_label"] and row["state"] == "ALERT" for row in rows)
+    fp = sum((not row["event_label"]) and row["state"] == "ALERT" for row in rows)
+    tn = sum((not row["event_label"]) and row["state"] == "NO_ALERT" for row in rows)
+    fn = sum(row["event_label"] and row["state"] == "NO_ALERT" for row in rows)
+    precision = _safe_ratio(tp, tp + fp)
+    recall = _safe_ratio(tp, tp + fn)
+    specificity = _safe_ratio(tn, tn + fp)
+    f1 = _safe_ratio(2 * precision * recall, precision + recall) if precision is not None and recall is not None else None
+    return {
+        "evaluated_cases": len(rows),
+        "tp": int(tp), "fp": int(fp), "tn": int(tn), "fn": int(fn),
+        "precision": precision, "recall": recall, "specificity": specificity, "f1": f1,
+    }
+
+
+def _cluster_bootstrap_intervals(
+    rows: list[dict[str, Any]], *, replicates: int, seed: int, minimum_sites: int,
+) -> dict[str, Any]:
+    sites = sorted({row["site_id"] for row in rows})
+    if len(sites) < minimum_sites:
+        return {
+            "status": "INSUFFICIENT_INDEPENDENT_SITES",
+            "independent_sites": len(sites),
+            "minimum_sites_required": minimum_sites,
+            "intervals": {name: None for name in METRIC_NAMES},
+        }
+    grouped = {site: [row for row in rows if row["site_id"] == site] for site in sites}
+    rng = np.random.default_rng(seed)
+    sampled: dict[str, list[float]] = {name: [] for name in METRIC_NAMES}
+    for _ in range(replicates):
+        chosen = rng.choice(sites, size=len(sites), replace=True)
+        sample_rows = [row for site in chosen for row in grouped[str(site)]]
+        metrics = _confusion_metrics(sample_rows)
+        for name in METRIC_NAMES:
+            value = metrics[name]
+            if value is not None and math.isfinite(value):
+                sampled[name].append(float(value))
+    intervals = {
+        name: (
+            [float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5))]
+            if values else None
+        )
+        for name, values in sampled.items()
+    }
+    return {
+        "status": "COMPUTED_SITE_CLUSTER_BOOTSTRAP",
+        "independent_sites": len(sites),
+        "minimum_sites_required": minimum_sites,
+        "replicates": replicates,
+        "seed": seed,
+        "prng": "numpy.default_rng/PCG64",
+        "intervals": intervals,
+        "interpretation": "95% site-cluster bootstrap intervals; resampling cases as independent pixels is forbidden.",
+    }
+
+
+def evaluate_heldout_events(
+    registry_payload: dict[str, Any],
+    prediction_payload: dict[str, Any],
+    threshold_policy: dict[str, Any],
+    *,
+    bootstrap_replicates: int = 2000,
+    bootstrap_seed: int = 260826,
+    minimum_independent_sites_for_ci: int = 5,
+) -> dict[str, Any]:
+    """Score only held-out test cases against a content-addressed frozen policy.
+
+    Predictions must already have been produced by a detector/measurement policy.
+    This function does not derive a risk score from displacement and is not itself
+    evidence that the detection method has been calibrated.
+    """
+    registry = validate_event_registry(registry_payload)
+    if not isinstance(threshold_policy, dict) or threshold_policy.get("schema_version") != THRESHOLD_SCHEMA:
+        raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
+    if threshold_policy.get("threshold_selection_split") != "validation":
+        raise EventValidationError("THRESHOLD_MUST_BE_SELECTED_ON_VALIDATION_SPLIT")
+    if threshold_policy.get("frozen_before_test") is not True:
+        raise EventValidationError("THRESHOLD_POLICY_NOT_FROZEN_BEFORE_TEST")
+    if threshold_policy.get("registry_sha256") != registry["registry_sha256"]:
+        raise EventValidationError("THRESHOLD_POLICY_REGISTRY_CHECKSUM_MISMATCH")
+    threshold = threshold_policy.get("threshold")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(float(threshold)):
+        raise EventValidationError("THRESHOLD_POLICY_THRESHOLD_INVALID")
+    rule = threshold_policy.get("decision_rule", ">=")
+    if rule not in {">=", ">"}:
+        raise EventValidationError("THRESHOLD_POLICY_DECISION_RULE_UNSUPPORTED")
+    policy_sha = threshold_policy.get("policy_sha256")
+    if not isinstance(policy_sha, str) or len(policy_sha) != 64:
+        raise EventValidationError("THRESHOLD_POLICY_CHECKSUM_REQUIRED")
+    if _canonical_sha256(threshold_policy, exclude={"policy_sha256"}) != policy_sha:
+        raise EventValidationError("THRESHOLD_POLICY_CHECKSUM_MISMATCH")
+    if isinstance(bootstrap_replicates, bool) or not isinstance(bootstrap_replicates, int) or bootstrap_replicates < 100:
+        raise EventValidationError("BOOTSTRAP_REPLICATES_MUST_BE_AT_LEAST_100")
+    if isinstance(minimum_independent_sites_for_ci, bool) or not isinstance(minimum_independent_sites_for_ci, int) or minimum_independent_sites_for_ci < 2:
+        raise EventValidationError("MINIMUM_INDEPENDENT_SITES_INVALID")
+
+    raw_prediction_cases = prediction_payload.get("cases") if isinstance(prediction_payload, dict) else None
+    if not isinstance(raw_prediction_cases, list):
+        raise EventValidationError("PREDICTIONS_CASES_MUST_BE_ARRAY")
+    test_cases = {case["case_id"]: case for case in registry["cases"] if case["split"] == "test"}
+    if not test_cases:
+        raise EventValidationError("NO_HELDOUT_TEST_CASES")
+    predictions: dict[str, dict[str, Any]] = {}
+    for i, raw in enumerate(raw_prediction_cases):
+        if not isinstance(raw, dict):
+            raise EventValidationError(f"PREDICTION_{i}_MUST_BE_OBJECT")
+        case_id = _required_text(raw.get("case_id"), f"PREDICTION_{i}_CASE_ID_REQUIRED")
+        if case_id not in test_cases:
+            raise EventValidationError(f"PREDICTION_NOT_HELDOUT_TEST_CASE:{case_id}")
+        if case_id in predictions:
+            raise EventValidationError(f"PREDICTION_CASE_DUPLICATE:{case_id}")
+        state = raw.get("state")
+        if state not in PREDICTION_STATES:
+            raise EventValidationError(f"PREDICTION_STATE_UNSUPPORTED:{case_id}")
+        score_value = raw.get("score")
+        if state == "NO_RESULT":
+            if score_value is not None:
+                raise EventValidationError(f"NO_RESULT_MUST_NOT_HAVE_SCORE:{case_id}")
+        else:
+            if isinstance(score_value, bool) or not isinstance(score_value, (int, float)) or not math.isfinite(float(score_value)):
+                raise EventValidationError(f"PREDICTION_SCORE_INVALID:{case_id}")
+            should_alert = float(score_value) >= float(threshold) if rule == ">=" else float(score_value) > float(threshold)
+            if (state == "ALERT") != should_alert:
+                raise EventValidationError(f"PREDICTION_THRESHOLD_RULE_MISMATCH:{case_id}")
+            if not test_cases[case_id]["source_products"]:
+                raise EventValidationError(f"PREDICTION_WITHOUT_VERIFIED_SOURCE_PRODUCTS:{case_id}")
+        first_alarm = raw.get("first_alarm_time_utc")
+        first_alarm_utc = _utc_datetime(first_alarm, f"{case_id}_FIRST_ALARM_TIME_INVALID") if first_alarm is not None else None
+        predictions[case_id] = {
+            "case_id": case_id, "state": state,
+            "score": float(score_value) if score_value is not None else None,
+            "first_alarm_time_utc": first_alarm_utc.isoformat().replace("+00:00", "Z") if first_alarm_utc else None,
+        }
+    if set(predictions) != set(test_cases):
+        missing = sorted(set(test_cases) - set(predictions))
+        raise EventValidationError("HELDOUT_TEST_PREDICTIONS_INCOMPLETE:" + ",".join(missing))
+
+    rows = [
+        {
+            **case,
+            **predictions[case_id],
+        }
+        for case_id, case in test_cases.items()
+    ]
+    available = [row for row in rows if row["state"] != "NO_RESULT"]
+    conditional = _confusion_metrics(available)
+    positive_rows = [row for row in rows if row["event_label"]]
+    tp_all = sum(row["event_label"] and row["state"] == "ALERT" for row in rows)
+    conservative_recall = _safe_ratio(tp_all, len(positive_rows))
+    exposure_months = sum(
+        row["monitoring_exposure_aoi_months"]
+        for row in rows if not row["event_label"] and row["state"] != "NO_RESULT"
+    )
+    false_positives = conditional["fp"]
+    false_alarms_per_month = _safe_ratio(false_positives, exposure_months)
+
+    lead_times_hours: list[float] = []
+    detection_delays_hours: list[float] = []
+    for row in positive_rows:
+        event_time = row["event_time_utc"]
+        first_alarm = row["first_alarm_time_utc"]
+        if row["state"] != "ALERT" or first_alarm is None or event_time is None:
+            continue
+        event_dt = _utc_datetime(event_time, "EVENT_TIME_INVALID")
+        alarm_dt = _utc_datetime(first_alarm, "FIRST_ALARM_TIME_INVALID")
+        hours = (event_dt - alarm_dt).total_seconds() / 3600.0
+        if hours > 0:
+            lead_times_hours.append(hours)
+        else:
+            detection_delays_hours.append(-hours)
+
+    ci = _cluster_bootstrap_intervals(
+        available,
+        replicates=bootstrap_replicates,
+        seed=bootstrap_seed,
+        minimum_sites=minimum_independent_sites_for_ci,
+    )
+    return {
+        "schema_version": "know-place-event-evaluation/1.0",
+        "status": "EVALUATED_EXPLORATORY_HELDOUT_TEST",
+        "registry_sha256": registry["registry_sha256"],
+        "threshold_policy_sha256": policy_sha,
+        "threshold_selection_split": "validation",
+        "test_only": True,
+        "total_heldout_cases": len(rows),
+        "independent_heldout_sites": len({row["site_id"] for row in rows}),
+        "availability": {
+            "evaluable_cases": len(available),
+            "no_result_cases": len(rows) - len(available),
+            "coverage_fraction": _safe_ratio(len(available), len(rows)),
+            "no_result_policy": "not counted as a negative observation; all labelled events without an alert reduce conservative_recall_all_events",
+        },
+        "event_level_metrics_on_evaluable_cases": conditional,
+        "conservative_recall_all_labelled_events": conservative_recall,
+        "false_alarms_per_aoi_month": false_alarms_per_month,
+        "evaluable_non_event_exposure_aoi_months": exposure_months,
+        "lead_time_hours_before_event": {
+            "count": len(lead_times_hours),
+            "median": float(np.median(lead_times_hours)) if lead_times_hours else None,
+            "values": lead_times_hours,
+        },
+        "detection_delay_hours_after_event": {
+            "count": len(detection_delays_hours),
+            "median": float(np.median(detection_delays_hours)) if detection_delays_hours else None,
+            "values": detection_delays_hours,
+        },
+        "uncertainty": ci,
+        "limitations": [
+            "The evaluator scores supplied predictions; it does not build or calibrate a hazard detector.",
+            "Point metrics are event/site-level. Pixels are never treated as independent events.",
+            "Site-cluster confidence intervals are withheld if too few independent sites exist.",
+            "NO_RESULT remains a coverage failure, not evidence of no movement or no hazard.",
+            "A low false-alarm count is not informative without the recorded monitored AOI-month exposure.",
+        ],
+    }
