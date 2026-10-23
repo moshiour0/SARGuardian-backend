@@ -9,6 +9,7 @@ on:
       - "tools/tests/test_know_place_*.py"
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-analysis-run.yml"
+      - ".github/workflows/know-place-analysis-reanalysis.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   pull_request:
     branches:
@@ -18,6 +19,7 @@ on:
       - "tools/tests/test_know_place_*.py"
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-analysis-run.yml"
+      - ".github/workflows/know-place-analysis-reanalysis.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   workflow_dispatch:
 
@@ -59,6 +61,7 @@ jobs:
           paths = [
               Path(".github/workflows/know-place-analysis-validation.yml"),
               Path(".github/workflows/know-place-analysis-run.yml"),
+              Path(".github/workflows/know-place-analysis-reanalysis.yml"),
           ]
           for path in paths:
               with path.open(encoding="utf-8") as stream:
@@ -88,7 +91,7 @@ jobs:
           /tmp/actionlint -version
 
       - name: Run semantic GitHub Actions workflow validation
-        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml
+        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml
 
   live-asf-catalog-contract:
     name: Live ASF identity gate for five exact granules (no downloads)
