@@ -151,6 +151,9 @@ def test_synthetic_five_pair_pipeline_writes_auditable_report_and_keeps_parity_b
     saved = json.loads(report_path.read_text(encoding="utf-8"))
     assert result["structural_status"] == "PASS"
     assert result["status"] == "SCIENTIFIC_METRICS_COMPUTED"
+    assert saved["runtime_environment"]["packages"]["numpy"]
+    assert saved["runtime_environment"]["packages"]["h5py"]
+    assert saved["runtime_environment"]["packages"]["scipy"]
     assert result["paper_reproduction_status"] == "BLOCKED_CROWN_GEOMETRY_NOT_AUTHOR_SUPPLEMENT_VERIFIED"
     assert result["hazard_detection_status"] == "NOT_EVALUATED"
     assert len(saved["products"]) == 5
@@ -183,5 +186,6 @@ def test_cli_emits_path_free_failure_report_when_input_manifest_is_missing(tmp_p
     assert report["structural_status"] == "FAIL"
     assert report["paper_reproduction_status"] == "BLOCKED_ANALYSIS_FAILED"
     assert report["hazard_detection_status"] == "NOT_EVALUATED"
+    assert report["runtime_environment"]["python_version"]
     assert str(tmp_path) not in json.dumps(report)
     assert "KNOW_PLACE_ANALYSIS_STATUS=FAIL" in capsys.readouterr().out
