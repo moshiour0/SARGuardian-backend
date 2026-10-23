@@ -865,7 +865,10 @@ def run_aoi_analysis(
                 continue
 
             background_info: dict[str, Any]
-            if request.reference_wkt:
+            if request.background_correction_policy in {
+                "external_reference_polygon_component_median",
+                "local_context_component_median",
+            }:
                 try:
                     corrected_east, corrected_north, background_info = componentwise_background_correction(
                         east, north, valid, roi.box_mask, roi.crown_mask,
@@ -891,19 +894,32 @@ def run_aoi_analysis(
                         "high_magnitude_threshold": request.max_horizontal_magnitude_m,
                         "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
                         "magnitude_policy": request.magnitude_policy,
+                        "reference_policy": request.background_correction_policy,
                         "reason_code": str(exc).split(":", 1)[0],
                     })
                     if ephemeral_source_cache:
                         _cleanup_ephemeral_source(source_path, ephemeral_pending_paths)
                     continue
-                reference_status = "APPLIED_EXTERNAL_REFERENCE_POLYGON"
+                if request.background_correction_policy == "external_reference_polygon_component_median":
+                    reference_status = "APPLIED_EXTERNAL_REFERENCE_POLYGON_COMPONENT_MEDIAN"
+                else:
+                    reference_status = "APPLIED_AUTOMATIC_LOCAL_CONTEXT_COMPONENT_MEDIAN"
+                background_info = {
+                    **background_info,
+                    "policy": reference_status,
+                    "stable_background_assumption": (
+                        "explicit reference polygon selected by user"
+                        if request.background_correction_policy == "external_reference_polygon_component_median"
+                        else "majority of valid pixels in the configured local context outside the AOI are stable"
+                    ),
+                }
             else:
                 corrected_east, corrected_north = east.copy(), north.copy()
                 background_info = {
-                    "status": "NOT_APPLIED_NO_REFERENCE_POLYGON",
+                    "status": "NOT_APPLIED_BY_EXPLICIT_REQUEST",
                     "valid_buffer_cells": int((valid & roi.box_mask & ~roi.crown_mask).sum()),
                 }
-                reference_status = "NOT_APPLIED_NO_REFERENCE_POLYGON"
+                reference_status = "NONE_EXPLICITLY_REQUESTED"
 
             # Invalid raw offsets must not be mistaken for usable displacement in
             # the raster outputs when no external reference correction is applied.
@@ -1108,7 +1124,8 @@ def run_aoi_analysis(
             "request_sha256": request.request_sha256,
             "request": request.to_dict(),
             "source_adapters": list(request.source_adapters),
-            "reference_policy": "external reference polygon component-median correction" if request.reference_wkt else f"no background correction; {request.reference_buffer_m:g} m local context used for controls",
+            "reference_policy": request.background_correction_policy,
+            "reference_buffer_m": request.reference_buffer_m,
             "pairwise_series_plan": plan,
             "grid_compatibility_status": (
                 "MISMATCH_REVIEW_REQUIRED" if grid_mismatch_pairs else "CONSISTENT_LATTICE_WITHIN_CHAINS"
@@ -1124,7 +1141,8 @@ def run_aoi_analysis(
             },
             "limitations": [
                 "The runner measures displacement; it does not classify landslide/glacier-collapse hazard or issue alarms.",
-                "A constant height per AOI is an approximation. Product-height-axis midpoint is used when no explicit HAE is supplied; use a DEM-backed per-pixel geometry sampler before operational claims.",
+                "A constant height per AOI is an approximation. Product-height-axis median is used when no explicit HAE is supplied; use a DEM-backed per-pixel geometry sampler before operational claims.",
+                "Local-context background correction assumes the majority of valid pixels outside the AOI are stable. Inspect the context/mask preview and compare an independently selected reference polygon before interpreting movement.",
                 "Spatial controls are exploratory; the sampler must be benchmarked against independent source-method or author-supplement implementations where available.",
                 "Source grids and orbit direction are not mixed within a pairwise series; a continuous chain still requires separate review before cumulative movement can be computed.",
                 "GOFF horizontal displacement assumes zero vertical motion and uses product geometry; it does not measure 3-D displacement.",
