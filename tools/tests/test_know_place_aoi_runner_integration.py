@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from pyproj import Transformer
 
 from tools.know_place.aoi_request import REQUEST_SCHEMA
+from tools.know_place.goff_io import parse_granule_identity
 from tools.know_place import aoi_runner
 from tools.tests.test_know_place_analyze import (
     BOX_WKT,
@@ -165,6 +167,17 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert all(pair["status"] == "METRICS_COMPUTED" for pair in result["pairs"])
     assert all(pair["grid_identity_sha256"] for pair in result["pairs"])
     assert all(pair["source_sha256"] for pair in result["pairs"])
+    for pair in result["pairs"]:
+        identity = parse_granule_identity(pair["granule_name"])
+        reference_midpoint = identity.reference_start + (identity.reference_end - identity.reference_start) / 2
+        secondary_midpoint = identity.secondary_start + (identity.secondary_end - identity.secondary_start) / 2
+        expected_days = (secondary_midpoint - reference_midpoint).total_seconds() / 86400.0
+        assert pair["interval_days"] == pytest.approx(expected_days)
+        assert pair["interval_average_rate_definition"].startswith("pairwise displacement / exact acquisition-midpoint separation")
+        stats = pair["statistics"]
+        assert stats["aoi_median_magnitude_rate_m_per_day"] == pytest.approx(
+            stats["aoi_median_horizontal_magnitude_m"] / expected_days
+        )
     assert all(pair["spatial_block_bootstrap_sensitivity"]["sizes_tested_cells"] == [3, 5, 10] for pair in result["pairs"])
     assert all(pair["spatial_block_bootstrap_sensitivity"]["status"] in {"COMPUTED_EXPLORATORY", "PARTIAL_INSUFFICIENT_BLOCK_SUPPORT"} for pair in result["pairs"])
     assert all(pair["statistics"]["aoi_median_horizontal_magnitude_m"] == pair["statistics"]["crown_median_horizontal_magnitude_m"] for pair in result["pairs"])
