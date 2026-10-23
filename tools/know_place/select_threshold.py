@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"THRESHOLD_SELECTION_STATUS={result['status']}")
-    print(f"REGISTRY_SHA256={result['registry_sha256']}")
+    print(f"VALIDATION_REGISTRY_SHA256={result['validation_registry_sha256']}")
     print(f"VALIDATION_SCORES_SHA256={result['validation_scores_sha256']}")
     print(f"THRESHOLD={result['threshold_policy']['threshold']:.17g}")
     print(f"POLICY_SHA256={result['threshold_policy']['policy_sha256']}")
