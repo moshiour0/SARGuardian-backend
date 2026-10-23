@@ -117,3 +117,11 @@ def test_documented_nisar_instrument_gap_is_attached_to_intersecting_pair():
     assert gap["end_utc"] == "2026-08-10T00:55:27Z"
     assert "cannot localize onset" in pair["interval_coverage_warning"]
     assert len(result["known_nisar_data_gaps_intersecting_requested_pairs"]) == 1
+
+
+def test_single_pair_is_not_a_continuous_or_cumulative_time_series():
+    result = build([row(PAIR_NAMES[0])])
+    assert result["pair_count"] == 1
+    assert result["chain_count"] == 1
+    assert result["continuous_chain_eligible"] is False
+    assert result["cumulative_displacement_status"] == "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
