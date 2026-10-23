@@ -134,9 +134,9 @@ Open the repository's **Actions** tab on `feat/know-place-analysis` and choose *
 [Workflow file](../.github/workflows/know-place-aoi-analysis.yml)
 
 1. Enter one closed WGS84 polygon WKT, inclusive UTC start/end dates, polarization, and optional track/direction. You may supply an external reference/background polygon.
-2. Leave `execute_downloads=false) first. The dry run queries ASF and writes the exact candidate inventory and separate pair/processing chains, but downloads no raw product.
+2. Leave `execute_downloads=false` first. The dry run queries ASF and writes the exact candidate inventory and separate pair/processing chains, but downloads no raw product.
 3. Inspect `catalog-manifest.json`, `series-plan.json` and the request hash in the run artifact. The plan deliberately separates tracks, direction, polarization, product maturity and CRID/release. Same-pair release ambiguity fails closed; no preferred variant is silently chosen.
-4. Set `execute_downloads=true) only after reviewing the dry-run selection and confirming Earthdata and Drive secrets are configured. The workflow downloads one selected pair at a time, checks bytes/SHA-256/receipt, calculates metrics, writes GeoTIFF/NPZ/CSV, produces `visuals/dashboard.html), and uploads a derived-only ZIP to central Google Drive. The upload receipt records the local and downloaded-remote SHA-256 checksums.
+4. Set `execute_downloads=true` only after reviewing the dry-run selection and confirming Earthdata and Drive secrets are configured. The workflow downloads one selected pair at a time, checks bytes/SHA-256/receipt, calculates metrics, writes GeoTIFF/NPZ/CSV, produces `visuals/dashboard.html`, and uploads a derived-only ZIP to central Google Drive. The upload receipt records the local and downloaded-remote SHA-256 checksums.
 5. Raw HDF5 files and their receipts are deleted from the workflow's ephemeral cache immediately after each pair finishes; the result manifest keeps source filename, size and SHA-256. This avoids filling the GitHub runner disk, but it means a later run reacquires raw source unless a separately configured persistent verified cache is used.
 
 The runner caps a single download job at 30 selected products. A larger window is not silently truncated: split it into explicit date windows and preserve the resulting run manifests, keeping overlapping pair intervals separate. This is an initial bounded execution limit, not a NISAR mission limit.
@@ -152,16 +152,16 @@ python -m pytest -q --confcutdir=tools/tests tools/tests/test_know_place_*.py
 python -m tools.know_place.aoi_runner --request tools/know_place/examples/bhote_koshi_candidate_request.json --out ./know-place-results --dry-run
 ```
 
-For a credentialed download/measurement run, omit `--dry-run) and set `EARTHDATA_TOKEN` or `EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD). Use a private `--cache-dir). Add `--ephemeral-source-cache) when raw HDF5 should be deleted after processing rather than retained for future local reuse.
+For a credentialed download/measurement run, omit `--dry-run` and set `EARTHDATA_TOKEN` or `EARTHDATA_USERNAME`/`EARTHDATA_PASSWORD`. Use a private `--cache-dir`. Add `--ephemeral-source-cache` when raw HDF5 should be deleted after processing rather than retained for future local reuse.
 
 ### Dashboard outputs and scientific status
 
 - `visuals/dashboard.html`: offline HTML, no CDN; contains displacement trend, pairwise metrics, AOI outline over a downsampled raster preview, source IDs/SHA-256, valid AOI pixel support, uncertainty interval and status gates. It is not a basemap or a substitute for full-resolution GIS rasters.
-- `maps/*_displacement.tif): native-grid east/north/magnitude/coherence/valid-mask/high-magnitude-review flag/uncorrected-magnitude bands.
-- `diagnostics/*_arrays.npz): derived arrays and AOI/reference masks for numerical reanalysis.
-- `timeseries.csv), `result.json), `manifest.json): pair-level results, normalized request hash, runtime package versions, source checksums and derived-file checksums.
-- `paper_reproduction_status=NOT_EVALUATED_GENERIC_AOI) and `hazard_detection_status=NOT_EVALUATED) are expected. The generic runner measures movement and does not issue alarms.
-- Generic mode preserves and flags displacement above the configurable review threshold by default because rapid failures can be real high-magnitude motion. The Bhote Koshi paper-method example explicitly chooses `reject_above_threshold); that method-specific setting must never be adopted as a universal “real movement” rule.
+- `maps/*_displacement.tif`: native-grid east/north/magnitude/coherence/valid-mask/high-magnitude-review flag/uncorrected-magnitude bands.
+- `diagnostics/*_arrays.npz`: derived arrays and AOI/reference masks for numerical reanalysis.
+- `timeseries.csv`, `result.json`, `manifest.json`: pair-level results, normalized request hash, runtime package versions, source checksums and derived-file checksums.
+- `paper_reproduction_status=NOT_EVALUATED_GENERIC_AOI` and `hazard_detection_status=NOT_EVALUATED` are expected. The generic runner measures movement and does not issue alarms.
+- Generic mode preserves and flags displacement above the configurable review threshold by default because rapid failures can be real high-magnitude motion. The Bhote Koshi paper-method example explicitly chooses `reject_above_threshold`; that method-specific setting must never be adopted as a universal “real movement” rule.
 - Constant HAE is still an approximation, not DEM-derived per-pixel terrain height. Operational monitoring remains blocked until terrain-dependent geometry and independent validation are implemented and tested.
 
 For event-level thresholds and a separate multi-event holdout strategy see [MULTI_EVENT_VALIDATION_PLAN.md](know-place/validation/MULTI_EVENT_VALIDATION_PLAN.md). Current author-supplement, exact-crown and paper-golden-output blockers remain documented in [AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md](know-place/evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md).
