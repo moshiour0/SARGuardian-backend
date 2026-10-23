@@ -49,13 +49,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  trigger-gate:
+    name: Decide whether this branch push explicitly requested the expensive analysis
+    runs-on: ubuntu-24.04
+    outputs:
+      run_analysis: ${{ steps.decide.outputs.run_analysis }}
+    steps:
+      - name: Evaluate explicit consent marker without downloading science data
+        id: decide
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+          DISPATCH_CONSENT: ${{ inputs.consent_to_run || 'cancel' }}
+        run: |
+          set -euo pipefail
+          should_run=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$DISPATCH_CONSENT" == "confirm-five-product-re-download" ]]; then
+            should_run=true
+          elif [[ "$EVENT_NAME" == "push" && "$EVENT_MESSAGE" == *"[run-know-place]"* ]]; then
+            should_run=true
+          fi
+          echo "run_analysis=$should_run" >> "$GITHUB_OUTPUT"
+          if [[ "$should_run" == "true" ]]; then
+            echo "Explicit consent marker found. The raw-data replay job is enabled."
+          else
+            echo "No expensive run requested. No product downloads will occur."
+            {
+              echo "## Know Place Analysis trigger gate"
+              echo
+              echo "This feature-branch update did not include `[run-know-place]` and no explicit manual-run consent was supplied."
+              echo "No raw NISAR products were downloaded."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   analyze-five-pairs:
     name: Validate inputs and analyse five exact GOFF pairs
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       inputs.consent_to_run == 'confirm-five-product-re-download') ||
-      (github.event_name == 'push' &&
-       contains(github.event.head_commit.message, '[run-know-place]'))
+    needs: trigger-gate
+    if: needs.trigger-gate.outputs.run_analysis == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -78,16 +109,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            echo "$GITHUB_EVENT_PATH" | grep -q . || { echo "ERROR=EVENT_PAYLOAD_MISSING"; exit 1; }
-            python - "$GITHUB_EVENT_PATH" <<'PY'
-          import json,sys
-          event=json.load(open(sys.argv[1],encoding="utf-8"))
-          message=event.get("head_commit",{}).get("message","")
-          if "[run-know-place]" not in message:
-              raise SystemExit("ERROR=EXPLICIT_RUN_MARKER_MISSING")
-          PY
-          fi
           if [[ -z "$GOOGLE_DRIVE_OAUTH_CLIENT_JSON" || -z "$GOOGLE_DRIVE_REFRESH_TOKEN" || -z "$GOOGLE_DRIVE_PARENT_FOLDER_ID" ]]; then
             echo "ERROR=DRIVE_SECRETS_REQUIRED_BEFORE_EXPENSIVE_DOWNLOAD"
             exit 1
