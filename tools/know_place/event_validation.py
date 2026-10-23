@@ -211,9 +211,13 @@ def select_validation_threshold(
     become part of the content-addressed policy, making threshold selection
     reproducible and distinct from the held-out test evaluation.
     """
-    registry = validate_event_registry(registry_payload)
-    if any(case["split"] != "validation" for case in registry["cases"]):
+    raw_registry_cases = registry_payload.get("cases") if isinstance(registry_payload, dict) else None
+    if isinstance(raw_registry_cases, list) and any(
+        isinstance(case, dict) and case.get("split") != "validation"
+        for case in raw_registry_cases
+    ):
         raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
+    registry = validate_event_registry(registry_payload)
     _required_text(model_policy_name, "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
     _required_text(score_name, "THRESHOLD_SCORE_NAME_REQUIRED")
     if objective not in {"max_youden_j", "max_f1", "max_recall_at_min_specificity"}:
@@ -458,14 +462,22 @@ def evaluate_heldout_events(
     This function does not derive a risk score from displacement and is not itself
     evidence that the detection method has been calibrated.
     """
-    registry = validate_event_registry(registry_payload)
-    if any(case["split"] != "test" for case in registry["cases"]):
+    raw_test_cases = registry_payload.get("cases") if isinstance(registry_payload, dict) else None
+    if isinstance(raw_test_cases, list) and any(
+        isinstance(case, dict) and case.get("split") != "test"
+        for case in raw_test_cases
+    ):
         raise EventValidationError("HELDOUT_REGISTRY_MUST_CONTAIN_TEST_CASES_ONLY")
+    registry = validate_event_registry(registry_payload)
     if validation_registry_payload is None:
         raise EventValidationError("VALIDATION_REGISTRY_REQUIRED_TO_VERIFY_FROZEN_THRESHOLD")
-    validation_registry = validate_event_registry(validation_registry_payload)
-    if any(case["split"] != "validation" for case in validation_registry["cases"]):
+    raw_validation_cases = validation_registry_payload.get("cases") if isinstance(validation_registry_payload, dict) else None
+    if isinstance(raw_validation_cases, list) and any(
+        isinstance(case, dict) and case.get("split") != "validation"
+        for case in raw_validation_cases
+    ):
         raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
+    validation_registry = validate_event_registry(validation_registry_payload)
     if not isinstance(threshold_policy, dict) or threshold_policy.get("schema_version") != THRESHOLD_SCHEMA:
         raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
     if threshold_policy.get("threshold_selection_split") != "validation":
