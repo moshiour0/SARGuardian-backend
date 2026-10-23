@@ -186,9 +186,15 @@ def test_threshold_policy_and_registry_hashes_are_verified():
         evaluate_heldout_events(reg, prediction_payload(), policy, bootstrap_replicates=100)
 
     wrong_reg = copy.deepcopy(reg)
-    wrong_reg["cases"][0]["site_id"] = "edited-after-freeze"
-    with pytest.raises(EventValidationError, match="THRESHOLD_POLICY_REGISTRY_CHECKSUM_MISMATCH"):
-        evaluate_heldout_events(wrong_reg, prediction_payload(), threshold_policy(reg), bootstrap_replicates=100)
+    wrong_reg["cases"][1]["site_id"] = "edited-after-freeze"
+    with pytest.raises(EventValidationError, match="THRESHOLD_POLICY_VALIDATION_REGISTRY_CHECKSUM_MISMATCH"):
+        evaluate_heldout_events(
+            wrong_reg,
+            prediction_payload(),
+            threshold_policy(reg),
+            validation_registry_payload=validation_registry(wrong_reg),
+            bootstrap_replicates=100,
+        )
 
 
 def test_no_result_with_score_and_prediction_outside_test_split_are_rejected():
