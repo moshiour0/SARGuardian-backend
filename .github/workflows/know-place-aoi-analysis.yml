@@ -196,7 +196,8 @@ jobs:
           python -m tools.know_place.aoi_runner \
             --request know-place-request.json \
             --out "$OUTPUT_ROOT" \
-            --cache-dir "$RUNNER_TEMP/know-place-source-cache"
+            --cache-dir "$RUNNER_TEMP/know-place-source-cache" \
+            --ephemeral-source-cache
 
       - name: Upload and byte-verify the derived result bundle in central Drive
         if: ${{ inputs.execute_downloads && success() }}
