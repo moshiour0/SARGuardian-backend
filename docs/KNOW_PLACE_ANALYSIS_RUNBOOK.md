@@ -50,7 +50,8 @@ Store the raw HDF5 files locally in a private/untracked folder. Do not commit ra
   "geometry_height_m": 5151.0,
   "control_seed": 260826,
   "control_draws": 1000,
-  "coherence_minimum_valid_cells": 25,
+  "coherence_minimum_valid_cells": 1,
+  "coherence_neighbour_policy": "primary minimum 1 because the preprint does not specify a minimum valid neighbour count; outputs include 1/5/10/15/20/25 sensitivity",
   "products": [
     {
       "path": "raw/<exact-local-file-1>.h5",
