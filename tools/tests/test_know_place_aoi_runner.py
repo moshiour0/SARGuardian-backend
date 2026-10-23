@@ -13,7 +13,10 @@ from tools.know_place.aoi_request import REQUEST_SCHEMA, validate_aoi_request
 from tools.know_place.aoi_runner import (
     AOIRunError,
     _download_exact_product,
+    _cleanup_ephemeral_source,
     _exact_bytes,
+    _grid_identity_sha256,
+    _grid_lattice_compatible,
     _magnitude_gate_limit,
     _high_magnitude_review_flag,
     _maturity,
@@ -87,8 +90,9 @@ def test_catalog_product_identity_and_trusted_host_gates():
     assert _maturity({"dataMaturity": "PROVISIONAL"}, [good_url])[0] == "PROVISIONAL"
     assert _exact_bytes({"fileSizeBytes": "101"}) == 101
     assert _exact_bytes({"fileSizeBytes": "101.5"}) is None
-    with pytest.raises(AOIRunError, match="CATALOG_MATURITY_UNRESOLVED"):
+    with pytest.raises(AOIRunError) as exc_info:
         _maturity({}, ["https://nisar.asf.earthdatacloud.nasa.gov/unknown/a.h5"])
+    assert exc_info.value.code == "CATALOG_MATURITY_UNRESOLVED"
 
 def test_download_cache_reuses_only_source_receipt_with_matching_sha256(tmp_path, monkeypatch):
     name = PAIR_NAMES[0]
