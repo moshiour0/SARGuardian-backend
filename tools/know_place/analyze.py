@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from .geometry import build_analysis_roi
-from .goff_io import GoffReadError, read_geometry_cubes, read_raw_goff
+from .goff_io import GoffReadError, inspect_goff_grid, read_geometry_cubes, read_raw_goff
 from .paper_method import (
     PAPER_INTERVALS,
     ScientificInputError,
@@ -120,7 +120,7 @@ def _resolve_product_path(item: dict[str, Any], config_dir: Path) -> Path:
         path = config_dir / path
     result = path.resolve()
     if not result.is_file():
-        raise GoffReadError(f"RAW_GO​​FF_FILE_NOT_FOUND:{result}".replace("​", ""))
+        raise GoffReadError(f"RAW_GOFF_FILE_NOT_FOUND:{result}")
     expected_name = str(item.get("expected_granule_name", "")).strip()
     if expected_name and result.name != expected_name:
         raise GoffReadError(
@@ -144,25 +144,26 @@ def _pair_key(start: str, end: str) -> str:
 
 
 def _load_and_validate_inputs(config: dict[str, Any], config_dir: Path):
+    """Inspect only grid metadata first; do not hold five full GOFF rasters in memory."""
     products = []
     for item in config["products"]:
         path = _resolve_product_path(item, config_dir)
-        raw = read_raw_goff(
+        grid = inspect_goff_grid(
             path, polarization="HH", layer=2,
             expected_track="098", expected_direction="A", expected_processing="PR",
         )
-        start = raw.identity.reference_start.date().isoformat()
-        end = raw.identity.secondary_start.date().isoformat()
+        start = grid.identity.reference_start.date().isoformat()
+        end = grid.identity.secondary_start.date().isoformat()
         products.append({
             "path": path,
-            "raw": raw,
+            "grid": grid,
             "reference_date": start,
             "secondary_date": end,
             "product_type": "GOFF",
-            "track": raw.identity.track,
-            "direction": raw.identity.direction,
-            "polarization": raw.polarization,
-            "layer": raw.layer,
+            "track": grid.identity.track,
+            "direction": grid.identity.direction,
+            "polarization": grid.polarization,
+            "layer": grid.layer,
             "catalog_maturity": str(item["catalog_maturity"]).upper(),
             "catalog_maturity_evidence": str(item["catalog_maturity_evidence"]),
             "expected_granule_name": str(item.get("expected_granule_name") or ""),
@@ -170,27 +171,28 @@ def _load_and_validate_inputs(config: dict[str, Any], config_dir: Path):
     indexed = validate_five_pair_inventory(products)
     ordered = []
     for start, end in PAPER_INTERVALS:
-        p = indexed[f"{start}__{end}"]
-        raw = p["raw"]
-        x, y = raw.x_coordinates_m, raw.y_coordinates_m
-        if raw.epsg != 32645:
-            raise GoffReadError(f"TARGET_GRID_EPSG_MISMATCH:{raw.identity.granule_name}:{raw.epsg}")
-        if not np.allclose(np.abs(np.diff(x)), 80.0, atol=1e-4, rtol=0):
-            raise GoffReadError(f"TARGET_GRID_X_POSTING_NOT_80M:{raw.identity.granule_name}")
-        if not np.allclose(np.abs(np.diff(y)), 80.0, atol=1e-4, rtol=0):
-            raise GoffReadError(f"TARGET_GRID_Y_POSTING_NOT_80M:{raw.identity.granule_name}")
-        ordered.append(p)
-    first = ordered[0]["raw"]
+        item = indexed[f"{start}__{end}"]
+        grid = item["grid"]
+        if grid.epsg != 32645:
+            raise GoffReadError(
+                f"TARGET_GRID_EPSG_MISMATCH:{grid.identity.granule_name}:{grid.epsg}"
+            )
+        if not np.allclose(np.abs(np.diff(grid.x_coordinates_m)), 80.0, atol=1e-4, rtol=0):
+            raise GoffReadError(f"TARGET_GRID_X_POSTING_NOT_80M:{grid.identity.granule_name}")
+        if not np.allclose(np.abs(np.diff(grid.y_coordinates_m)), 80.0, atol=1e-4, rtol=0):
+            raise GoffReadError(f"TARGET_GRID_Y_POSTING_NOT_80M:{grid.identity.granule_name}")
+        ordered.append(item)
+    first = ordered[0]["grid"]
     reference_x, reference_y = first.x_coordinates_m.copy(), first.y_coordinates_m.copy()
     reference_epsg = first.epsg
     for item in ordered[1:]:
-        raw = item["raw"]
-        if raw.epsg != reference_epsg:
-            raise GoffReadError(f"TARGET_GRID_CRS_MISMATCH:{raw.identity.granule_name}")
-        if not np.array_equal(raw.x_coordinates_m, reference_x):
-            raise GoffReadError(f"TARGET_GRID_X_COORDINATES_NOT_IDENTICAL:{raw.identity.granule_name}")
-        if not np.array_equal(raw.y_coordinates_m, reference_y):
-            raise GoffReadError(f"TARGET_GRID_Y_COORDINATES_NOT_IDENTICAL:{raw.identity.granule_name}")
+        grid = item["grid"]
+        if grid.epsg != reference_epsg:
+            raise GoffReadError(f"TARGET_GRID_CRS_MISMATCH:{grid.identity.granule_name}")
+        if not np.array_equal(grid.x_coordinates_m, reference_x):
+            raise GoffReadError(f"TARGET_GRID_X_COORDINATES_NOT_IDENTICAL:{grid.identity.granule_name}")
+        if not np.array_equal(grid.y_coordinates_m, reference_y):
+            raise GoffReadError(f"TARGET_GRID_Y_COORDINATES_NOT_IDENTICAL:{grid.identity.granule_name}")
     return ordered
 
 
@@ -249,7 +251,7 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
     out = Path(output_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
     products = _load_and_validate_inputs(config, config_dir)
-    first = products[0]["raw"]
+    first = products[0]["grid"]
     roi = build_analysis_roi(
         first.x_coordinates_m, first.y_coordinates_m, first.epsg,
         box_wkt=config["reference_box_wkt"], crown_wkt=config["crown_wkt"],
@@ -269,7 +271,11 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
         raise GoffReadError("CONTROL_DRAWS_MUST_BE_POSITIVE")
 
     for item in products:
-        raw = item["raw"]
+        raw = read_raw_goff(
+            item["path"], polarization="HH", layer=2,
+            expected_track="098", expected_direction="A", expected_processing="PR",
+            window_slices=(roi.row_slice, roi.col_slice), expected_grid=item["grid"],
+        )
         start, end = item["reference_date"], item["secondary_date"]
         pair_report: dict[str, Any] = {
             "pair": f"{start} -> {end}",
@@ -298,11 +304,14 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
             height_m=float(config["geometry_height_m"]),
             expected_epsg=raw.epsg,
         )
-        sl = (roi.row_slice, roi.col_slice)
-        at = raw.along_track_m[sl]
-        sr = raw.slant_range_m[sl]
-        snr = raw.snr[sl]
-        corr = raw.correlation[sl]
+        if not np.array_equal(raw.x_coordinates_m, roi.x_coordinates_m) or not np.array_equal(
+            raw.y_coordinates_m, roi.y_coordinates_m
+        ):
+            raise GoffReadError(f"WINDOW_GRID_MISMATCH_AFTER_RAW_READ:{raw.identity.granule_name}")
+        at = raw.along_track_m
+        sr = raw.slant_range_m
+        snr = raw.snr
+        corr = raw.correlation
         east, north = project_offsets_to_horizontal(
             at, sr,
             sample.along_track_x, sample.along_track_y,
