@@ -212,6 +212,8 @@ def select_validation_threshold(
     reproducible and distinct from the held-out test evaluation.
     """
     registry = validate_event_registry(registry_payload)
+    if any(case["split"] != "validation" for case in registry["cases"]):
+        raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
     _required_text(model_policy_name, "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
     _required_text(score_name, "THRESHOLD_SCORE_NAME_REQUIRED")
     if objective not in {"max_youden_j", "max_f1", "max_recall_at_min_specificity"}:
@@ -234,10 +236,7 @@ def select_validation_threshold(
     raw_rows = validation_scores_payload.get("cases")
     if not isinstance(raw_rows, list):
         raise EventValidationError("VALIDATION_SCORES_CASES_MUST_BE_ARRAY")
-    validation_cases = {
-        case["case_id"]: case for case in registry["cases"]
-        if case["split"] == "validation"
-    }
+    validation_cases = {case["case_id"]: case for case in registry["cases"]}
     if not validation_cases:
         raise EventValidationError("NO_VALIDATION_SPLIT_CASES")
 
@@ -358,7 +357,7 @@ def select_validation_threshold(
         "threshold_selection_objective": objective,
         "minimum_specificity": float(minimum_specificity) if minimum_specificity is not None else None,
         "frozen_before_test": True,
-        "registry_sha256": registry["registry_sha256"],
+        "validation_registry_sha256": registry["registry_sha256"],
         "validation_case_ids_sha256": _canonical_sha256({"case_ids": sorted(validation_cases)}),
         "validation_scores_sha256": _canonical_sha256(validation_scores_payload),
         "selection_evidence": "Threshold selected from validation-split scores only; do not revise after held-out test scoring.",
@@ -367,7 +366,7 @@ def select_validation_threshold(
     return {
         "schema_version": "know-place-validation-threshold-selection/1.0",
         "status": "THRESHOLD_SELECTED_ON_VALIDATION_SPLIT",
-        "registry_sha256": registry["registry_sha256"],
+        "validation_registry_sha256": registry["registry_sha256"],
         "validation_scores_sha256": _canonical_sha256(validation_scores_payload),
         "objective": objective,
         "minimum_specificity": float(minimum_specificity) if minimum_specificity is not None else None,
@@ -448,6 +447,7 @@ def evaluate_heldout_events(
     prediction_payload: dict[str, Any],
     threshold_policy: dict[str, Any],
     *,
+    validation_registry_payload: dict[str, Any] | None = None,
     bootstrap_replicates: int = 2000,
     bootstrap_seed: int = 260826,
     minimum_independent_sites_for_ci: int = 5,
@@ -459,6 +459,13 @@ def evaluate_heldout_events(
     evidence that the detection method has been calibrated.
     """
     registry = validate_event_registry(registry_payload)
+    if any(case["split"] != "test" for case in registry["cases"]):
+        raise EventValidationError("HELDOUT_REGISTRY_MUST_CONTAIN_TEST_CASES_ONLY")
+    if validation_registry_payload is None:
+        raise EventValidationError("VALIDATION_REGISTRY_REQUIRED_TO_VERIFY_FROZEN_THRESHOLD")
+    validation_registry = validate_event_registry(validation_registry_payload)
+    if any(case["split"] != "validation" for case in validation_registry["cases"]):
+        raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
     if not isinstance(threshold_policy, dict) or threshold_policy.get("schema_version") != THRESHOLD_SCHEMA:
         raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
     if threshold_policy.get("threshold_selection_split") != "validation":
@@ -467,8 +474,8 @@ def evaluate_heldout_events(
     _required_text(threshold_policy.get("score_name"), "THRESHOLD_SCORE_NAME_REQUIRED")
     if threshold_policy.get("frozen_before_test") is not True:
         raise EventValidationError("THRESHOLD_POLICY_NOT_FROZEN_BEFORE_TEST")
-    if threshold_policy.get("registry_sha256") != registry["registry_sha256"]:
-        raise EventValidationError("THRESHOLD_POLICY_REGISTRY_CHECKSUM_MISMATCH")
+    if threshold_policy.get("validation_registry_sha256") != validation_registry["registry_sha256"]:
+        raise EventValidationError("THRESHOLD_POLICY_VALIDATION_REGISTRY_CHECKSUM_MISMATCH")
     threshold = threshold_policy.get("threshold")
     if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(float(threshold)):
         raise EventValidationError("THRESHOLD_POLICY_THRESHOLD_INVALID")
@@ -493,7 +500,7 @@ def evaluate_heldout_events(
     validation_cases = [case for case in registry["cases"] if case["split"] == "validation"]
     if not validation_cases:
         raise EventValidationError("NO_VALIDATION_SPLIT_CASES")
-    test_cases = {case["case_id"]: case for case in registry["cases"] if case["split"] == "test"}
+    test_cases = {case["case_id"]: case for case in registry["cases"]}
     if not test_cases:
         raise EventValidationError("NO_HELDOUT_TEST_CASES")
     if not any(case["event_label"] for case in test_cases.values()):
@@ -578,7 +585,8 @@ def evaluate_heldout_events(
     return {
         "schema_version": "know-place-event-evaluation/1.0",
         "status": "EVALUATED_EXPLORATORY_HELDOUT_TEST",
-        "registry_sha256": registry["registry_sha256"],
+        "test_registry_sha256": registry["registry_sha256"],
+        "validation_registry_sha256": validation_registry["registry_sha256"],
         "threshold_policy_sha256": policy_sha,
         "threshold_selection_split": "validation",
         "test_only": True,
@@ -623,7 +631,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Score a frozen, held-out event/non-event prediction set; does not build a detector."
     )
-    parser.add_argument("--registry", required=True, type=Path, help="Independently labelled event registry JSON")
+    parser.add_argument("--registry", required=True, type=Path, help="Held-out test-only registry JSON; do not include development/validation labels")
+    parser.add_argument("--validation-registry", required=True, type=Path, help="Validation-only registry JSON used to select the frozen threshold")
     parser.add_argument("--predictions", required=True, type=Path, help="Per-case ALERT/NO_ALERT/NO_RESULT JSON")
     parser.add_argument("--threshold-policy", required=True, type=Path, help="Content-addressed threshold policy frozen on validation split")
     parser.add_argument("--out", required=True, type=Path, help="Evaluation JSON output")
@@ -634,12 +643,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         registry_payload = json.loads(args.registry.read_text(encoding="utf-8"))
+        validation_registry_payload = json.loads(args.validation_registry.read_text(encoding="utf-8"))
         prediction_payload = json.loads(args.predictions.read_text(encoding="utf-8"))
         threshold_policy = json.loads(args.threshold_policy.read_text(encoding="utf-8"))
         result = evaluate_heldout_events(
             registry_payload,
             prediction_payload,
             threshold_policy,
+            validation_registry_payload=validation_registry_payload,
             bootstrap_replicates=args.bootstrap_replicates,
             bootstrap_seed=args.bootstrap_seed,
             minimum_independent_sites_for_ci=args.minimum_independent_sites_for_ci,
@@ -660,7 +671,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     print(f"EVENT_VALIDATION_STATUS={result['status']}")
-    print(f"REGISTRY_SHA256={result['registry_sha256']}")
+    print(f"TEST_REGISTRY_SHA256={result['test_registry_sha256']}")
+    print(f"VALIDATION_REGISTRY_SHA256={result['validation_registry_sha256']}")
     print(f"THRESHOLD_POLICY_SHA256={result['threshold_policy_sha256']}")
     print(f"HELDOUT_CASES={result['total_heldout_cases']}")
     print(f"NO_RESULT_CASES={result['availability']['no_result_cases']}")
