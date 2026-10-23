@@ -108,7 +108,12 @@ def test_no_reference_polygon_is_labeled_unreferenced_not_background_corrected()
     payload = request()
     payload.pop("reference")
     normalized = validate_aoi_request(payload).to_dict()
-    assert normalized["reference"]["policy"] == "no_background_correction"
+    assert normalized["reference"]["policy"] == "local_context_component_median"
+    assert normalized["reference"]["fallback_buffer_m"] == 2000.0
+
+    payload["reference"] = {"policy": "none", "fallback_buffer_m": 2000.0}
+    explicit_none = validate_aoi_request(payload).to_dict()
+    assert explicit_none["reference"]["policy"] == "none"
 
 
 def test_allowed_maturity_and_geometry_policy_are_preserved_in_request_provenance():
