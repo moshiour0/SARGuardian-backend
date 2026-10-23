@@ -10,6 +10,7 @@ on:
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-analysis-run.yml"
       - ".github/workflows/know-place-analysis-reanalysis.yml"
+      - ".github/workflows/know-place-aoi-analysis.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   pull_request:
     branches:
@@ -20,6 +21,7 @@ on:
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-analysis-run.yml"
       - ".github/workflows/know-place-analysis-reanalysis.yml"
+      - ".github/workflows/know-place-aoi-analysis.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   workflow_dispatch:
 
