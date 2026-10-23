@@ -97,4 +97,4 @@ jobs:
       - name: Test WKT parser, GOFF metadata-layer discovery, AOI discovery, validator identity and dashboard integrity
         env:
           PYTHONPATH: ${{ github.workspace }}/science-source/src
-        run: python -m pytest -q science-source/tests/test_aoi_wkt.py science-source/tests/test_goff_reader.py tools/tests/test_discover_aoi_products.py tools/tests/test_validate_aoi_derived_outputs.py tools/tests/test_plan_aoi_retries.py tools/tests/test_aggregate_aoi_run.py
+        run: python -m pytest -q science-source/tests/test_aoi_wkt.py science-source/tests/test_goff_reader.py tools/tests/test_discover_aoi_products.py tools/tests/test_validate_aoi_derived_outputs.py tools/tests/test_plan_aoi_retries.py tools/tests/test_aggregate_aoi_run.py tools/tests/test_run_export_science_diagnostics.py
