@@ -244,9 +244,23 @@ def build_motion_dynamics_features(
                 current["rate_change_block_reason"] = ";".join(sorted(set(reasons)))
             previous = current
 
+    measured_feature_count = sum(
+        row.get("median_horizontal_displacement_rate_m_per_day") is not None
+        and row.get("mean_vector_east_rate_m_per_day") is not None
+        and row.get("mean_vector_north_rate_m_per_day") is not None
+        for row in features
+    )
+    if measured_feature_count == 0:
+        overall_status = "INSUFFICIENT_MEASUREMENT_FEATURES"
+    elif measured_feature_count < len(features):
+        overall_status = "PARTIAL_DESCRIPTIVE_MOTION_FEATURES"
+    else:
+        overall_status = "DESCRIPTIVE_MOTION_FEATURES_COMPUTED"
     return {
         "schema_version": FEATURES_SCHEMA,
-        "status": "DESCRIPTIVE_MOTION_FEATURES_COMPUTED",
+        "status": overall_status,
+        "measured_feature_count": measured_feature_count,
+        "unmeasured_feature_count": len(features) - measured_feature_count,
         "grid_compatibility_status": global_grid_compatibility_status,
         "pair_count": len(features),
         "pairs": features,
