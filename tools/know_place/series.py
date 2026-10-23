@@ -142,6 +142,12 @@ def build_pairwise_series_plan(
     for record in records:
         if not isinstance(record, dict):
             raise SeriesPlanError("PRODUCT_RECORD_MUST_BE_OBJECT")
+        reported_pol = str(record.get("polarization", "")).upper()
+        if reported_pol:
+            represented = {part.strip() for part in reported_pol.replace(",", "+").split("+") if part.strip()}
+            if polarization.upper() not in represented and reported_pol != polarization.upper():
+                continue
+            record = {**record, "polarization": polarization.upper()}
         candidate = _parse_candidate(record, requested_polarization=polarization.upper())
         if candidate.reference_start < start_bound or candidate.secondary_start >= end_bound:
             continue
