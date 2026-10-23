@@ -99,3 +99,10 @@ currently targets the older AOI-only branch. To exercise this integration, run
 the WKT workflow directly from `feat/final-aoi-science-integration`; update the
 default dispatcher reference separately after this branch is reviewed. The
 source-AOI streaming workflow remains independently callable.
+
+
+## Generic Know Place polygon/date-range analysis
+
+The isolated `feat/know-place-analysis` branch includes an opt-in [polygon/date-range workflow](.github/workflows/know-place-aoi-analysis.yml) for NISAR GOFF measurement, GIS exports and an offline dashboard. Its default run is catalog-only, with no raw downloads. A downloaded analysis requires explicit opt-in and configured Earthdata/Drive secrets. It reports measurement, paper-reproduction and hazard-detection statuses separately; a measurement result is not an operational landslide/glacier-collapse alarm.
+
+Setup, output contents, limitations and the multi-event acceptance gates are documented in [the Know Place runbook](docs/KNOW_PLACE_ANALYSIS_RUNBOOK.md) and [the validation plan](docs/know-place/validation/MULTI_EVENT_VALIDATION_PLAN.md).
