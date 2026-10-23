@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import copy
+
+import pytest
+
+from tools.know_place.aoi_request import (
+    AOIRequestError,
+    REQUEST_SCHEMA,
+    validate_aoi_request,
+)
+
+AOI_WKT = "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))"
+
+
+def request():
+    return {
+        "schema_version": REQUEST_SCHEMA,
+        "aoi": {"type": "Polygon", "wkt": AOI_WKT, "crs": "EPSG:4326"},
+        "date_range": {"start": "2026-06-20", "end": "2026-08-31", "inclusive": True},
+        "hazard_mode": "mixed",
+        "analysis_mode": "retrospective_validation",
+        "source_adapters": ["nisar_goff"],
+        "polarization": "HH",
+        "product_selection": {
+            "track": "98",
+            "direction": "ASCENDING",
+            "preferred_granules": [],
+        },
+        "reference": {"policy": "external_reference_polygon_component_median", "polygon_wkt":
+            "POLYGON ((85.50 28.26, 85.56 28.26, 85.56 28.32, 85.50 28.32, 85.50 28.26))"},
+        "quality_policy": {"minimum_snr": 5, "maximum_horizontal_magnitude_m": 10},
+        "coherence_policy": {"window_size": 5, "minimum_valid_neighbours": 1},
+    }
+
+
+def test_request_normalizes_dates_polygon_selection_and_hash_deterministically():
+    payload = request()
+    first = validate_aoi_request(payload)
+    second = validate_aoi_request(copy.deepcopy(payload))
+
+    assert first.start_date.isoformat() == "2026-06-20"
+    assert first.end_date.isoformat() == "2026-08-31"
+    assert first.track == "098"
+    assert first.direction == "A"
+    assert first.reference_wkt is not None
+    assert first.request_sha256 == second.request_sha256
+    assert len(first.request_sha256) == 64
+    normalized = first.to_dict()
+    assert normalized["date_range"]["inclusive"] is True
+    assert normalized["quality_policy"]["gross_outlier_policy"] == "reject_not_clip"
+
+
+@pytest.mark.parametrize("dates,code", [
+    ({"start": "2026-09-01", "end": "2026-08-31"}, "DATE_RANGE_START_AFTER_END"),
+    ({"start": "2026-6-01", "end": "2026-08-31"}, "START_DATE_MUST_BE_ISO_DATE"),
+    ({"start": "2026-06-20", "end": "2026-08-31", "inclusive": False}, "DATE_RANGE_MUST_BE_INCLUSIVE"),
+])
+def test_invalid_date_range_fails_closed(dates, code):
+    payload = request()
+    payload["date_range"] = dates
+    with pytest.raises(AOIRequestError, match=code):
+        validate_aoi_request(payload)
+
+
+def test_invalid_or_unsupported_polygon_is_rejected_instead_of_silently_repaired():
+    payload = request()
+    payload["aoi"]["wkt"] = "POLYGON ((85 28, 86 29, 85 29, 86 28, 85 28))"
+    with pytest.raises(AOIRequestError, match="AOI_GEOMETRY_INVALID"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["aoi"]["wkt"] = "MULTIPOLYGON (((85 28, 86 28, 86 29, 85 29, 85 28)))"
+    with pytest.raises(AOIRequestError, match="AOI_GEOMETRY_INVALID"):
+        validate_aoi_request(payload)
+
+
+def test_unsupported_adapter_and_even_coherence_window_fail_closed():
+    payload = request()
+    payload["source_adapters"] = ["SENTINEL_ALL"]
+    with pytest.raises(AOIRequestError, match="SOURCE_ADAPTER_UNSUPPORTED"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["coherence_policy"]["window_size"] = 4
+    with pytest.raises(AOIRequestError, match="COHERENCE_WINDOW_MUST_BE_POSITIVE_ODD_INTEGER"):
+        validate_aoi_request(payload)
+
+
+def test_invalid_track_direction_and_release_pins_are_explicit_errors():
+    payload = request()
+    payload["product_selection"]["track"] = "98A"
+    with pytest.raises(AOIRequestError, match="TRACK_MUST_BE_THREE_DIGITS"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["product_selection"]["direction"] = "BOTH"
+    with pytest.raises(AOIRequestError, match="DIRECTION_MUST_BE_ASCENDING_OR_DESCENDING"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["product_selection"]["preferred_granules"] = "not-a-list"
+    with pytest.raises(AOIRequestError, match="PREFERRED_GRANULES_MUST_BE_STRING_ARRAY"):
+        validate_aoi_request(payload)
+
+
+def test_no_reference_polygon_is_labeled_unreferenced_not_background_corrected():
+    payload = request()
+    payload.pop("reference")
+    normalized = validate_aoi_request(payload).to_dict()
+    assert normalized["reference"]["policy"] == "no_background_correction"
