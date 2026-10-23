@@ -685,6 +685,22 @@ def run_aoi_analysis(
             direction=request.direction,
             preferred_granules=request.preferred_granules,
         )
+        selected_names = {pair["granule_name"] for pair in plan["pairs"]}
+        for candidate in catalog_manifest.get("candidates", []):
+            if candidate.get("granule_name") in selected_names:
+                candidate["decision"] = "SELECTED_FOR_MEASUREMENT"
+            elif candidate.get("decision") == "ELIGIBLE_CATALOG_CANDIDATE":
+                candidate["decision"] = "NOT_SELECTED_BY_EXACT_SERIES_POLICY"
+        catalog_manifest["selected_count"] = len(selected_names)
+        catalog_manifest["selection_policy"] = {
+            "preferred_granules": list(request.preferred_granules),
+            "selected_granule_names": sorted(selected_names),
+            "unselected_candidates": "recorded but never silently substituted",
+            "series_plan_schema": plan["schema_version"],
+        }
+        (run_dir / "source-evidence" / "catalog-manifest.json").write_text(
+            json.dumps(catalog_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         (run_dir / "series-plan.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         if not dry_run and len(plan["pairs"]) > MAX_PRODUCTS_PER_DOWNLOADED_JOB:
             raise AOIRunError(
