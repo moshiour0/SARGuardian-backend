@@ -1,45 +1,12 @@
-name: Know Place Analysis — exact five-pair raw replay
+name: Know Place Analysis - exact five-pair raw replay
 
-# This research workflow lives only on feat/know-place-analysis.
-# A push starts an expensive download ONLY when the commit message contains
-# [run-know-place]. workflow_dispatch is also provided for use where available.
+# This isolated feature-branch workflow does not exist on main.
+# It performs the expensive work only when the pushed commit message contains
+# the explicit marker [run-know-place]. Ordinary code/test pushes are cheap.
 on:
   push:
     branches:
       - feat/know-place-analysis
-  workflow_dispatch:
-    inputs:
-      consent_to_run:
-        description: "Explicitly authorize downloading five ~1.1 GB NISAR GOFF granules"
-        required: true
-        type: choice
-        options:
-          - cancel
-          - confirm-five-product-re-download
-        default: cancel
-      crown_wkt:
-        description: "Single-ring WGS84 crown polygon, longitude latitude order"
-        required: true
-        type: string
-        default: "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))"
-      crown_geometry_kind:
-        description: "Declare how the crown polygon was obtained"
-        required: true
-        type: choice
-        options:
-          - bounding-box-approximation
-          - user-digitized-geometry
-        default: bounding-box-approximation
-      geometry_height_m:
-        description: "Crown-local height above ellipsoid in metres"
-        required: true
-        type: number
-        default: 5151
-      control_draws:
-        description: "Deterministic exploratory spatial-control draws"
-        required: true
-        type: number
-        default: 1000
 
 permissions:
   contents: read
@@ -49,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  trigger-gate:
+  trigger_gate:
     name: Decide whether this branch push explicitly requested the expensive analysis
     runs-on: ubuntu-24.04
     outputs:
@@ -59,15 +26,11 @@ jobs:
         id: decide
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_MESSAGE: ${{ github.event.head_commit.message || '' }}
-          DISPATCH_CONSENT: ${{ inputs.consent_to_run || 'cancel' }}
+          EVENT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           should_run=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$DISPATCH_CONSENT" == "confirm-five-product-re-download" ]]; then
-            should_run=true
-          elif [[ "$EVENT_NAME" == "push" && "$EVENT_MESSAGE" == *"[run-know-place]"* ]]; then
+          if [[ "$EVENT_MESSAGE" == *"[run-know-place]"* ]]; then
             should_run=true
           fi
           echo "run_analysis=$should_run" >> "$GITHUB_OUTPUT"
@@ -85,8 +48,8 @@ jobs:
 
   analyze-five-pairs:
     name: Validate inputs and analyse five exact GOFF pairs
-    needs: trigger-gate
-    if: needs.trigger-gate.outputs.run_analysis == 'true'
+    needs: trigger_gate
+    if: needs.trigger_gate.outputs.run_analysis == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -96,10 +59,10 @@ jobs:
       GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
-      CROWN_WKT: ${{ inputs.crown_wkt || 'POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))' }}
-      CROWN_GEOMETRY_KIND: ${{ inputs.crown_geometry_kind || 'bounding-box-approximation' }}
-      GEOMETRY_HEIGHT_M: ${{ inputs.geometry_height_m || 5151 }}
-      CONTROL_DRAWS: ${{ inputs.control_draws || 1000 }}
+      CROWN_WKT: "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))"
+      CROWN_GEOMETRY_KIND: bounding-box-approximation
+      GEOMETRY_HEIGHT_M: '5151'
+      CONTROL_DRAWS: '1000'
       RUN_ROOT: ${{ runner.temp }}/know-place-analysis
       OUT_ROOT: ${{ runner.temp }}/know-place-analysis-output
 
