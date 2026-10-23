@@ -25,6 +25,20 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
             "aoi": {"wkt": "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28))"},
             "date_range": {"start": "2026-06-20", "end": "2026-08-31"},
         },
+        "motion_dynamics": {
+            "status": "DESCRIPTIVE_MOTION_FEATURES_COMPUTED",
+            "hazard_detection_status": "NOT_EVALUATED",
+            "pairs": [{
+                "reference_date": "2026-07-26",
+                "secondary_date": "2026-08-19",
+                "chain_id": "098-A-HH-PROVISIONAL-P05023",
+                "median_horizontal_displacement_rate_m_per_day": 0.04,
+                "mean_vector_magnitude_rate_m_per_day": 0.0717,
+                "vector_rate_acceleration_m_per_day_squared": None,
+                "vector_rate_change_eligible": False,
+                "rate_change_block_reason": "INSTRUMENT_GAP_CROSSES_INTERVAL",
+            }],
+        },
         "pairs": [{
             "reference_date": "2026-07-26",
             "secondary_date": "2026-08-19",
@@ -88,6 +102,9 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
     assert "0.0400 m/day" in rendered
     assert "Midpoint separation: 24.000 d" in rendered
     assert "not instantaneous velocity" in rendered
+    assert "Descriptive motion dynamics — not a hazard score" in rendered
+    assert "INSTRUMENT_GAP_CROSSES_INTERVAL" in rendered
+    assert "0.0717 m/day" in rendered
     assert "Grid identity SHA-256" in rendered
     assert "b" * 64 in rendered
     assert "https://" not in rendered  # no CDN/external dependency
