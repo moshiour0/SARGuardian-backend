@@ -18,6 +18,18 @@ class SeriesPlanError(ValueError):
     """The catalog candidate set cannot define one reproducible measurement series."""
 
 
+# Publicly documented mission availability gap. This registry is versioned with
+# the processing code because it changes how interval results can be interpreted.
+KNOWN_NISAR_DATA_GAPS = (
+    {
+        "start_utc": "2026-07-27T22:03:25Z",
+        "end_utc": "2026-08-10T00:55:27Z",
+        "reason": "documented NISAR instrument data gap",
+        "source_url": "https://hyp3-docs.asf.alaska.edu/nisar-docs/availability-overview/",
+    },
+)
+
+
 @dataclass(frozen=True)
 class PairCandidate:
     granule_name: str
@@ -216,6 +228,18 @@ def build_pairwise_series_plan(
         continuous = True
         for candidate in ordered:
             row = candidate.to_dict()
+            intersected_gaps = []
+            for gap in KNOWN_NISAR_DATA_GAPS:
+                gap_start = datetime.fromisoformat(gap["start_utc"].replace("Z", "+00:00"))
+                gap_end = datetime.fromisoformat(gap["end_utc"].replace("Z", "+00:00"))
+                if candidate.reference_start < gap_end and candidate.secondary_start > gap_start:
+                    intersected_gaps.append(dict(gap))
+            row["known_instrument_data_gaps"] = intersected_gaps
+            row["interval_coverage_warning"] = (
+                "Pair interval spans a documented NISAR instrument data gap; this pairwise offset cannot localize onset or acceleration within the interval."
+                if intersected_gaps else
+                "Pairwise displacement is an interval-integrated estimate, not continuous observation of motion."
+            )
             row["chain_id"] = chain_id
             if previous is None:
                 row["relation_to_previous"] = "FIRST_PAIR"
@@ -294,8 +318,18 @@ def build_pairwise_series_plan(
             "date_policy": "both pair acquisitions must lie inside inclusive user date range",
             "pairwise_metric_policy": "report each product interval independently; do not sum overlapping/gapped pair estimates",
         },
+        "known_nisar_data_gaps_intersecting_requested_pairs": [
+            gap
+            for gap in KNOWN_NISAR_DATA_GAPS
+            if any(
+                pair["reference_start_utc"] < gap["end_utc"]
+                and pair["secondary_start_utc"] > gap["start_utc"]
+                for pair in flattened_pairs
+            )
+        ],
         "warnings": [
             "A planned pair series only establishes candidate availability and chronology. It does not establish valid pixel support, scientific reproduction, or hazard detection.",
+            "Pairwise GOFF products estimate integrated displacement between acquisition endpoints; they do not observe the continuous motion trajectory or prove when motion began.",
             "Different tracks/directions/polarizations are returned as separate chains and must never be pooled into one displacement vector.",
             "A continuous acquisition chain is necessary but not sufficient for cumulative displacement; projection, reference, sign convention, grid parity and uncertainty still require validation.",
         ],
