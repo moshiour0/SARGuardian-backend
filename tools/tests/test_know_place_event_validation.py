@@ -397,3 +397,33 @@ def test_threshold_selection_cli_writes_report_and_frozen_policy(tmp_path, capsy
     assert policy["frozen_before_test"] is True
     assert len(policy["policy_sha256"]) == 64
     assert "THRESHOLD_SELECTION_STATUS=THRESHOLD_SELECTED_ON_VALIDATION_SPLIT" in capsys.readouterr().out
+
+
+def test_split_registry_contract_rejects_combined_cases_before_any_label_scoring():
+    reg = registry()
+    full_registry = copy.deepcopy(reg)
+    with pytest.raises(EventValidationError, match="VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY"):
+        select_validation_threshold(
+            full_registry,
+            validation_scores(),
+            model_policy_name="synthetic_detector_v1",
+            score_name="mocked_alert_score",
+        )
+
+    policy = threshold_policy(reg)
+    with pytest.raises(EventValidationError, match="HELDOUT_REGISTRY_MUST_CONTAIN_TEST_CASES_ONLY"):
+        _evaluate_heldout_events(
+            full_registry,
+            prediction_payload(),
+            policy,
+            validation_registry_payload=validation_registry(reg),
+            bootstrap_replicates=100,
+        )
+    with pytest.raises(EventValidationError, match="VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY"):
+        _evaluate_heldout_events(
+            heldout_registry(reg),
+            prediction_payload(),
+            policy,
+            validation_registry_payload=full_registry,
+            bootstrap_replicates=100,
+        )
