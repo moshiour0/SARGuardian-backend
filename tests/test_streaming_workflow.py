@@ -302,3 +302,27 @@ def test_failed_products_are_retried_and_receipts_gate_reassembly():
     ci = (WORKFLOW.parent / "sarguardian-retention-ci.yml").read_text(encoding="utf-8")
     assert ".github/workflows/sarguardian-product-worker.yml" in ci
 
+
+
+def test_zero_product_resume_uses_a_successful_noop_worker_without_polluting_receipt_plan():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    manifest = text.split("  manifest:\n", 1)[1].split("  process-one:\n", 1)[0]
+    retry_plan = text.split("  retry-plan:\n", 1)[1].split("  retry-products:\n", 1)[0]
+    worker = PRODUCT_WORKER.read_text(encoding="utf-8")
+
+    # The actual product list stays empty for receipt validation and retry planning.
+    assert "matrix: ${{ steps.make.outputs.matrix }}" in manifest
+    assert 'compact = json.dumps(matrix, separators=(",", ":"))' in manifest
+    assert "worker_matrix = matrix or [" in manifest
+    assert '"id": "__NO_PRODUCTS__"' in manifest
+    assert 'gh.write("matrix=" + compact' in manifest
+    assert 'gh.write("worker_matrix=" + compact_worker' in manifest
+    assert "include: ${{ fromJSON(needs.manifest.outputs.worker_matrix) }}" in text
+    assert "EXPECTED_PRODUCTS_JSON: ${{ needs.manifest.outputs.matrix }}" in retry_plan
+
+    # The sentinel completes a successful no-op job and never starts the downloader.
+    assert "no-product-work:" in worker
+    assert "if: inputs.product_id == '__NO_PRODUCTS__'" in worker
+    assert "if: inputs.product_id != '__NO_PRODUCTS__'" in worker
+    assert "NO_PRODUCT_WORK_REQUIRED=true" in worker
+    assert "ALL_SELECTED_PRODUCTS_REUSED=true" in worker

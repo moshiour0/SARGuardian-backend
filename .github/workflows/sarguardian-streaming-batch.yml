@@ -53,6 +53,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.make.outputs.matrix }}
+      worker_matrix: ${{ steps.make.outputs.worker_matrix }}
       resume_run_id: ${{ steps.resume.outputs.run_id }}
       resume_mode: ${{ steps.resume.outputs.mode }}
     steps:
@@ -280,8 +281,21 @@ jobs:
                      "product_type": r["product_type"], "maturity": r["maturity"],
                      "expected_source_bytes": r["expected_source_bytes"]} for r in matrix_products]
           compact = json.dumps(matrix, separators=(",", ":"))
+          # GitHub Actions does not handle an empty reusable-workflow matrix reliably.
+          # Keep the manifest/retry planner's matrix truthful, and use a dedicated no-op
+          # row only for the first-pass worker fan-out when all products were reused.
+          worker_matrix = matrix or [{
+              "id": "__NO_PRODUCTS__",
+              "granule_name": "__NO_PRODUCTS__",
+              "product_type": "__NO_PRODUCTS__",
+              "maturity": "none",
+              "expected_source_bytes": 0,
+          }]
+          compact_worker = json.dumps(worker_matrix, separators=(",", ":"))
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh:
               gh.write("matrix=" + compact + "\n")
+              gh.write("worker_matrix=" + compact_worker + "\n")
+          print(f"NO_PRODUCT_WORK_REQUIRED={not matrix}")
           print(f"PRODUCTS_TO_PROCESS={len(matrix_products)}")
           print(f"RESUME_ENABLED={bool(resume_run_id)}")
           print(f"RUN_PROFILE={effective_profile}")
@@ -405,7 +419,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        include: ${{ fromJSON(needs.manifest.outputs.matrix) }}
+        include: ${{ fromJSON(needs.manifest.outputs.worker_matrix) }}
     uses: ./.github/workflows/sarguardian-product-worker.yml
     with:
       product_id: ${{ matrix.id }}

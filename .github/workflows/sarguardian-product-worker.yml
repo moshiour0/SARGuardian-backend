@@ -26,8 +26,21 @@ on:
         type: string
 
 jobs:
+  no-product-work:
+    name: Confirm that all products were reused
+    if: inputs.product_id == '__NO_PRODUCTS__'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record a successful zero-product resume path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "NO_PRODUCT_WORK_REQUIRED=true"
+          echo "ALL_SELECTED_PRODUCTS_REUSED=true"
+
   process:
     name: Process ${{ inputs.product_id }} (${{ inputs.execution_label }})
+    if: inputs.product_id != '__NO_PRODUCTS__'
     # The caller's receipt gate, not this one product job's conclusion, decides whether reassembly is safe.
     continue-on-error: true
     runs-on: ubuntu-24.04
