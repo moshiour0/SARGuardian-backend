@@ -546,7 +546,7 @@ def run_aoi_analysis(
 ) -> dict[str, Any]:
     """Discover products, plan a single orbit chain, verify/download and measure it."""
     request = validate_aoi_request(request_payload)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output_parent = Path(output_root).expanduser().resolve()
     run_dir = output_parent / f"{timestamp}_{request.request_sha256[:8]}"
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -596,6 +596,38 @@ def run_aoi_analysis(
                 "limitations": ["Dry run only: no source files were downloaded and no displacement metrics were computed."],
             }
             (run_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            (run_dir / "README.txt").write_text(
+                "SARGuardian Know Place Analysis — catalog/series dry run\\n"
+                "No source HDF5 products were downloaded and no displacement metrics were computed.\\n",
+                encoding="utf-8",
+            )
+            write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+            output_files = sorted(
+                file for file in run_dir.rglob("*")
+                if file.is_file() and file.name != "manifest.json"
+            )
+            manifest = {
+                "schema_version": "know-place-aoi-manifest/1.0",
+                "engine_version": ENGINE_VERSION,
+                "request_sha256": request.request_sha256,
+                "dry_run": True,
+                "sources": [],
+                "files": [
+                    {"path": str(file.relative_to(run_dir)).replace("\\\\", "/"),
+                     "bytes": file.stat().st_size, "sha256": _sha256(file)}
+                    for file in output_files
+                ],
+                "claim_boundary": {
+                    "measurement_status": result["measurement_status"],
+                    "paper_reproduction_status": result["paper_reproduction_status"],
+                    "hazard_detection_status": result["hazard_detection_status"],
+                },
+            }
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8"
+            )
+            result["output_manifest"] = "manifest.json"
+            result["output_files"] = len(manifest["files"])
             return result
 
         session = _session_from_environment()
