@@ -151,22 +151,55 @@ def discover_author_products() -> list[dict[str, Any]]:
             raise CatalogIdentityError(
                 f"ASF_AUTHOR_QUERY_FAILED:{wanted}:exception={type(exc).__name__}"
             ) from None
-        verified.append(validate_author_catalog_product(target, results))
+        try:
+            verified.append(validate_author_catalog_product(target, results))
+        except CatalogIdentityError as exc:
+            # A missing/ambiguous/conflicting catalog identity is an explicit
+            # scientific gate blocker, not a reason to skip checks on later pairs.
+            identity = parse_granule_identity(wanted + ".h5")
+            message = str(exc)
+            if message.startswith("ASF_AUTHOR_EXACT_GRANULE_NOT_FOUND"):
+                status = "NOT_FOUND"
+            elif message.startswith("ASF_AUTHOR_EXACT_GRANULE_AMBIGUOUS"):
+                status = "AMBIGUOUS"
+            else:
+                status = "REJECTED"
+            verified.append({
+                "granule_name": wanted,
+                "interval": target["interval"],
+                "processing": identity.processing,
+                "track": identity.track,
+                "direction": identity.direction,
+                "release_id": identity.release_id,
+                "collection": EXPECTED_COLLECTION,
+                "catalog_maturity": None,
+                "catalog_url_host": None,
+                "catalog_identity_status": status,
+                "blocking_reason": message,
+                "source_sha256": None,
+                "source_sha256_status": "NOT_DOWNLOADED",
+            })
     return verified
 
 
 def write_manifest(out_path: str | Path) -> dict[str, Any]:
     products = discover_author_products()
+    blocked = [
+        row for row in products
+        if row.get("catalog_identity_status") != "EXACT_URL_CONFIRMED"
+    ]
     manifest = {
         "schema_version": "know-place-author-catalog-manifest/1.0",
-        "status": "PASS",
+        "status": "BLOCKED" if blocked else "PASS",
         "catalog_checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "archive_payload_downloaded": False,
         "source_hashes_recorded": False,
+        "blocking_product_count": len(blocked),
         "warning": (
             "Catalog identity is not source-byte identity, method parity, a golden-output "
             "comparison, or a hazard detection. SHA-256 remains unknown until exact bytes "
-            "are separately fetched and hashed."
+            "are separately fetched and hashed. A BLOCKED status means the exact source "
+            "identity is unresolved; it is not reinterpreted as a successful match."
         ),
         "products": products,
     }
@@ -186,10 +219,15 @@ def main(argv: list[str] | None = None) -> int:
         print("KNOW_PLACE_AUTHOR_CATALOG_STATUS=FAIL")
         print(f"ERROR={type(exc).__name__}:{exc}")
         return 2
-    print("KNOW_PLACE_AUTHOR_CATALOG_STATUS=PASS")
+    print(f"KNOW_PLACE_AUTHOR_CATALOG_STATUS={manifest['status']}")
     print(f"AUTHOR_GRANULE_COUNT={len(manifest['products'])}")
+    print(f"AUTHOR_GRANULES_CONFIRMED={sum(p.get('catalog_identity_status') == 'EXACT_URL_CONFIRMED' for p in manifest['products'])}")
+    print(f"BLOCKING_PRODUCTS={manifest['blocking_product_count']}")
     print("SOURCE_DOWNLOADS=0")
     print(f"MANIFEST={args.out.resolve()}")
+    # A fully completed query that reveals a missing author product is a
+    # scientific gate blocker, not a code-test failure. Query/transport errors
+    # still raise above and exit nonzero.
     return 0
 
 
