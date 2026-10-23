@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Select a frozen event score threshold on validation cases; test labels are rejected."
     )
-    parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--registry", required=True, type=Path, help="Validation-only registry JSON; development/test cases are rejected")
     parser.add_argument("--validation-scores", required=True, type=Path)
     parser.add_argument("--model-policy-name", required=True)
     parser.add_argument("--score-name", required=True)
