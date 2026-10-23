@@ -167,3 +167,18 @@ def test_generic_large_displacement_is_retained_and_flagged_but_paper_policy_rej
     assert paper_valid.tolist() == [[False, True]]
     assert paper_counts.rejected_magnitude == 1
     assert paper_flags.tolist() == [[True, False]]
+
+
+def test_ephemeral_source_cleanup_removes_h5_and_receipt_without_reuploading_raw_data(tmp_path):
+    product_dir = tmp_path / "goff-products" / "product-id"
+    product_dir.mkdir(parents=True)
+    source = product_dir / (PAIR_NAMES[0])
+    receipt = product_dir / (PAIR_NAMES[0] + ".source-receipt.json")
+    source.write_bytes(b"raw HDF5 fixture")
+    receipt.write_text('{"source_sha256":"example"}', encoding="utf-8")
+    pending = [source]
+
+    _cleanup_ephemeral_source(source, pending)
+
+    assert not product_dir.exists()
+    assert pending == []
