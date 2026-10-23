@@ -12,7 +12,7 @@ from tools.know_place.event_validation import (
     EventValidationError,
     REGISTRY_SCHEMA,
     THRESHOLD_SCHEMA,
-    evaluate_heldout_events,
+    evaluate_heldout_events as _evaluate_heldout_events,
     select_validation_threshold,
     main,
     seal_threshold_policy,
@@ -67,19 +67,43 @@ def registry():
     }
 
 
+def validation_registry(reg):
+    return {
+        "schema_version": reg["schema_version"],
+        "label_policy": reg["label_policy"],
+        "cases": [item for item in reg["cases"] if item["split"] == "validation"],
+    }
+
+
+def heldout_registry(reg):
+    return {
+        "schema_version": reg["schema_version"],
+        "label_policy": reg["label_policy"],
+        "cases": [item for item in reg["cases"] if item["split"] == "test"],
+    }
+
+
+def evaluate_heldout_events(reg, predictions, policy, **kwargs):
+    validation_payload = kwargs.pop("validation_registry_payload", validation_registry(reg))
+    return _evaluate_heldout_events(
+        heldout_registry(reg),
+        predictions,
+        policy,
+        validation_registry_payload=validation_payload,
+        **kwargs,
+    )
+
+
 def threshold_policy(reg):
-    validated = validate_event_registry(reg)
-    return seal_threshold_policy({
-        "schema_version": THRESHOLD_SCHEMA,
-        "model_policy_name": "synthetic_known_answer_v1",
-        "score_name": "mocked_validation_score",
-        "threshold": 0.7,
-        "decision_rule": ">=",
-        "threshold_selection_split": "validation",
-        "frozen_before_test": True,
-        "registry_sha256": validated["registry_sha256"],
-        "selection_evidence": "Selected only on validation cases; this synthetic fixture does not validate a real detector.",
-    })
+    validation_payload = validation_registry(reg)
+    selected = select_validation_threshold(
+        validation_payload,
+        validation_scores(positive_score=0.8, negative_score=0.2),
+        model_policy_name="synthetic_known_answer_v1",
+        score_name="mocked_validation_score",
+        objective="max_youden_j",
+    )
+    return selected["threshold_policy"]
 
 
 def prediction(case_id, state, score=None, alarm=None):
@@ -214,6 +238,7 @@ def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
     reg = registry()
     reg["cases"] = [
         case("VAL-E1", "VAL-SITE", "validation", True, event_time="2026-07-15T00:00:00Z"),
+        case("VAL-N1", "VAL-CTRL", "validation", False),
         case("T1", "ONLY-SITE", "test", True, event_time="2026-08-01T00:00:00Z"),
         case("T2", "ONLY-SITE", "test", False),
     ]
@@ -234,16 +259,19 @@ def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
 def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
     reg = registry()
     policy = threshold_policy(reg)
-    registry_path = tmp_path / "registry.json"
+    registry_path = tmp_path / "test-registry.json"
+    validation_path = tmp_path / "validation-registry.json"
     predictions_path = tmp_path / "predictions.json"
     policy_path = tmp_path / "threshold-policy.json"
     output_path = tmp_path / "out" / "evaluation.json"
-    registry_path.write_text(json.dumps(reg), encoding="utf-8")
+    registry_path.write_text(json.dumps(heldout_registry(reg)), encoding="utf-8")
+    validation_path.write_text(json.dumps(validation_registry(reg)), encoding="utf-8")
     predictions_path.write_text(json.dumps(prediction_payload()), encoding="utf-8")
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
 
     code = main([
         "--registry", str(registry_path),
+        "--validation-registry", str(validation_path),
         "--predictions", str(predictions_path),
         "--threshold-policy", str(policy_path),
         "--out", str(output_path),
@@ -254,7 +282,8 @@ def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
     assert code == 0
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert result["test_only"] is True
-    assert result["registry_sha256"] == validate_event_registry(reg)["registry_sha256"]
+    assert result["test_registry_sha256"] == validate_event_registry(heldout_registry(reg))["registry_sha256"]
+    assert result["validation_registry_sha256"] == validate_event_registry(validation_registry(reg))["registry_sha256"]
     output = capsys.readouterr().out
     assert "EVENT_VALIDATION_STATUS=EVALUATED_EXPLORATORY_HELDOUT_TEST" in output
 
@@ -272,7 +301,7 @@ def validation_scores(*, positive_score=0.9, negative_score=0.2):
 def test_validation_threshold_selection_recovers_known_answer_without_touching_test_labels():
     reg = registry()
     selected = select_validation_threshold(
-        reg, validation_scores(),
+        validation_registry(reg), validation_scores(),
         model_policy_name="synthetic_detector_v1",
         score_name="mocked_alert_score",
         objective="max_youden_j",
@@ -289,7 +318,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
     assert policy["threshold"] == pytest.approx(0.9)
     assert policy["threshold_selection_split"] == "validation"
     assert policy["frozen_before_test"] is True
-    assert policy["registry_sha256"] == validate_event_registry(reg)["registry_sha256"]
+    assert policy["validation_registry_sha256"] == validate_event_registry(validation_registry(reg))["registry_sha256"]
     assert len(policy["validation_scores_sha256"]) == 64
     assert len(policy["policy_sha256"]) == 64
     # Held-out cases are not accepted in the threshold-selection inputs.
@@ -297,7 +326,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
     leaked["cases"].append({"case_id": "T1", "state": "SCORED", "score": 1.0})
     with pytest.raises(EventValidationError, match="VALIDATION_SCORE_NOT_VALIDATION_CASE"):
         select_validation_threshold(
-            reg, leaked, model_policy_name="synthetic_detector_v1",
+            validation_registry(reg), leaked, model_policy_name="synthetic_detector_v1",
             score_name="mocked_alert_score",
         )
 
@@ -305,7 +334,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
 def test_threshold_selection_supports_predeclared_minimum_specificity_objective():
     reg = registry()
     selected = select_validation_threshold(
-        reg, validation_scores(positive_score=0.8, negative_score=0.7),
+        validation_registry(reg), validation_scores(positive_score=0.8, negative_score=0.7),
         model_policy_name="synthetic_detector_v1",
         score_name="mocked_alert_score",
         objective="max_recall_at_min_specificity",
@@ -328,7 +357,7 @@ def test_threshold_selection_rejects_objectives_without_independent_validation_c
     }
     with pytest.raises(EventValidationError, match="VALIDATION_SCORES_HAVE_NO_POSITIVE_EVENTS"):
         select_validation_threshold(
-            reg, scores, model_policy_name="synthetic_detector_v1",
+            validation_registry(reg), scores, model_policy_name="synthetic_detector_v1",
             score_name="mocked_alert_score",
         )
 
@@ -336,11 +365,11 @@ def test_threshold_selection_rejects_objectives_without_independent_validation_c
 def test_threshold_selection_cli_writes_report_and_frozen_policy(tmp_path, capsys):
     reg = registry()
     scores = validation_scores()
-    registry_path = tmp_path / "registry.json"
+    registry_path = tmp_path / "validation-registry.json"
     scores_path = tmp_path / "validation-scores.json"
     report_path = tmp_path / "out" / "threshold-selection.json"
     policy_path = tmp_path / "out" / "frozen-threshold-policy.json"
-    registry_path.write_text(json.dumps(reg), encoding="utf-8")
+    registry_path.write_text(json.dumps(validation_registry(reg)), encoding="utf-8")
     scores_path.write_text(json.dumps(scores), encoding="utf-8")
 
     code = select_threshold_main([
