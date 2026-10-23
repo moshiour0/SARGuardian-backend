@@ -152,3 +152,23 @@ A benchmark run is eligible for method reproduction only if:
 - Meena (2026), EGUsphere preprint, DOI 10.5194/egusphere-2026-5462, especially Data and methods pp. 2–3, Results pp. 4–7. [Preprint page](https://egusphere.copernicus.org/preprints/2026/egusphere-2026-5462/).
 - [ASF/NISAR GOFF product guide](https://nisar-docs.asf.alaska.edu/goff/): GOFF is geocoded pixel offsets, 80 m posting; raw product contains offsets and SNR layers and is not conventionally post-processed.
 - Current Dynamic AOI audit baseline: [Run 39942529304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/39942529304).
+
+## 8. First real replay and R-policy correction (evidence added 2026-10-24)
+
+The first real five-pair raw-input replay completed in [Run 40006999011](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40006999011). All five candidate GOFF HDF5 source hashes matched the previous Dynamic AOI source products; all five pair reports reached `METRICS_COMPUTED`. The run's report/artifact is preserved separately and was not overwritten.
+
+A post-processing bug was then identified: the first replay defaulted to 25 valid vectors in each 5×5 R window. The preprint defines a 5×5 mean resultant length but does not state a 25/25 minimum-neighbour condition. This requirement substantially changed support counts and depressed the target-pair R estimate. The saved-array workflow in [Run 40015023621](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015023621) downloaded the original derived-only artifact, verified all five NPZ hashes against the source report, recomputed R and its neighbour-count sensitivity, and uploaded the separate report/summary to Drive with remote verification. It did **not** download or reprocess HDF5.
+
+For the 26 July–19 August pair, the recomputed values are:
+- crown median horizontal magnitude: 0.966 m (published rounded target ~0.96 m);
+- mean-vector magnitude: 1.722 m (published rounded target ~1.72 m);
+- mean-vector azimuth: 277.79° (published rounded target ~278°);
+- 5×5 R over all eligible crown centres using at least one valid direction: 0.853;
+- R on the pointwise 0.17–2.75 m common-motion window: 0.869 at 150 crown centres, versus the paper's ~0.869 at 147 centres;
+- box R on the analogous pointwise window: 0.686 at 1,626 centres; the paper's comparison sample is about 0.693 on 1,572 centres.
+
+The close scalar results are encouraging evidence that parts of the published metric are being reproduced, but the three extra crown centres and background sample mismatch must remain visible. The exact irregular crown polygon and author product variants are not verified, and our deterministic circular controls are not established to match the author's spatial-control sampling algorithm. Our exploratory circular controls give a ~0.128 m median and a ~96.08th-percentile rank; the paper reports ~0.14 m and 94.7th percentile. **Those percentiles are not comparable** and the higher rank is not an alarm.
+
+The current primary R calculation uses a minimum of one valid direction and publishes 1/5/10/15/20/25 sensitivity. This is a transparent choice to avoid imposing an undocumented 25/25 gate, not a claim that the paper specifies minimum one. Reproduction remains `BLOCKED_AUTHOR_GEOMETRY_VARIANT_AND_GOLDEN_OUTPUTS_UNVERIFIED`; hazard detection remains `NOT_EVALUATED`. Full per-pair numbers, source hashes and acceptance gates are in [RAW_REPLAY_40006999011_R_POLICY_AUDIT.md](know-place/evidence/RAW_REPLAY_40006999011_R_POLICY_AUDIT.md).
+
+The isolated validation workflow passed 46 tests, parsed all three feature workflows and passed actionlint in [Run 40015371603](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015371603). All implementation remains on `feat/know-place-analysis`; no `main` changes or merge were made.
