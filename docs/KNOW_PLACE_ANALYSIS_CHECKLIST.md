@@ -80,7 +80,7 @@
 - [x] Keep every Know Place Analysis commit on `feat/know-place-analysis`; no `main` changes or merge were made.
 - [ ] Do not merge to `main`. Any later integration requires explicit review and approval.
 
-## Current gate status (updated 2026-10-24; branch head verified 2bbb3509bc84f0a1c80cadb65adfad04fa7d53d5)
+## Current gate status (updated 2026-10-24)
 
 - **Milestone 0:** complete. Baseline run, source/dashboard artifacts, array/report checksums and findings are saved under `docs/know-place/evidence/`.
 - **Milestone 1:** blueprint, method contract and versioned provenance implemented. Live ASF identity gate passes for five candidate products. The official preprint states that its supplement contains scripts, five derived GeoTIFFs, tables and source IDs, but we have not retrieved the actual archive or checksum; retrieval is **UNRESOLVED**, not proof of absence. Exact crown WKT, author variant manifest, control code and golden outputs remain unverified. See `docs/know-place/evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md`.
