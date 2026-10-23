@@ -9,6 +9,7 @@ import pytest
 from tools.know_place.goff_io import (
     GoffReadError,
     parse_granule_identity,
+    inspect_goff_grid,
     read_geometry_cubes,
     read_raw_goff,
     sample_geometry,
@@ -172,3 +173,32 @@ def test_geometry_metadata_crs_must_match_offset_grid_crs(tmp_path):
         ds[()]  # metadata CRS now differs from the GOFF offset grid
     with pytest.raises(GoffReadError, match="GEOMETRY_CRS_MISMATCH"):
         read_geometry_cubes(path, expected_epsg=32645)
+
+
+
+def test_grid_inspection_does_not_require_loading_full_rasters(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    grid = inspect_goff_grid(path, expected_track="098", expected_direction="A")
+    assert grid.grid_shape == (4, 5)
+    assert grid.x_coordinates_m.tolist() == [100, 101, 102, 103, 104]
+    assert grid.y_coordinates_m.tolist() == [200, 201, 202, 203]
+    assert grid.epsg == 32645
+    assert grid.file_size_bytes == path.stat().st_size
+
+
+def test_raw_reader_reads_only_requested_hdf5_window_and_checks_grid(tmp_path):
+    path = tmp_path / TARGET_NAME
+    write_synthetic_goff(path)
+    grid = inspect_goff_grid(path, expected_track="098", expected_direction="A")
+    product = read_raw_goff(
+        path, expected_track="098", expected_direction="A",
+        window_slices=(slice(1, 3), slice(2, 5)), expected_grid=grid,
+    )
+    assert product.along_track_m.shape == (2, 3)
+    assert product.x_coordinates_m.tolist() == [102, 103, 104]
+    assert product.y_coordinates_m.tolist() == [201, 202]
+    assert product.metadata["original_grid_shape"] == [4, 5]
+    assert product.metadata["read_window"] == {
+        "row_start": 1, "row_stop": 3, "column_start": 2, "column_stop": 5
+    }
