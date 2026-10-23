@@ -64,10 +64,13 @@ def test_user_can_pin_exact_granule_variant():
     assert result["pairs"][0]["granule_name"] == PAIR_NAMES[0]
 
 
-def test_products_from_multiple_orbit_geometries_are_not_mixed():
+def test_multiple_orbit_geometries_are_returned_as_separate_chains():
     descending = PAIR_NAMES[0].replace("_098_A_", "_048_D_")
-    with pytest.raises(SeriesPlanError, match="AMBIGUOUS_ORBIT_GEOMETRY_SERIES"):
-        build([row(PAIR_NAMES[0]), row(descending)])
+    result = build([row(PAIR_NAMES[0]), row(descending)])
+    assert result["chain_count"] == 2
+    assert result["geometry_key"] is None
+    assert result["cumulative_displacement_status"] == "SEPARATE_CHAINS_REVIEW_REQUIRED"
+    assert {item["chain_id"] for item in result["pairs"]} == {"098-A-HH", "048-D-HH"}
 
 
 def test_date_window_filters_products_by_both_acquisition_dates():
