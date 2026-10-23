@@ -185,3 +185,38 @@ def test_five_pair_inventory_fails_on_missing_pair_or_wrong_geometry():
     })
     with pytest.raises(ScientificInputError, match="IDENTITY_MISMATCH"):
         validate_five_pair_inventory(products)
+
+
+def test_directional_coherence_has_explicit_truncated_edge_window_known_answer():
+    # This is a kernel regression contract, not a claim about the author's
+    # edge policy: a 3x3 window has 4/6/9 in-bounds cells at corner/edge/centre.
+    east = np.ones((3, 3))
+    north = np.zeros((3, 3))
+    valid = np.ones((3, 3), dtype=bool)
+
+    R = directional_coherence(
+        east, north, valid, window_size=3, minimum_valid_cells=9,
+    )
+
+    assert R[1, 1] == pytest.approx(1.0)
+    assert np.isfinite(R).sum() == 1
+    assert np.isnan(R[0, 0])
+    assert np.isnan(R[0, 1])
+    assert np.isnan(R[1, 0])
+
+
+def test_directional_coherence_at_missing_centre_uses_valid_neighbours_only():
+    # Current policy: R is a neighbourhood statistic, so it can be defined at
+    # a centre with no valid vector when the neighbourhood has enough others.
+    # This remains unverified against the author's supplement implementation.
+    east = np.ones((3, 3))
+    north = np.zeros((3, 3))
+    valid = np.ones((3, 3), dtype=bool)
+    valid[1, 1] = False
+
+    R = directional_coherence(
+        east, north, valid, window_size=3, minimum_valid_cells=8,
+    )
+
+    assert not valid[1, 1]
+    assert R[1, 1] == pytest.approx(1.0)
