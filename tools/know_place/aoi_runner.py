@@ -19,6 +19,8 @@ from pathlib import Path
 import platform
 import re
 import sys
+import shutil
+import tempfile
 from typing import Any
 from urllib.parse import urlparse
 
@@ -305,6 +307,7 @@ def _session_from_environment():
 
 
 def _download_exact_product(record: dict[str, Any], cache_dir: Path, session: Any) -> tuple[Path, dict[str, Any]]:
+    """Download one exact granule once, verify it, then atomically promote to cache."""
     import asf_search
 
     name = record["granule_name"]
@@ -315,6 +318,9 @@ def _download_exact_product(record: dict[str, Any], cache_dir: Path, session: An
 
     url = record["download_url"]
     url_fingerprint = _sha256_text(urlparse(url)._replace(query="", fragment="").geturl())
+    maturity = record.get("maturity") or record.get("catalog_maturity") or "UNVERIFIED"
+    release_id = record.get("release_id") or "UNKNOWN"
+
     if target.is_file():
         actual_hash = _sha256(target)
         if receipt.is_file():
@@ -324,47 +330,70 @@ def _download_exact_product(record: dict[str, Any], cache_dir: Path, session: An
                 raise AOIRunError("SOURCE_CACHE_RECEIPT_INVALID", "Existing source cache receipt is invalid") from None
             if previous.get("source_url_fingerprint") != url_fingerprint or previous.get("source_sha256") != actual_hash:
                 raise AOIRunError("SOURCE_CACHE_PROVENANCE_CONFLICT", "Existing cached granule no longer matches its source receipt")
+            if previous.get("granule_name") != name or previous.get("release_id") != release_id or previous.get("maturity") != maturity:
+                raise AOIRunError("SOURCE_CACHE_IDENTITY_CONFLICT", "Cached granule identity conflicts with the selected catalog record")
             if record.get("source_bytes") is not None and target.stat().st_size != record["source_bytes"]:
                 raise AOIRunError("SOURCE_BYTE_SIZE_MISMATCH", "Cached granule byte size conflicts with current catalog evidence")
             return target, {
-                "granule_name": name, "source_sha256": actual_hash,
-                "source_bytes": target.stat().st_size, "cache_status": "REUSED_HASH_VERIFIED",
+                "granule_name": name, "release_id": release_id, "maturity": maturity,
+                "source_sha256": actual_hash, "source_bytes": target.stat().st_size,
+                "source_url_fingerprint": url_fingerprint, "cache_status": "REUSED_HASH_VERIFIED",
             }
         raise AOIRunError("SOURCE_CACHE_RECEIPT_MISSING", "Existing cached source file has no integrity receipt; refusing silent reuse")
 
     if not _trusted_download_url(url):
         raise AOIRunError("ASF_DOWNLOAD_HOST_UNTRUSTED", "Refusing to download from an untrusted host")
+
+    # A failed download must never leave a partial .h5 at the final cache path.
+    temporary_dir = Path(tempfile.mkdtemp(prefix=".download-", dir=product_dir))
     try:
-        asf_search.download_urls(urls=[url], path=str(product_dir), session=session, processes=1)
-    except Exception as exc:
-        raise AOIRunError("ASF_PRODUCT_DOWNLOAD_FAILED", f"Product download failed ({type(exc).__name__}); no fallback variant was selected") from None
-    if not target.is_file():
-        # A downloader is allowed to preserve the URL basename; accept it only
-        # when it is byte-identical in naming, not by date-only fuzzy matching.
-        candidates = [p for p in product_dir.iterdir() if p.is_file() and p.suffix.lower() == ".h5" and p.name == name]
-        if len(candidates) != 1:
-            raise AOIRunError("DOWNLOADED_GRANULE_NAME_MISMATCH", "Downloaded file did not preserve the exact selected granule name")
-        target = candidates[0]
-    source_bytes = target.stat().st_size
-    if record.get("source_bytes") is not None and source_bytes != record["source_bytes"]:
-        target.unlink(missing_ok=True)
-        raise AOIRunError("SOURCE_BYTE_SIZE_MISMATCH", "Downloaded granule byte size does not match exact catalog byte-size evidence")
-    digest = _sha256(target)
-    receipt_payload = {
-        "schema_version": "know-place-source-receipt/1.0",
-        "granule_name": name,
-        "release_id": record["release_id"],
-        "maturity": record["maturity"],
-        "source_url_fingerprint": url_fingerprint,
-        "source_sha256": digest,
-        "source_bytes": source_bytes,
-        "verified_at_utc": datetime.now(timezone.utc).isoformat(),
-    }
-    receipt.write_text(json.dumps(receipt_payload, indent=2) + "\n", encoding="utf-8")
-    return target, {
-        "granule_name": name, "source_sha256": digest,
-        "source_bytes": source_bytes, "cache_status": "DOWNLOADED_AND_HASHED",
-    }
+        try:
+            asf_search.download_urls(urls=[url], path=str(temporary_dir), session=session, processes=1)
+        except Exception as exc:
+            raise AOIRunError(
+                "ASF_PRODUCT_DOWNLOAD_FAILED",
+                f"Product download failed ({type(exc).__name__}); no fallback variant was selected",
+            ) from None
+        downloaded = temporary_dir / name
+        if not downloaded.is_file():
+            candidates = [
+                item for item in temporary_dir.iterdir()
+                if item.is_file() and item.suffix.lower() == ".h5" and item.name == name
+            ]
+            if len(candidates) != 1:
+                raise AOIRunError(
+                    "DOWNLOADED_GRANULE_NAME_MISMATCH",
+                    "Downloaded file did not preserve the exact selected granule name",
+                )
+            downloaded = candidates[0]
+        source_bytes = downloaded.stat().st_size
+        if record.get("source_bytes") is not None and source_bytes != record["source_bytes"]:
+            raise AOIRunError(
+                "SOURCE_BYTE_SIZE_MISMATCH",
+                "Downloaded granule byte size does not match exact catalog byte-size evidence",
+            )
+        digest = _sha256(downloaded)
+        os.replace(downloaded, target)
+        receipt_payload = {
+            "schema_version": "know-place-source-receipt/1.0",
+            "granule_name": name,
+            "release_id": release_id,
+            "maturity": maturity,
+            "source_url_fingerprint": url_fingerprint,
+            "source_sha256": digest,
+            "source_bytes": source_bytes,
+            "verified_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        temporary_receipt = receipt.with_suffix(receipt.suffix + ".partial")
+        temporary_receipt.write_text(json.dumps(receipt_payload, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary_receipt, receipt)
+        return target, {
+            "granule_name": name, "release_id": release_id, "maturity": maturity,
+            "source_sha256": digest, "source_bytes": source_bytes,
+            "source_url_fingerprint": url_fingerprint, "cache_status": "DOWNLOADED_AND_HASHED",
+        }
+    finally:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
 
 
 def _processing_extent_wkt(aoi_wkt: str, epsg: int, buffer_m: float) -> str:
@@ -567,7 +596,9 @@ def run_aoi_analysis(
         cache_base = Path(cache_root).expanduser().resolve() if cache_root else (
             Path.home() / ".cache" / "sarguardian" / "know-place"
         )
-        cache_dir = cache_base / request.request_sha256[:16]
+        # Share verified raw products across AOI requests so the same 1-GB
+        # granule is not downloaded again for every polygon/date-range job.
+        cache_dir = cache_base / "goff-products"
         cache_dir.mkdir(parents=True, exist_ok=True)
         catalog_by_name = {item["granule_name"]: item for item in catalog_rows}
         pairs: list[dict[str, Any]] = []
