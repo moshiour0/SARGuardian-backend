@@ -47,6 +47,7 @@ class AOIRequest:
     geometry_height_m: float | None
     min_snr: float
     max_horizontal_magnitude_m: float
+    magnitude_policy: str
     coherence_window: int
     minimum_valid_neighbours: int
     request_sha256: str
@@ -82,7 +83,12 @@ class AOIRequest:
                 "name": "nisar_goff_exploratory_v1",
                 "minimum_snr": self.min_snr,
                 "maximum_horizontal_magnitude_m": self.max_horizontal_magnitude_m,
-                "gross_outlier_policy": "reject_not_clip",
+                "magnitude_policy": self.magnitude_policy,
+                "gross_outlier_policy": (
+                    "reject_above_threshold_not_clip"
+                    if self.magnitude_policy == "reject_above_threshold"
+                    else "preserve_but_flag_above_threshold"
+                ),
             },
             "coherence_policy": {
                 "window_size": self.coherence_window,
@@ -232,6 +238,16 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         raise AOIRequestError("MINIMUM_SNR_INVALID")
     if not math.isfinite(max_magnitude) or max_magnitude <= 0:
         raise AOIRequestError("MAXIMUM_HORIZONTAL_MAGNITUDE_INVALID")
+    default_magnitude_policy = (
+        "reject_above_threshold"
+        if analysis_mode == "retrospective_validation"
+        else "flag_above_threshold_keep"
+    )
+    magnitude_policy = str(quality.get("magnitude_policy", default_magnitude_policy))
+    if magnitude_policy not in {"reject_above_threshold", "flag_above_threshold_keep"}:
+        raise AOIRequestError("MAGNITUDE_POLICY_UNSUPPORTED")
+    if analysis_mode == "operational_monitoring":
+        raise AOIRequestError("OPERATIONAL_MODE_BLOCKED_UNVALIDATED_SCIENCE")
 
     coherence = payload.get("coherence_policy", {})
     if not isinstance(coherence, dict):
@@ -254,7 +270,11 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_maturities": list(allowed_maturities)},
         "reference": {"polygon_wkt": reference_wkt, "policy": "external_reference_polygon_component_median" if reference_wkt else "no_background_correction", "fallback_buffer_m": reference_buffer_m},
         "geometry_policy": {"constant_hae_m": geometry_height_m},
-        "quality_policy": {"minimum_snr": min_snr, "maximum_horizontal_magnitude_m": max_magnitude},
+        "quality_policy": {
+            "minimum_snr": min_snr,
+            "maximum_horizontal_magnitude_m": max_magnitude,
+            "magnitude_policy": magnitude_policy,
+        },
         "coherence_policy": {"window_size": window, "minimum_valid_neighbours": neighbours},
     }
     digest = hashlib.sha256(
@@ -279,6 +299,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         geometry_height_m=geometry_height_m,
         min_snr=min_snr,
         max_horizontal_magnitude_m=max_magnitude,
+        magnitude_policy=magnitude_policy,
         coherence_window=window,
         minimum_valid_neighbours=neighbours,
         request_sha256=digest,
