@@ -198,6 +198,8 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert len(manifest["files"]) >= 15
     assert all(len(item["sha256"]) == 64 for item in manifest["files"])
     assert manifest["raw_h5_retention"]["raw_h5_in_output_bundle"] is False
+    assert manifest["raw_h5_retention"]["raw_h5_retained_in_external_cache"] is False
+    assert "deleted immediately" in manifest["raw_h5_retention"]["source_cache_policy"]
     assert not list(cache_root.rglob("*.h5"))
     assert len(list((run_dir / "maps").glob("*_displacement.tif"))) == 5
     assert len(saved["pairs"]) == 5
