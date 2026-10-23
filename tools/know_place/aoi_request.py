@@ -215,8 +215,10 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
             raise AOIRequestError("GEOMETRY_HEIGHT_MUST_BE_NUMERIC") from exc
         if not math.isfinite(geometry_height_m):
             raise AOIRequestError("GEOMETRY_HEIGHT_MUST_BE_FINITE")
-    if analysis_mode == "operational_monitoring" and geometry_height_m is None:
-        raise AOIRequestError("OPERATIONAL_MODE_REQUIRES_DEM_OR_EXPLICIT_HAE")
+    if analysis_mode == "operational_monitoring":
+        raise AOIRequestError(
+            "OPERATIONAL_MODE_BLOCKED_DEM_BACKED_GEOMETRY_REQUIRED",
+        )
 
     quality = payload.get("quality_policy", {})
     if not isinstance(quality, dict):
