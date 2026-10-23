@@ -101,3 +101,19 @@ def test_gap_disables_cumulative_displacement_within_the_same_release_chain():
     assert result["continuous_chain_eligible"] is False
     assert result["cumulative_displacement_status"] == "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
     assert [item["relation_to_previous"] for item in result["pairs"]] == ["FIRST_PAIR", "GAP"]
+
+
+def test_documented_nisar_instrument_gap_is_attached_to_intersecting_pair():
+    gap_pair = (
+        "NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_"
+        "20260726T233919_20260726T233954_20260819T233918_20260819T233953_"
+        "P05023_N_F_J_001.h5"
+    )
+    result = build([row(gap_pair)], end_date=date(2026, 8, 19))
+    pair = result["pairs"][0]
+    assert len(pair["known_instrument_data_gaps"]) == 1
+    gap = pair["known_instrument_data_gaps"][0]
+    assert gap["start_utc"] == "2026-07-27T22:03:25Z"
+    assert gap["end_utc"] == "2026-08-10T00:55:27Z"
+    assert "cannot localize onset" in pair["interval_coverage_warning"]
+    assert len(result["known_nisar_data_gaps_intersecting_requested_pairs"]) == 1
