@@ -165,6 +165,8 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert all(pair["status"] == "METRICS_COMPUTED" for pair in result["pairs"])
     assert all(pair["grid_identity_sha256"] for pair in result["pairs"])
     assert all(pair["source_sha256"] for pair in result["pairs"])
+    assert all(pair["spatial_block_bootstrap_sensitivity"]["sizes_tested_cells"] == [3, 5, 10] for pair in result["pairs"])
+    assert all(pair["spatial_block_bootstrap_sensitivity"]["status"] in {"COMPUTED_EXPLORATORY", "PARTIAL_INSUFFICIENT_BLOCK_SUPPORT"} for pair in result["pairs"])
     assert all(pair["statistics"]["aoi_median_horizontal_magnitude_m"] == pair["statistics"]["crown_median_horizontal_magnitude_m"] for pair in result["pairs"])
     target = next(pair for pair in result["pairs"] if pair["reference_date"] == "2026-07-26")
     assert target["secondary_date"] == "2026-08-19"
