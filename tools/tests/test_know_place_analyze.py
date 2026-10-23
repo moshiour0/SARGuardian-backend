@@ -167,3 +167,21 @@ def test_synthetic_five_pair_pipeline_writes_auditable_report_and_keeps_parity_b
     csv_text = csv_path.read_text(encoding="utf-8")
     assert "crown_median_horizontal_magnitude_m" in csv_text
     assert "2026-07-26,2026-08-19" in csv_text
+
+
+def test_cli_emits_path_free_failure_report_when_input_manifest_is_missing(tmp_path, capsys):
+    from tools.know_place.analyze import main
+
+    missing_config = tmp_path / "private" / "missing-inputs.json"
+    output = tmp_path / "results"
+    rc = main(["--config", str(missing_config), "--out", str(output)])
+    assert rc == 2
+    report_path = output / "know-place-analysis-report.json"
+    assert report_path.is_file()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "FAILED"
+    assert report["structural_status"] == "FAIL"
+    assert report["paper_reproduction_status"] == "BLOCKED_ANALYSIS_FAILED"
+    assert report["hazard_detection_status"] == "NOT_EVALUATED"
+    assert str(tmp_path) not in json.dumps(report)
+    assert "KNOW_PLACE_ANALYSIS_STATUS=FAIL" in capsys.readouterr().out
