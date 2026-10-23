@@ -1,62 +1,111 @@
-# Author-supplement retrieval audit — Know Place Analysis
+# Author paper and supplementary-data audit — Know Place Analysis
 
 **Audit date:** 2026-10-24  
 **Working branch:** `feat/know-place-analysis`  
-**Paper reproduction status:** `BLOCKED_AUTHOR_GEOMETRY_VARIANT_AND_GOLDEN_OUTPUTS_UNVERIFIED`  
+**Paper reproduction status:** `BLOCKED_AUTHOR_CODE_GOLDEN_RASTERS_AND_EXACT_FIRST_GRANULE_VARIANT_UNVERIFIED`  
 **Hazard-detection status:** `NOT_EVALUATED`
 
-## 1. Authoritative sources checked
+## 1. Sources received and provenance
 
-- Copernicus/EGUsphere preprint page: https://egusphere.copernicus.org/preprints/2026/egusphere-2026-5462/
-- Preprint PDF linked from that page: https://egusphere.copernicus.org/preprints/2026/egusphere-2026-5462/egusphere-2026-5462.pdf
-- Full-study Research Square DOI cited by the author's site: https://doi.org/10.21203/rs.3.rs-11022365/v1
-- Author's publication page: https://www.sansarmeena.com/
+The user supplied the paper PDF, its supplementary-information Word file, and the 101-zone CSV. All three were opened and inspected; SHA-256 digests of the original uploaded bytes are:
 
-The Copernicus HTML page's visible “Download & links” section lists the PDF, metadata XML, BibTeX and EndNote, but no supplementary archive link was present in the page content inspected on this audit. The Research Square DOI was discoverable from the author's site and a Sciety article record, but the available browser retrieval returned HTTP 403. Guessed Copernicus supplement URLs were not accessible through the retrieval tools. These outcomes establish a **retrieval blocker in this pass**, not proof that no supplement exists.
+| Uploaded item | Use | SHA-256 |
+|---|---|---|
+| `nisar_offsets_measure_pre_failure_motion_but_do_not_single_out_the_bhote_koshi_avalanche_source.pdf` | Main paper, 32 pages | `514ff22bbf8adff829605e005496cff7f80ee72596171432aa169f2ffb986705` |
+| `8da4c3f71775fbc4b0d7d324.docx` | Supplementary Information, 10 pages: Supplementary Figs. 1–3 and Tables 1–6 | `37c43d7f683796aa96f9a90f0bd6abda2b1e26f4ccbbb674cfa13642da37f777` |
+| `b0dbe1d825f6eb03362df3d2.csv` | Supplementary Data 1: 101 validated footprint-screen zones | `b800d90bd6e7322ef2f8548370de0fb922ef057cbdce2d0c2caa681ae76a42a8` |
 
-## 2. Supplement contents asserted by the preprint
+The source-derived CSV is preserved in the repository at `docs/know-place/reference/author_validated_zones_supplementary_data_1.csv`. The paper/supplement values transcribed for automated integrity checks are in `docs/know-place/reference/author_benchmark_v1.json`; attribution and reuse limitations are in the neighbouring `README.md`.
 
-The PDF's “Code availability” section says processing/figure scripts are included in a CC BY 4.0 supplement, using Python 3.11 with rasterio/GDAL, geopandas, NumPy, SciPy and scikit-learn. It warns that local paths and additional inputs remain, so the supplement is not a self-contained computational environment.
+**Canonical article now used for this work:** Sansar Raj Meena, “NISAR offsets measure pre-failure motion but do not single out the Bhote Koshi avalanche source,” posted 22 September 2026, Research Square DOI https://doi.org/10.21203/rs.3.rs-11022365/v1. The paper points to the processing code, statistics and figure/golden-data archive at https://doi.org/10.5281/zenodo.22730419.
 
-The “Data availability” section says the supplement contains:
+The uploaded DOCX is the supplementary information, not the separate Zenodo code/data archive. I have not verified the Zenodo archive payload or its checksum in this run. Therefore script-level parity and pixelwise golden-data comparison are still blocked; this is not evidence that the archive is absent. The article and supplement describe CC BY 4.0 terms, except Supplementary Figure 1 and Supplementary Table 5, identified as third-party CC BY-NC 4.0 material. Those exceptions are not copied into the repository.
 
-- Five NISAR-derived GeoTIFFs with eastward displacement, northward displacement and directional-coherence bands, on an EPSG:4326 grid (different from the native EPSG:32645 analysis grid).
-- Statistical tables.
-- A supplement README listing the five source NISAR L2 GOFF granule identifiers, with those source products available from ASF DAAC.
+## 2. Exact facts now resolved from the supplied supplement
 
-The paper describes the supplement data/fields as CC BY 4.0; the mapped extent is separately described as CC BY-NC 4.0. Reuse must preserve those distinctions. No supplement bytes were obtained in this pass, so **no supplement or sub-file SHA-256 can truthfully be reported**.
+### 2.1 Crown and reference geometry
 
-## 3. Method facts verified from the paper
+The paper provides the crown bounds directly in the Methods and Supplementary Fig. 2. The author-published rectangle in WGS84 is:
 
-The methods and figure notes specify the following target-pair procedure:
+```text
+POLYGON ((85.5245 28.2847, 85.5400 28.2847,
+          85.5400 28.2970, 85.5245 28.2970,
+          85.5245 28.2847))
+```
 
-1. Use layer2 along-track (AT) and slant-range (SR) offsets where SNR is at least 5.
-2. Project to horizontal displacement with the product convention; the LOS unit vector points from target to sensor, so positive slant-range offset denotes movement away from the sensor. Vertical motion is assumed zero.
-3. Reject projected horizontal displacement magnitudes above 10 m; do not clip them.
-4. Remove component-wise median reference bias using valid cells in the background box outside the source/crown polygon.
-5. Calculate the 5×5 mean resultant length of unit displacement directions. The published paper does not specify the code-level minimum-valid-neighbour, missing-centre, or edge-padding policy; those must be read from the author code and parity-tested.
-6. Spatial controls use circular regions at random valid positions in the same box, nominal area based on the crown's valid-cell count, and retain draws with at least 60% of that count. The preprint reports a control displacement median around 0.14 m and source rank around the 94.7th percentile. The exact PRNG, draw order, handling of polygon-overlap/invalid cells and full accepted sample still require author-code verification.
+Published area is 2.07 km². The 6 km reference box is bounded by 85.500–85.565° E and 28.265–28.318° N. This resolves the polygon-coordinate blocker: the prior AOI WKT uses the same numerical bounds. Rasterization/edge inclusion must still be checked against the author's rasters because the prior replay returned 296 valid cells for 26 Jul–19 Aug while Supplementary Table 4 reports 298.
 
-The official paper page currently states that no pre-event interval exceeds the 95th percentile of the spatial comparison distributions for displacement or directional coherence. Results should be described as measurement/statistical comparisons, not as a successful early-warning detection.
+### 2.2 Exact five author granule identities
 
-## 4. What remains unverified / blocked
+Supplementary Table 1 specifies these exact GOFF identifiers (all release `P05023`):
 
-- Exact supplement archive and its checksum.
-- Author README's exact five granule names/releases, especially whether the 20 June–2 July X05026 candidate matches the author's variant.
-- Exact author crown/source polygon, coordinate order/CRS, and geometry-file checksum.
-- The five author-derived GeoTIFF checksums and the statistic tables used as golden references.
-- Author implementation of spatial-control sampling and 5×5 R centre/edge/valid-neighbour policies.
-- Provenance and effect of the current fixed `geometry_height_m=5151.0 m` HAE query applied to every ROI pixel. The radar-geometry cubes are elevation-dependent; the author code/golden rasters must establish whether this constant-height sampling is equivalent or quantify its effect. This is an unresolved assumption, not a proven defect; do not tune the height to force scalar agreement.
-- Pixelwise parity and all-five-interval statistic parity.
+| Pair | Days | Flag | Exact author granule suffix |
+|---|---:|---|---|
+| 20 Jun–2 Jul 2026 | 12 | N_F | `...20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001` |
+| 2–14 Jul 2026 | 12 | F_F | `...20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001` |
+| 14–26 Jul 2026 | 12 | N_F | `...20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001` |
+| 26 Jul–19 Aug 2026 | 24 | N_F | `...20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001` |
+| 19–31 Aug 2026 | 12 | N_F | `...20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001` |
 
-Current candidate GOFF HDF5 source files have already been downloaded, historical byte sizes/SHA-256 matched, and processed in Raw Replay Run 40006999011. Do not repeat that expensive download merely to search for the supplement. Use the existing derived arrays for any analysis that does not require a source input absent from them.
+The earlier raw replay (Run 40006999011) and the frozen historical catalog manifest used CRID `X05026` for the first pair. The historical input's byte-size/SHA-256 checks remain valid for that file, but the variant **does not match the supplied author's manifest**. The other four identifiers match. Do not relabel the old replay as an exact five-granule author reproduction and do not overwrite the historical source hash. The exact P05023 first-pair identity must be checked against the live ASF catalog and fetched/hashes recorded before a new exact-series run.
 
-## 5. Retrieval follow-up and acceptance rule
+### 2.3 Site-series method as stated in the supplied paper
 
-1. Retrieve the supplement via an accessible official attachment or the author/Research Square file record, preserving original filenames and licence.
-2. Hash the original archive and every extracted source file before inspection.
-3. Parse the README and compare the author manifest against the current five candidate granules without substitution.
-4. Extract the exact crown polygon and derive a provenance-recorded WKT/raster mask; do not infer it from the published bounds.
-5. Run parity tests against each author GeoTIFF/statistical table, and implement the author's control/coherence policies only after the source code makes those policies explicit.
+- Use layer2 along-track (AT) and slant-range (SR) offsets where SNR is at least 5.
+- Project to horizontal east/north using the stated LOS sign convention; the LOS unit vector points target-to-sensor, positive slant-range means motion away from the sensor, and vertical motion is set to zero.
+- Discard projected magnitudes greater than 10 m before reference correction.
+- Remove component-wise median offset from SNR-valid cells in the fixed 6 km box outside the crown, with more than 200 samples and no additional stability selection.
+- Site-series geometry uses one crown-local radar geometry throughout. In contrast, the footprint-wide screen interpolates per-pixel geometry at Copernicus GLO-90 heights. The current 5151.0 m constant is conceptually consistent with one crown-local geometry, but the paper's text does not specify the exact height datum/query, so the existing HAE value and interpolation still need comparison with the author's code/rasters.
+- Directional coherence is the 5×5 mean resultant length (R) of unit displacement vectors. The paper notes that its published crown estimator crops the polygon and reflects at crop edges; a single-field, crown-excluded background recomputation is also reported. The exact missing-neighbour/edge implementation should be confirmed against source code.
+- Polygon-scale nulls use compact regions matched to the crown's valid-cell count in the 6 km box; the supplement reports 857–996 accepted draws per pair. The text does not uniquely specify the PRNG, draw sequence, invalid-cell rejection, and polygon-placement implementation. Do not infer those details.
 
-Until the required inputs and independent golden-output comparisons pass, leave paper reproduction **BLOCKED** and hazard detection **NOT_EVALUATED**.
+### 2.4 Published site-series golden values
+
+The machine-readable transcription is in `author_benchmark_v1.json`. The key Table 4 rows, in pair order 20 Jun–2 Jul, 2–14 Jul, 14–26 Jul, 26 Jul–19 Aug and 19–31 Aug, are:
+
+| Statistic | Published values |
+|---|---|
+| Valid crown cells after 10 m discard | 302, 299, 302, 298, 202 |
+| Median displacement (m) | 0.99, 0.54, 0.30, 0.96, 0.33 |
+| Median interval-average rate (cm/day) | 8.3, 4.5, 2.5, 4.0, 2.7 |
+| Displacement-null percentile | 94.9, 87.5, 81.0, 94.7, 81.3 |
+| Bulk-reference crown (R) | 0.750, 0.612, 0.611, 0.871, 0.551 |
+| Bulk-reference background (R) | 0.641, 0.719, 0.757, 0.687, 0.592 |
+| Polygon-scale (R)-null percentile | 77.2, 23.3, 39.8, 85.2, 29.1 |
+
+The final pre-event interval spans 24 days and ends seven days before failure because the 7 August acquisition is absent. The paper says that no pre-event interval reaches the 95th percentile for displacement or directional coherence and that no acceleration is resolved. The 0.96 m movement is an interval-average measurement, not a failure diagnosis.
+
+### 2.5 Supplied 101-zone footprint-screen inventory
+
+The CSV has 101 rows and 15 columns. The counts match the paper: 93 zones intersect RGI 6.0 and 8 do not. The event source corresponds to zone 43:
+
+- centre: 85.5294° E, 28.29161° N
+- area: 0.192 km²
+- flagged in 3 of 5 pairs
+- mean residual displacement: 4.38 m toward 276.3°
+- downslope azimuth: 296.1°, misfit 19.8°
+- residual directional coherence (R=0.915)
+- elevation 5,084 m; slope 24.9°; RGI 6.0 ID `RGI60-15.04173`
+
+These match the rounded source-zone values in the main paper. This is author-derived post-event inventory data, **not an independent blind holdout set** and not evidence of predictive skill. It must not be used to train and test on the same post-selected zones.
+
+## 3. What remains blocked
+
+- The code/statistics/raster archive cited by the paper at Zenodo DOI `10.5281/zenodo.22730419` has not yet been downloaded and hash-verified in this run.
+- Live ASF identity and source SHA-256 for the exact first-pair P05023 granule remain unverified; the earlier X05026 file must remain preserved as historical evidence only.
+- Pixelwise comparison against author east/north/magnitude/coherence rasters and exact equality/tolerance checks for all five pairs are not complete.
+- The published crown pixel counts differ from the historical replay at least for the 24-day target pair (296 versus 298). Exact rasterization, geometry lookup, sample policy, and processing differences must be isolated before declaring parity.
+- The site's constant 5151.0 m HAE query is not proven equivalent to the author's crown-local geometry sampling: the paper confirms one crown-local geometry for the site series, but exact height/datum and sampling code are not stated in the PDF/supplement text.
+- The exact random-region generator and acceptance rules and the exact 5×5 coherence missing/edge policy must be taken from the author scripts, not guessed.
+- Full-footprint screen rasters, source code, and the article's complete numeric verification script are not present in the supplied files; only Supplementary Data 1 is present.
+
+## 4. Acceptance plan
+
+1. Obtain the Zenodo record/archive linked by the paper; save original filenames, metadata, archive SHA-256 and extracted-file SHA-256 values.
+2. Compare all five identifiers against the archive README and live ASF. If the exact P05023 first pair is valid, fetch it as a new immutable input; never replace or relabel the historical X05026 source.
+3. Extract the author's actual scripts and reproduce their environment/commands. Use the author crown WKT now recorded in the reference manifest.
+4. Compare source rasters and all Table 4 values pair-by-pair. Record pixelwise tolerances, valid masks, crown cell counts, scalar values, null distributions, and any known grid/resampling differences.
+5. Reproduce the footprint inventory/screen only from the documented source input, parameters, and archive outputs. Keep source-zone inventory distinct from independent-event validation.
+6. Leave paper reproduction `BLOCKED` and hazard detection `NOT_EVALUATED` until exact inputs and independent golden-output comparisons pass.
+
+The historic raw files/arrays should be reused wherever they remain applicable; do not re-download the four matching granules merely to re-check their IDs.
