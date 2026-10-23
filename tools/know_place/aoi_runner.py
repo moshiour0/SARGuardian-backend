@@ -682,6 +682,29 @@ def _preview(
     return result
 
 
+def _write_motion_features_csv(path: Path, dynamics: dict[str, Any]) -> None:
+    """Write descriptive dynamics to a stable tabular artifact; no risk-score column is inferred."""
+    fields = [
+        "granule_name", "reference_date", "secondary_date", "chain_id",
+        "measurement_status", "interval_days",
+        "median_horizontal_displacement_rate_m_per_day",
+        "mean_vector_east_rate_m_per_day", "mean_vector_north_rate_m_per_day",
+        "mean_vector_magnitude_rate_m_per_day", "mean_vector_azimuth_deg_clockwise_from_north",
+        "median_directional_coherence_R", "valid_aoi_pixels", "valid_aoi_fraction",
+        "high_magnitude_flagged_pixels", "high_magnitude_flagged_fraction",
+        "crosses_registered_instrument_gap", "grid_lattice_compatible_with_previous",
+        "vector_rate_change_eligible", "vector_rate_change_magnitude_m_per_day",
+        "vector_rate_acceleration_m_per_day_squared", "rate_change_time_separation_days",
+        "rate_change_block_reason", "risk_score", "risk_score_status", "detection_status",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        rows = dynamics.get("pairs", []) if isinstance(dynamics, dict) else []
+        for feature in rows:
+            writer.writerow({field: feature.get(field) for field in fields})
+
+
 def _write_pair_csv(path: Path, pairs: list[dict[str, Any]]) -> None:
     fields = [
         "reference_date", "secondary_date", "granule_name", "release_id",
@@ -1269,7 +1292,9 @@ def run_aoi_analysis(
             pairwise_series_plan=plan,
             global_grid_compatibility_status=result["grid_compatibility_status"],
         )
+        result["motion_features_csv"] = "motion-features.csv"
         _write_pair_csv(run_dir / "timeseries.csv", pairs)
+        _write_motion_features_csv(run_dir / "motion-features.csv", result["motion_dynamics"])
         (run_dir / "result.json").write_text(json.dumps(_safe_json(result), indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
         (run_dir / "README.txt").write_text(
             "SARGuardian Know Place Analysis\n"
