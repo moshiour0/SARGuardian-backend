@@ -59,6 +59,7 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
                 "crown_mean_vector_magnitude_m": 1.72,
                 "crown_mean_vector_azimuth_deg_clockwise_from_north": 278.0,
                 "crown_median_directional_coherence_R": 0.87,
+                "aoi_median_magnitude_rate_m_per_day": 0.04,
             },
             "map_preview": {
                 "values": [[0.1, 0.2], [None, 0.5]],
