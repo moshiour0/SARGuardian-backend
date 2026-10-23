@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 import pytest
 
@@ -37,7 +38,7 @@ def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
         "monitoring_exposure_aoi_months": 1.0 if with_product else 0.0,
         "source_products": [{
             "granule_name": f"fixture-{case_id}.h5",
-            "sha256": (case_id.encode("ascii").hex() * 64)[:64].ljust(64, "0"),
+            "sha256": hashlib.sha256(f"synthetic-source-for-{case_id}".encode("ascii")).hexdigest(),
         }] if with_product else [],
     }
 
@@ -103,7 +104,7 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     reg = registry()
     result = evaluate_heldout_events(
         reg, prediction_payload(), threshold_policy(reg),
-        bootstrap_replicates=100, bootstrap_seed=12, minimum_independent_sites_for_ci=5,
+        bootstrap_replicates=100, bootstrap_seed=12, minimum_independent_sites_for_ci=4,
     )
 
     metrics = result["event_level_metrics_on_evaluable_cases"]
