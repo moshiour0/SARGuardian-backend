@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+from pyproj import Transformer
+
+from tools.know_place.aoi_request import REQUEST_SCHEMA
+from tools.know_place import aoi_runner
+from tools.tests.test_know_place_analyze import (
+    BOX_WKT,
+    CROWN_WKT,
+    PAIRS,
+    _granule_name,
+    _write_goff,
+)
+
+
+def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephemeral_sources(
+    tmp_path, monkeypatch
+):
+    """End-to-end known-answer run with mocked catalog/download, real science kernels."""
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
+    box_points = [
+        (85.500000, 28.265000),
+        (85.565000, 28.265000),
+        (85.565000, 28.318000),
+        (85.500000, 28.318000),
+    ]
+    bx, by = transformer.transform(
+        [point[0] for point in box_points], [point[1] for point in box_points]
+    )
+    # Include enough local context for the automatic 2 km background ring.
+    x0 = np.floor(min(bx) / 80.0) * 80.0 - 5000.0
+    x1 = np.ceil(max(bx) / 80.0) * 80.0 + 5000.0
+    y0 = np.floor(min(by) / 80.0) * 80.0 - 5000.0
+    y1 = np.ceil(max(by) / 80.0) * 80.0 + 5000.0
+    x = np.arange(x0, x1 + 0.1, 80.0, dtype=np.float64)
+    y = np.arange(y0, y1 + 0.1, 80.0, dtype=np.float64)
+
+    original_sources = tmp_path / "fixture-sources"
+    original_sources.mkdir()
+    source_records = []
+    for start, end in PAIRS:
+        name = _granule_name(start, end)
+        source = original_sources / name
+        _write_goff(source, x=x, y=y, east_motion=0.5)
+        source_records.append({
+            "granule_name": name,
+            "reference_date": start,
+            "secondary_date": end,
+            "track": "098",
+            "direction": "A",
+            "polarization": "HH",
+            "release_id": "P05023",
+            "maturity": "PROVISIONAL",
+            "catalog_maturity": "PROVISIONAL",
+            "source_bytes": source.stat().st_size,
+            "source_file": source,
+            "download_url": f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/{name}",
+            "decision": "ELIGIBLE_CATALOG_CANDIDATE",
+        })
+
+    catalog_manifest = {
+        "schema_version": "know-place-aoi-catalog-manifest/1.0",
+        "catalog": "mocked ASF catalog for integration test",
+        "query": {"processing_level": "GOFF", "intersects_wkt_sha256": "synthetic"},
+        "result_count": 5,
+        "eligible_count": 5,
+        "candidates": [
+            {key: value for key, value in row.items() if key not in {"source_file", "download_url"}}
+            for row in source_records
+        ],
+    }
+    monkeypatch.setattr(
+        aoi_runner,
+        "discover_nisar_goff",
+        lambda request: (source_records, catalog_manifest),
+    )
+    monkeypatch.setattr(aoi_runner, "_session_from_environment", lambda: object())
+
+    def fake_download(record, cache_dir, session):
+        source = record["source_file"]
+        product_dir = cache_dir / hashlib.sha256(record["granule_name"].encode("utf-8")).hexdigest()[:16]
+        product_dir.mkdir(parents=True, exist_ok=True)
+        target = product_dir / record["granule_name"]
+        target.write_bytes(source.read_bytes())
+        receipt_path = product_dir / f"{record['granule_name']}.source-receipt.json"
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        receipt_path.write_text(json.dumps({
+            "granule_name": record["granule_name"],
+            "source_sha256": digest,
+            "source_bytes": target.stat().st_size,
+            "release_id": record["release_id"],
+            "maturity": record["maturity"],
+        }), encoding="utf-8")
+        return target, {
+            "granule_name": record["granule_name"],
+            "release_id": record["release_id"],
+            "maturity": record["maturity"],
+            "source_sha256": digest,
+            "source_bytes": target.stat().st_size,
+            "cache_status": "DOWNLOADED_AND_HASHED",
+        }
+
+    monkeypatch.setattr(aoi_runner, "_download_exact_product", fake_download)
+    # Keep the integration test independent of optional rasterio/affine binaries;
+    # all statistics, masks, NPZ arrays, HTML and checksums are produced normally.
+    monkeypatch.setattr(
+        aoi_runner,
+        "_write_geotiff",
+        lambda path, *args, **kwargs: Path(path).write_bytes(b"synthetic-geotiff-placeholder"),
+    )
+
+    request = {
+        "schema_version": REQUEST_SCHEMA,
+        "aoi": {"type": "Polygon", "crs": "EPSG:4326", "wkt": CROWN_WKT},
+        "date_range": {"start": "2026-06-20", "end": "2026-08-31", "inclusive": True},
+        "hazard_mode": "ice_rock_avalanche",
+        "analysis_mode": "retrospective_validation",
+        "source_adapters": ["NISAR_GOFF"],
+        "polarization": "HH",
+        "product_selection": {
+            "track": "098",
+            "direction": "A",
+            "preferred_granules": [_granule_name(a, b) for a, b in PAIRS],
+            "allowed_maturities": ["PROVISIONAL"],
+        },
+        "quality_policy": {
+            "minimum_snr": 5.0,
+            "maximum_horizontal_magnitude_m": 10.0,
+            "magnitude_policy": "reject_above_threshold",
+        },
+        "coherence_policy": {"window_size": 5, "minimum_valid_neighbours": 1},
+    }
+
+    output_root = tmp_path / "results"
+    cache_root = tmp_path / "ephemeral-cache"
+    result = aoi_runner.run_aoi_analysis(
+        request, output_root, cache_root=cache_root, ephemeral_source_cache=True,
+    )
+
+    run_dirs = [
+        directory for directory in output_root.iterdir()
+        if directory.is_dir() and (directory / "manifest.json").is_file()
+    ]
+    assert len(run_dirs) == 1
+    run_dir = run_dirs[0]
+    saved = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "SCIENTIFIC_METRICS_COMPUTED"
+    assert result["structural_status"] == "PASS"
+    assert result["measurement_status"] == "METRICS_COMPUTED_ALL_PAIRS"
+    assert result["paper_reproduction_status"] == "NOT_EVALUATED_GENERIC_AOI"
+    assert result["hazard_detection_status"] == "NOT_EVALUATED"
+    assert result["reference_policy"] == "local_context_component_median"
+    assert result["pair_measurement_counts"] == {
+        "requested": 5, "metrics_computed": 5, "insufficient_data": 0,
+    }
+    assert result["grid_compatibility_status"] == "CONSISTENT_LATTICE_WITHIN_CHAINS"
+    assert result["grid_mismatch_pair_count"] == 0
+    assert all(pair["status"] == "METRICS_COMPUTED" for pair in result["pairs"])
+    assert all(pair["grid_identity_sha256"] for pair in result["pairs"])
+    assert all(pair["source_sha256"] for pair in result["pairs"])
+    assert all(pair["statistics"]["aoi_median_horizontal_magnitude_m"] == pair["statistics"]["crown_median_horizontal_magnitude_m"] for pair in result["pairs"])
+    target = next(pair for pair in result["pairs"] if pair["reference_date"] == "2026-07-26")
+    assert target["secondary_date"] == "2026-08-19"
+    assert len(target["known_instrument_data_gaps"]) == 1
+    assert "cannot localize onset" in target["interval_coverage_warning"]
+    assert "2026-07-27T22:03:25Z" in (run_dir / "visuals" / "dashboard.html").read_text(encoding="utf-8")
+    assert (run_dir / "timeseries.csv").is_file()
+    assert (run_dir / "visuals" / "dashboard.html").is_file()
+    assert len(manifest["files"]) >= 15
+    assert all(len(item["sha256"]) == 64 for item in manifest["files"])
+    assert manifest["raw_h5_retention"]["raw_h5_in_output_bundle"] is False
+    assert not list(cache_root.rglob("*.h5"))
+    assert all(
+        not list((run_dir / "maps").glob("*_displacement.tif")) == []
+        for _ in [0]
+    )
+    assert len(saved["pairs"]) == 5
