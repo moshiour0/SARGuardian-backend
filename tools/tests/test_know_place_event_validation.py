@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.know_place.select_threshold import main as select_threshold_main
 from tools.know_place.event_validation import (
     EventValidationError,
     REGISTRY_SCHEMA,
@@ -330,3 +331,34 @@ def test_threshold_selection_rejects_objectives_without_independent_validation_c
             reg, scores, model_policy_name="synthetic_detector_v1",
             score_name="mocked_alert_score",
         )
+
+
+def test_threshold_selection_cli_writes_report_and_frozen_policy(tmp_path, capsys):
+    reg = registry()
+    scores = validation_scores()
+    registry_path = tmp_path / "registry.json"
+    scores_path = tmp_path / "validation-scores.json"
+    report_path = tmp_path / "out" / "threshold-selection.json"
+    policy_path = tmp_path / "out" / "frozen-threshold-policy.json"
+    registry_path.write_text(json.dumps(reg), encoding="utf-8")
+    scores_path.write_text(json.dumps(scores), encoding="utf-8")
+
+    code = select_threshold_main([
+        "--registry", str(registry_path),
+        "--validation-scores", str(scores_path),
+        "--model-policy-name", "synthetic_detector_v1",
+        "--score-name", "mocked_alert_score",
+        "--objective", "max_youden_j",
+        "--out", str(report_path),
+        "--threshold-policy-out", str(policy_path),
+    ])
+
+    assert code == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    assert policy == report["threshold_policy"]
+    assert policy["threshold"] == pytest.approx(0.9)
+    assert policy["threshold_selection_split"] == "validation"
+    assert policy["frozen_before_test"] is True
+    assert len(policy["policy_sha256"]) == 64
+    assert "THRESHOLD_SELECTION_STATUS=THRESHOLD_SELECTED_ON_VALIDATION_SPLIT" in capsys.readouterr().out
