@@ -83,7 +83,8 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
     assert "Block-size CI sensitivity" in rendered
     assert "3-cell: 0.700–1.200 m" in rendered
     assert "Direction arrows are orientation-only" in rendered
-    assert "grid_identity_sha256" in rendered
+    assert "Grid identity SHA-256" in rendered
+    assert "b" * 64 in rendered
     assert "https://" not in rendered  # no CDN/external dependency
     target = write_dashboard(report, tmp_path / "dashboard.html")
     assert target.is_file()
