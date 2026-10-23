@@ -89,6 +89,31 @@ def _safe_json(value: Any) -> Any:
     return str(value)
 
 
+def _magnitude_gate_limit(request: AOIRequest) -> float:
+    """Select the versioned gate without confusing suspect motion with impossible motion."""
+    if request.magnitude_policy == "reject_above_threshold":
+        return request.max_horizontal_magnitude_m
+    return float(np.finfo(np.float64).max)
+
+
+def _high_magnitude_review_flag(
+    projected_magnitude_m: Any,
+    snr: Any,
+    input_valid: Any,
+    request: AOIRequest,
+) -> np.ndarray:
+    """Flag above-threshold projected vectors independently of the reject/preserve gate."""
+    magnitude = np.asarray(projected_magnitude_m, dtype=float)
+    signal = np.asarray(snr, dtype=float)
+    upstream = np.asarray(input_valid, dtype=bool)
+    if magnitude.shape != signal.shape or upstream.shape != magnitude.shape:
+        raise AOIRunError("HIGH_MAGNITUDE_FLAG_SHAPE_MISMATCH", "Review flag arrays have incompatible shapes")
+    return (
+        upstream & np.isfinite(signal) & (signal >= request.min_snr)
+        & np.isfinite(magnitude) & (magnitude > request.max_horizontal_magnitude_m)
+    )
+
+
 def _runtime_environment() -> dict[str, Any]:
     versions = {}
     for module in ("numpy", "h5py", "scipy", "pyproj", "rasterio", "asf_search"):
@@ -690,18 +715,10 @@ def run_aoi_analysis(
             valid, gate_counts, uncorrected_mag = apply_paper_quality_gates(
                 east, north, raw.snr, input_valid=input_valid,
                 minimum_snr=request.min_snr,
-                maximum_horizontal_magnitude_m=(
-                    request.max_horizontal_magnitude_m
-                    if request.magnitude_policy == "reject_above_threshold"
-                    else float(np.finfo(np.float64).max)
-                ),
+                maximum_horizontal_magnitude_m=_magnitude_gate_limit(request),
             )
-            high_magnitude_flag = (
-                input_valid
-                & np.isfinite(raw.snr)
-                & (raw.snr >= request.min_snr)
-                & np.isfinite(uncorrected_mag)
-                & (uncorrected_mag > request.max_horizontal_magnitude_m)
+            high_magnitude_flag = _high_magnitude_review_flag(
+                uncorrected_mag, raw.snr, input_valid, request,
             )
             aoi_valid_before_reference = valid & roi.crown_mask & np.isfinite(east) & np.isfinite(north)
             if not aoi_valid_before_reference.any():
