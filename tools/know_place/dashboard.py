@@ -102,6 +102,15 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             preview = {}
         canvas_id = f"map-canvas-{i}"
         raster_path = str(pair.get("geotiff_file", ""))
+        known_gaps = pair.get("known_instrument_data_gaps", [])
+        coverage_text = (
+            "; ".join(
+                f"{gap.get('start_utc', '?')} to {gap.get('end_utc', '?')} — {gap.get('reason', 'known mission gap')}"
+                for gap in known_gaps
+            )
+            if known_gaps else
+            "No registered mission gap intersects this interval; pairwise offsets still do not observe continuous motion."
+        )
         if raster_path.startswith("maps/"):
             dashboard_raster_path = "../" + raster_path
         else:
@@ -111,6 +120,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
           <div class="map-heading"><div><h3>{html.escape(str(pair.get('reference_date','?')))} → {html.escape(str(pair.get('secondary_date','?')))}</h3>
           <p>{html.escape(str(pair.get('granule_name','')))}</p>
           <p>Valid AOI pixels: {html.escape(str(pair.get('valid_aoi_pixels','—')))}</p>
+          <p>Known coverage gaps: {html.escape(coverage_text)}</p>
           <p>Grid lattice vs previous pair: {html.escape(str(pair.get('grid_lattice_compatible_with_previous','not applicable / not checked')))}</p>
           <p>Grid identity SHA-256: <code>{html.escape(str(pair.get('grid_identity_sha256','not recorded')))}</code></p>
           <p>Source SHA-256: <code>{html.escape(str(pair.get('source_sha256','not recorded')))}</code></p></div>
