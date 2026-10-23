@@ -1212,6 +1212,28 @@ def run_aoi_analysis(
             path for path in run_dir.rglob("*")
             if path.is_file() and path.name != "manifest.json"
         )
+        # Count all derived files except the manifest that hashes them, then
+        # persist this count before calculating the per-file hashes.
+        result["output_files"] = len(output_files)
+        (run_dir / "result.json").write_text(
+            json.dumps(_safe_json(result), indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+        write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+        output_files = sorted(
+            path for path in run_dir.rglob("*")
+            if path.is_file() and path.name != "manifest.json"
+        )
+        result["output_files"] = len(output_files)
+        (run_dir / "result.json").write_text(
+            json.dumps(_safe_json(result), indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+        write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+        output_files = sorted(
+            path for path in run_dir.rglob("*")
+            if path.is_file() and path.name != "manifest.json"
+        )
         manifest = {
             "schema_version": "know-place-aoi-manifest/1.0",
             "engine_version": ENGINE_VERSION,
