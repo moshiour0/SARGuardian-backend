@@ -7,6 +7,7 @@ from tools.run_export_science_diagnostics import (
     candidate_export_mask_policy,
     classify_pixel_stack,
     export_identity,
+    help_has_exact_option,
     read_candidate_points,
     write_target_log,
 )
@@ -20,6 +21,22 @@ def test_export_identity_extracts_dates_and_processing_type():
         "20251128", "20251210", "UR"
     )
     assert export_identity(Path("not-a-science-export.tif")) is None
+
+
+def test_candidate_checker_option_detection_does_not_confuse_aoi_csv_with_aoi():
+    help_text = """options:
+      --target-log TARGET_LOG
+      --aoi-csv AOI_CSV
+      --lat LAT
+      --lon LON
+    """
+    assert help_has_exact_option(help_text, "--aoi-csv")
+    assert not help_has_exact_option(help_text, "--aoi")
+    assert not help_has_exact_option(help_text, "--allow-event-affected-aoi")
+    assert help_has_exact_option(
+        help_text + "      --allow-event-affected-aoi\n",
+        "--allow-event-affected-aoi",
+    )
 
 
 def test_pixel_stack_result_is_not_misreported_as_hazard_confirmation():
