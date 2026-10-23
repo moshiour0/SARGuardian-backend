@@ -426,6 +426,8 @@ def _write_geotiff(
     magnitude: np.ndarray,
     coherence: np.ndarray,
     valid: np.ndarray,
+    high_magnitude_flag: np.ndarray,
+    uncorrected_magnitude: np.ndarray,
     x_coordinates_m: np.ndarray,
     y_coordinates_m: np.ndarray,
     epsg: int,
@@ -443,7 +445,10 @@ def _write_geotiff(
     dx, dy = float(np.median(dxs)), float(np.median(dys))
     x_ascending = bool(x_coordinates_m[-1] > x_coordinates_m[0])
     y_descending = bool(y_coordinates_m[-1] < y_coordinates_m[0])
-    arrays = [east, north, magnitude, coherence, valid.astype(float)]
+    arrays = [
+        east, north, magnitude, coherence, valid.astype(float),
+        high_magnitude_flag.astype(float), uncorrected_magnitude,
+    ]
     if not x_ascending:
         arrays = [np.fliplr(item) for item in arrays]
     if not y_descending:
@@ -453,7 +458,7 @@ def _write_geotiff(
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
         path, "w", driver="GTiff", width=arrays[0].shape[1], height=arrays[0].shape[0],
-        count=5, dtype="float32", crs=f"EPSG:{int(epsg)}", transform=transform,
+        count=7, dtype="float32", crs=f"EPSG:{int(epsg)}", transform=transform,
         nodata=-9999.0, compress="deflate", predictor=3,
     ) as dst:
         for index, array in enumerate(arrays, start=1):
@@ -465,6 +470,8 @@ def _write_geotiff(
         dst.set_band_description(3, "Horizontal displacement magnitude (m)")
         dst.set_band_description(4, "5x5 directional coherence R (unitless)")
         dst.set_band_description(5, "Valid measurement mask (1=valid)")
+        dst.set_band_description(6, "High-magnitude review flag (1=above configured threshold)")
+        dst.set_band_description(7, "Uncorrected projected horizontal magnitude (m)")
         dst.update_tags(
             AREA_OR_POINT="Point",
             displacement_assumption="vertical motion assumed zero",
@@ -683,7 +690,18 @@ def run_aoi_analysis(
             valid, gate_counts, uncorrected_mag = apply_paper_quality_gates(
                 east, north, raw.snr, input_valid=input_valid,
                 minimum_snr=request.min_snr,
-                maximum_horizontal_magnitude_m=request.max_horizontal_magnitude_m,
+                maximum_horizontal_magnitude_m=(
+                    request.max_horizontal_magnitude_m
+                    if request.magnitude_policy == "reject_above_threshold"
+                    else float(np.finfo(np.float64).max)
+                ),
+            )
+            high_magnitude_flag = (
+                input_valid
+                & np.isfinite(raw.snr)
+                & (raw.snr >= request.min_snr)
+                & np.isfinite(uncorrected_mag)
+                & (uncorrected_mag > request.max_horizontal_magnitude_m)
             )
             aoi_valid_before_reference = valid & roi.crown_mask & np.isfinite(east) & np.isfinite(north)
             if not aoi_valid_before_reference.any():
@@ -700,6 +718,9 @@ def run_aoi_analysis(
                     "status": "INSUFFICIENT_AOI_VALID_PIXELS",
                     "valid_aoi_pixels": 0,
                     "quality_gate_counts": asdict(gate_counts),
+                    "high_magnitude_threshold": request.max_horizontal_magnitude_m,
+                    "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
+                    "magnitude_policy": request.magnitude_policy,
                     "interpretation": "No AOI pixels passed the finite-data, SNR and magnitude gates; no displacement summary is emitted.",
                 })
                 continue
@@ -724,6 +745,9 @@ def run_aoi_analysis(
                         "status": "INSUFFICIENT_REFERENCE_SUPPORT",
                         "valid_aoi_pixels": int(aoi_valid_before_reference.sum()),
                         "quality_gate_counts": asdict(gate_counts),
+                        "high_magnitude_threshold": request.max_horizontal_magnitude_m,
+                        "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
+                        "magnitude_policy": request.magnitude_policy,
                         "reason_code": str(exc).split(":", 1)[0],
                     })
                     continue
@@ -767,6 +791,9 @@ def run_aoi_analysis(
                 "polarization": raw.polarization,
                 "status": "STARTED",
                 "quality_gate_counts": asdict(gate_counts),
+                "high_magnitude_threshold": request.max_horizontal_magnitude_m,
+                "high_magnitude_flagged_pixels": int((high_magnitude_flag & roi.crown_mask).sum()),
+                "magnitude_policy": request.magnitude_policy,
                 "valid_aoi_pixels": int(aoi_valid.sum()),
                 "geometry": {
                     "metadata_group": sample.metadata_group,
@@ -781,7 +808,12 @@ def run_aoi_analysis(
                 "quality_policy": {
                     "minimum_snr": request.min_snr,
                     "maximum_horizontal_magnitude_m": request.max_horizontal_magnitude_m,
-                    "gross_outliers": "rejected_not_clipped",
+                    "magnitude_policy": request.magnitude_policy,
+                    "gross_outliers": (
+                        "rejected_not_clipped"
+                        if request.magnitude_policy == "reject_above_threshold"
+                        else "preserved_in_measurements_but_flagged_for_review"
+                    ),
                 },
                 "coherence_policy": {
                     "window_size": request.coherence_window,
@@ -833,6 +865,7 @@ def run_aoi_analysis(
             _write_geotiff(
                 run_dir / geotiff_relative,
                 corrected_east, corrected_north, magnitude, coherence, valid_box,
+                high_magnitude_flag, uncorrected_mag,
                 roi.x_coordinates_m, roi.y_coordinates_m, raw.epsg,
             )
             np.savez_compressed(
@@ -842,6 +875,8 @@ def run_aoi_analysis(
                 magnitude_m=magnitude.astype(np.float32),
                 coherence_R=coherence.astype(np.float32),
                 valid_mask=valid_box.astype(np.uint8),
+                high_magnitude_flag=high_magnitude_flag.astype(np.uint8),
+                uncorrected_horizontal_magnitude_m=uncorrected_mag.astype(np.float32),
                 aoi_mask=roi.crown_mask.astype(np.uint8),
                 reference_mask=roi.box_mask.astype(np.uint8),
                 x_coordinates_m=roi.x_coordinates_m.astype(np.float64),
