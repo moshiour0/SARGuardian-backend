@@ -23,9 +23,9 @@ jobs:
     timeout-minutes: 20
     env:
       SOURCE_RUN_ID: "40006999011"
-      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: \${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: \${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-      GOOGLE_DRIVE_PARENT_FOLDER_ID: \${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
     steps:
       - name: Require source run and durable-output credentials
         shell: bash
@@ -41,15 +41,15 @@ jobs:
       - name: Checkout isolated Know Place Analysis code
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Download the completed source run's derived-only artifact
         uses: actions/download-artifact@v4
         with:
           name: know-place-analysis-40006999011-1
           run-id: 40006999011
-          github-token: \${{ secrets.GITHUB_TOKEN }}
-          path: \${{ runner.temp }}/know-place-source-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/know-place-source-artifact
 
       - name: Locate source report and diagnostic arrays
         id: source
@@ -98,8 +98,8 @@ jobs:
           out="$RUNNER_TEMP/know-place-reanalysis"
           mkdir -p "$out"
           python -m tools.know_place.reanalyse_saved_arrays \
-            --report "\${{ steps.source.outputs.report }}" \
-            --arrays-dir "\${{ steps.source.outputs.arrays_dir }}" \
+            --report "${{ steps.source.outputs.report }}" \
+            --arrays-dir "${{ steps.source.outputs.arrays_dir }}" \
             --out "$out/coherence-reanalysis-report.json" \
             --source-run-id "$SOURCE_RUN_ID"
           python - "$out/coherence-reanalysis-report.json" "$out/summary.md" <<'PY'
@@ -140,12 +140,12 @@ jobs:
       - name: Upload reanalysis report to Drive with remote verification
         shell: bash
         env:
-          OUT_ROOT: \${{ runner.temp }}/know-place-reanalysis
+          OUT_ROOT: ${{ runner.temp }}/know-place-reanalysis
         run: |
           set -euo pipefail
           python tools/drive_resumable_upload.py \
             --root "$OUT_ROOT" \
-            --run-name "KnowPlace-R-Sensitivity-\${{ github.run_id }}-\${{ github.run_attempt }}" \
+            --run-name "KnowPlace-R-Sensitivity-${{ github.run_id }}-${{ github.run_attempt }}" \
             --files "$OUT_ROOT/coherence-reanalysis-report.json" "$OUT_ROOT/summary.md" \
             --out "$OUT_ROOT/drive-upload-receipt.json"
           python - "$OUT_ROOT/drive-upload-receipt.json" <<'PY'
@@ -159,10 +159,10 @@ jobs:
       - name: Upload compact reanalysis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: know-place-coherence-reanalysis-\${{ github.run_id }}-\${{ github.run_attempt }}
+          name: know-place-coherence-reanalysis-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            \${{ runner.temp }}/know-place-reanalysis/coherence-reanalysis-report.json
-            \${{ runner.temp }}/know-place-reanalysis/summary.md
-            \${{ runner.temp }}/know-place-reanalysis/drive-upload-receipt.json
+            ${{ runner.temp }}/know-place-reanalysis/coherence-reanalysis-report.json
+            ${{ runner.temp }}/know-place-reanalysis/summary.md
+            ${{ runner.temp }}/know-place-reanalysis/drive-upload-receipt.json
           if-no-files-found: error
           retention-days: 30
