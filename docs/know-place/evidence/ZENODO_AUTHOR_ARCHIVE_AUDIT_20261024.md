@@ -69,3 +69,8 @@ The branch now has a separate `tools/know_place/author_parity.py` module. It con
 ## Re-running the processed-field check
 
 Use `python -m tools.know_place.verify_author_fields /path/to/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip --output author-field-verification.json`. The verifier checks ZIP payload entries against the archived manifest, records hashes/profiles for all five small field rasters, recomputes R from bands 1–2, and compares it with band 3. It does not extract or copy the separately licensed CC BY-NC runout outline, download raw GOFF products, or claim source-to-output parity.
+
+
+## Crown-mask count discrepancy across all five exported fields
+
+Applying the archived crown-slice function to each exported 80×73 field while using the GeoTIFF bounds as the extent endpoints gives valid crown-displacement counts 283, 294, 296, 292 and 195. Table S4 reports 302, 299, 302, 298 and 202. The differences are -19, -5, -6, -6 and -7 respectively. The GeoTIFF affine bounds describe pixel edges, while the author code constructs the plotting extent from transformed first/last GOFF grid samples; that could explain the offset, but is not proven without the original coordinate axes/window or author pre-export masks. The mismatch is recorded as BLOCKED_CROWN_PIXEL_MASK_PARITY; no mask is being altered just to force agreement.

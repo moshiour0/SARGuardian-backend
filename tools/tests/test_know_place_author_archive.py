@@ -91,6 +91,16 @@ def test_repository_inventory_round_trips_to_source_hash_after_git_newline_norma
     assert source["RGIId"] == "RGI60-15.04173"
 
 
+def test_exported_field_crown_mask_count_discrepancy_remains_explicit() -> None:
+    fixture = _read_json(FIXTURE_PATH)
+    diagnostic = fixture["exported_field_crown_mask_diagnostic"]
+    assert diagnostic["valid_crown_cells_from_exported_geotiff_bounds"] == [283, 294, 296, 292, 195]
+    assert diagnostic["published_table_s4_valid_crown_cells"] == [302, 299, 302, 298, 202]
+    assert diagnostic["difference_export_minus_published"] == [-19, -5, -6, -6, -7]
+    assert diagnostic["exact_pixel_mask_parity"] is False
+    assert diagnostic["gate"] == "BLOCKED_CROWN_PIXEL_MASK_PARITY"
+
+
 def test_author_method_parity_blockers_and_nonhazard_status_are_explicit() -> None:
     fixture = _read_json(FIXTURE_PATH)
     assert fixture["raw_replay_status"] == "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED"

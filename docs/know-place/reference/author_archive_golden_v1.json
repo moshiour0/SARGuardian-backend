@@ -305,5 +305,41 @@
     ],
     "result": "PASS_STORED_R_BAND_MATCHES_D_E_D_N",
     "interpretation": "Validates the archived derived R band against archived dE/dN in the same exported WGS84 rasters. It is not a source-HDF5 replay and does not validate the crown mask or full-footprint products."
+  },
+  "exported_field_crown_mask_diagnostic": {
+    "source_function": "code/make_fig_timeseries.py:crown_slice",
+    "diagnostic_input": "Apply the source crop function to each 80x73 exported WGS84 field array using the GeoTIFF bounds as extent endpoints; this is only a diagnostic of the export, not the original source-grid crop.",
+    "pair_order": [
+      "20260620->20260702",
+      "20260702->20260714",
+      "20260714->20260726",
+      "20260726->20260819",
+      "20260819->20260831"
+    ],
+    "valid_crown_cells_from_exported_geotiff_bounds": [
+      283,
+      294,
+      296,
+      292,
+      195
+    ],
+    "published_table_s4_valid_crown_cells": [
+      302,
+      299,
+      302,
+      298,
+      202
+    ],
+    "difference_export_minus_published": [
+      -19,
+      -5,
+      -6,
+      -6,
+      -7
+    ],
+    "exact_pixel_mask_parity": false,
+    "cause": "UNRESOLVED. Pixel-edge GeoTIFF bounds differ from endpoint coordinates built from the original GOFF sample axes; this is a plausible explanation, not a proven correction.",
+    "required_evidence_to_resolve": "Original GOFF source grid coordinate vectors plus exact source read window, plus the author per-pair pre-export masks or rasterization extents.",
+    "gate": "BLOCKED_CROWN_PIXEL_MASK_PARITY"
   }
 }
