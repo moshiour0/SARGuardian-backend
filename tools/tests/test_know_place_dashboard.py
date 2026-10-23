@@ -33,7 +33,12 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
             "epsg": 32645,
             "status": "METRICS_COMPUTED",
             "valid_aoi_pixels": 147,
-            "geotiff_file": "../maps/pair_displacement.tif",
+            "aoi_total_grid_cells": 160,
+            "valid_aoi_fraction": 147 / 160,
+            "high_magnitude_flagged_pixels": 2,
+            "grid_lattice_compatible_with_previous": True,
+            "grid_identity_sha256": "b" * 64,
+            "geotiff_file": "maps/pair_displacement.tif",
             "statistics": {
                 "crown_median_horizontal_magnitude_m": 0.96,
                 "crown_mean_vector_magnitude_m": 1.72,
@@ -42,9 +47,25 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
             },
             "map_preview": {
                 "values": [[0.1, 0.2], [None, 0.5]],
+                "east_values_m": [[1.0, 0.0], [None, -1.0]],
+                "north_values_m": [[0.0, 1.0], [None, 0.0]],
                 "min_x_m": 100.0, "max_y_m": 200.0,
                 "pixel_size_x_m": 80.0, "pixel_size_y_m": 80.0,
                 "aoi_ring_xy": [[100.0,200.0],[180.0,200.0],[180.0,120.0],[100.0,120.0],[100.0,200.0]],
+            },
+            "spatial_block_bootstrap_uncertainty": {
+                "status": "COMPUTED_EXPLORATORY",
+                "statistics": {
+                    "median_horizontal_magnitude_95pct_interval_m": [0.8, 1.1],
+                },
+            },
+            "spatial_block_bootstrap_sensitivity": {
+                "status": "COMPUTED_EXPLORATORY",
+                "rows": [
+                    {"block_size_cells": 3, "status": "COMPUTED_EXPLORATORY", "median_horizontal_magnitude_95pct_interval_m": [0.7, 1.2]},
+                    {"block_size_cells": 5, "status": "COMPUTED_EXPLORATORY", "median_horizontal_magnitude_95pct_interval_m": [0.8, 1.1]},
+                    {"block_size_cells": 10, "status": "COMPUTED_EXPLORATORY", "median_horizontal_magnitude_95pct_interval_m": [0.6, 1.3]},
+                ],
             },
         }],
     }
@@ -57,6 +78,12 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
     assert "No raster preview available" in rendered or "pairMaps" in rendered
     assert "map-canvas-0" in rendered
     assert "pair_displacement.tif" in rendered
+    assert "Valid / total AOI pixels" in rendered
+    assert "147 / 160" in rendered
+    assert "Block-size CI sensitivity" in rendered
+    assert "3-cell: 0.700–1.200 m" in rendered
+    assert "Direction arrows are orientation-only" in rendered
+    assert "grid_identity_sha256" in rendered
     assert "https://" not in rendered  # no CDN/external dependency
     target = write_dashboard(report, tmp_path / "dashboard.html")
     assert target.is_file()
