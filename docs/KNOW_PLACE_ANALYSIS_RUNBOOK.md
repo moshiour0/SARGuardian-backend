@@ -110,3 +110,14 @@ The runner first inspects only the five files' grid axes and metadata, checks th
 - `HAZARD_DETECTION_STATUS=NOT_EVALUATED` is intentional. No hazard alarm is produced.
 - Circular size-matched controls are currently an explicitly exploratory procedure. Do not quote them as the author's exact null distribution until the author algorithm has been recovered and parity tested.
 - A displacement magnitude close to 0.96 m alone is not scientific reproduction. The crown metric, background correction, quality gates, direction/coherence, per-product identity and comparison statistics must all be comparable.
+
+
+## Completed first raw replay and R-policy reanalysis (2026-10-24)
+
+- Raw-input analysis: [Run 40006999011](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40006999011). All five candidate GOFF HDF5 file sizes and SHA-256 values matched the historically inspected source objects; all five intervals produced metrics.
+- Saved-array coherence reanalysis: [Run 40015023621](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015023621). This downloaded only the previous derived-only run artifact; no raw HDF5 was downloaded. All five NPZ diagnostic-array checksums matched the source report. The reanalysis report and summary passed Drive remote verification.
+- Scientific comparison: for 26 July–19 August, crown median horizontal magnitude was 0.966 m, mean-vector magnitude 1.722 m, azimuth 277.79°. On the pointwise 0.17–2.75 m window, R was 0.869 for 150 crown centres; the preprint reports about 0.869 for 147 centres. Background R/count and control statistics remain different.
+- The original min-25-valid-neighbours condition is no longer the primary R rule: the preprint does not specify it. The primary result uses at least one valid vector and emits sensitivity for min valid counts 1/5/10/15/20/25.
+- The current circular-control result (median ~0.128 m; ~96.08th percentile) is **not comparable** with the paper's ~0.14 m / 94.7th percentile because exact crown geometry, source variants and author control sampling are not verified. It must not trigger an alarm.
+- Current gate is `PAPER_REPRODUCTION_STATUS=BLOCKED_AUTHOR_GEOMETRY_VARIANT_AND_GOLDEN_OUTPUTS_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. Evidence table, raw/source hashes, R-policy comparison and acceptance gaps: [RAW_REPLAY_40006999011_R_POLICY_AUDIT.md](know-place/evidence/RAW_REPLAY_40006999011_R_POLICY_AUDIT.md).
+- Validation: [Run 40015371603](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015371603) passed 46 tests, parsed all three isolated workflows and passed actionlint. All files remain on `feat/know-place-analysis`; `main` was not changed.
