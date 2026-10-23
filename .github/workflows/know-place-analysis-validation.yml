@@ -1,0 +1,49 @@
+name: Know Place Analysis isolated validation
+
+on:
+  push:
+    branches:
+      - feat/know-place-analysis
+    paths:
+      - "tools/know_place/**"
+      - "tests/test_know_place_*.py"
+      - ".github/workflows/know-place-analysis-validation.yml"
+  pull_request:
+    branches:
+      - feat/final-aoi-science-integration
+    paths:
+      - "tools/know_place/**"
+      - "tests/test_know_place_*.py"
+      - ".github/workflows/know-place-analysis-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: know-place-analysis-validation
+  cancel-in-progress: false
+
+jobs:
+  pure-kernel-tests:
+    name: Scientific kernel unit tests (no external data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout isolated Know Place Analysis branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          check-latest: false
+
+      - name: Install only the test/runtime requirements
+        run: python -m pip install --disable-pip-version-check numpy pytest
+
+      - name: Compile the new isolated module
+        run: python -m py_compile tools/know_place/paper_method.py
+
+      - name: Run scientific known-answer and fail-closed tests
+        run: python -m pytest -q tests/test_know_place_paper_method.py
