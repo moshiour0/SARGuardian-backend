@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from .geometry import build_analysis_roi
-from .goff_io import GoffReadError, inspect_goff_grid, read_geometry_cubes, read_raw_goff
+from .goff_io import GoffReadError, inspect_goff_grid, read_geometry_cubes, read_raw_goff, sample_geometry
 from .paper_method import (
     PAPER_INTERVALS,
     ScientificInputError,
