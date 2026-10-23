@@ -158,6 +158,10 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert result["measurement_status"] == "METRICS_COMPUTED_ALL_PAIRS"
     assert result["paper_reproduction_status"] == "NOT_EVALUATED_GENERIC_AOI"
     assert result["hazard_detection_status"] == "NOT_EVALUATED"
+    assert result["motion_dynamics"]["status"] == "DESCRIPTIVE_MOTION_FEATURES_COMPUTED"
+    assert result["motion_dynamics"]["risk_score"] is None
+    assert result["motion_dynamics"]["hazard_detection_status"] == "NOT_EVALUATED"
+    assert len(result["motion_dynamics"]["pairs"]) == 5
     assert result["reference_policy"] == "local_context_component_median"
     assert result["pair_measurement_counts"] == {
         "requested": 5, "metrics_computed": 5, "insufficient_data": 0,
@@ -185,7 +189,10 @@ def test_synthetic_five_pair_aoi_pipeline_emits_verified_bundle_and_deletes_ephe
     assert target["secondary_date"] == "2026-08-19"
     assert len(target["known_instrument_data_gaps"]) == 1
     assert "cannot localize onset" in target["interval_coverage_warning"]
-    assert "2026-07-27T22:03:25Z" in (run_dir / "visuals" / "dashboard.html").read_text(encoding="utf-8")
+    dashboard_html = (run_dir / "visuals" / "dashboard.html").read_text(encoding="utf-8")
+    assert "2026-07-27T22:03:25Z" in dashboard_html
+    assert "Descriptive motion dynamics — not a hazard score" in dashboard_html
+    assert "not a calibrated probability of failure" in dashboard_html
     assert (run_dir / "timeseries.csv").is_file()
     assert (run_dir / "visuals" / "dashboard.html").is_file()
     assert len(manifest["files"]) >= 15
