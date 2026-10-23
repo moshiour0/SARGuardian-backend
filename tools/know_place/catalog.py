@@ -164,7 +164,7 @@ def validate_exact_catalog_product(
         if not any(f"/{EXPECTED_COLLECTION}/" in urlparse(u).path for u in urls):
             raise CatalogIdentityError(f"ASF_MATURITY_EVIDENCE_MISSING:{wanted}")
 
-    collection_keys = ("collectionName", "collection", "collection_name", "dataset")
+    collection_keys = ("collectionName", "collection", "collection_name")
     collection_values = [
         str(props[k]).strip()
         for k in collection_keys
