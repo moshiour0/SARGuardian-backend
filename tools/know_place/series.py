@@ -167,75 +167,120 @@ def build_pairwise_series_plan(
     if not candidates:
         raise SeriesPlanError("NO_GOFF_PRODUCTS_FULLY_WITHIN_REQUEST_DATE_RANGE")
 
+    # Keep each track/direction/polarization chain separate. A generic AOI
+    # commonly intersects multiple acquisitions; failing the whole request due
+    # to multiple chains is unnecessary, but pooling those chains is forbidden.
     geometry_groups: dict[tuple[str, str, str], list[PairCandidate]] = {}
     for candidate in candidates:
         geometry_groups.setdefault(candidate.geometry_key, []).append(candidate)
-    if len(geometry_groups) != 1:
-        options = [
-            {"track": key[0], "direction": key[1], "polarization": key[2], "candidate_count": len(value)}
-            for key, value in sorted(geometry_groups.items())
-        ]
-        raise SeriesPlanError("AMBIGUOUS_ORBIT_GEOMETRY_SERIES:" + str(options))
 
-    # Same acquisition pair may be published in multiple releases. Never choose
-    # one just because it happens to reproduce a preferred statistic.
-    variants: dict[tuple[datetime, datetime], list[PairCandidate]] = {}
-    for candidate in candidates:
-        variants.setdefault(candidate.pair_key, []).append(candidate)
-    ambiguous = {
-        pair: sorted(item.granule_name for item in group)
-        for pair, group in variants.items() if len(group) > 1
-    }
-    if ambiguous:
-        raise SeriesPlanError("AMBIGUOUS_PRODUCT_RELEASE_VARIANTS:" + str(ambiguous))
+    chains: list[dict[str, Any]] = []
+    flattened_pairs: list[dict[str, Any]] = []
+    for geometry_key, geometry_candidates in sorted(geometry_groups.items()):
+        variants: dict[tuple[datetime, datetime], list[PairCandidate]] = {}
+        for candidate in geometry_candidates:
+            variants.setdefault(candidate.pair_key, []).append(candidate)
+        ambiguous = {
+            pair: sorted(item.granule_name for item in group)
+            for pair, group in variants.items() if len(group) > 1
+        }
+        if ambiguous:
+            raise SeriesPlanError(
+                "AMBIGUOUS_PRODUCT_RELEASE_VARIANTS:"
+                + str({
+                    "geometry": geometry_key,
+                    "pairs": {
+                        f"{pair[0].isoformat()}__{pair[1].isoformat()}": names
+                        for pair, names in ambiguous.items()
+                    },
+                })
+            )
 
-    ordered = sorted(candidates, key=lambda c: (c.reference_start, c.secondary_start, c.granule_name))
-    rows: list[dict[str, Any]] = []
-    previous: PairCandidate | None = None
-    continuous = True
-    for candidate in ordered:
-        row = candidate.to_dict()
-        if previous is None:
-            row["relation_to_previous"] = "FIRST_PAIR"
-            row["gap_seconds_from_previous_secondary_to_reference"] = None
-            row["pair_intervals_overlap"] = False
-        else:
-            delta = (candidate.reference_start - previous.secondary_start).total_seconds()
-            adjacent = abs(delta) <= adjacency_tolerance_seconds
-            overlaps = candidate.reference_start < previous.secondary_start - timedelta(seconds=adjacency_tolerance_seconds)
-            row["relation_to_previous"] = "CONTIGUOUS" if adjacent else ("OVERLAP" if overlaps else "GAP")
-            row["gap_seconds_from_previous_secondary_to_reference"] = delta
-            row["pair_intervals_overlap"] = overlaps
-            if not adjacent:
-                continuous = False
-        rows.append(row)
-        previous = candidate
+        ordered = sorted(
+            geometry_candidates,
+            key=lambda candidate: (
+                candidate.reference_start, candidate.secondary_start, candidate.granule_name
+            ),
+        )
+        chain_id = f"{geometry_key[0]}-{geometry_key[1]}-{geometry_key[2]}"
+        chain_rows: list[dict[str, Any]] = []
+        previous: PairCandidate | None = None
+        continuous = True
+        for candidate in ordered:
+            row = candidate.to_dict()
+            row["chain_id"] = chain_id
+            if previous is None:
+                row["relation_to_previous"] = "FIRST_PAIR"
+                row["gap_seconds_from_previous_secondary_to_reference"] = None
+                row["pair_intervals_overlap"] = False
+            else:
+                delta = (candidate.reference_start - previous.secondary_start).total_seconds()
+                adjacent = abs(delta) <= adjacency_tolerance_seconds
+                overlaps = candidate.reference_start < previous.secondary_start - timedelta(
+                    seconds=adjacency_tolerance_seconds
+                )
+                row["relation_to_previous"] = (
+                    "CONTIGUOUS" if adjacent else ("OVERLAP" if overlaps else "GAP")
+                )
+                row["gap_seconds_from_previous_secondary_to_reference"] = delta
+                row["pair_intervals_overlap"] = overlaps
+                if not adjacent:
+                    continuous = False
+            chain_rows.append(row)
+            previous = candidate
 
+        chain_record = {
+            "chain_id": chain_id,
+            "geometry_key": {
+                "track": geometry_key[0],
+                "direction": geometry_key[1],
+                "polarization": geometry_key[2],
+            },
+            "pair_count": len(chain_rows),
+            "pairs": chain_rows,
+            "continuous_chain_eligible": bool(chain_rows) and continuous,
+            "cumulative_displacement_status": (
+                "ELIGIBLE_FOR_SEPARATE_REVIEW"
+                if len(chain_rows) > 1 and continuous
+                else "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
+            ),
+        }
+        chains.append(chain_record)
+        flattened_pairs.extend(chain_rows)
+
+    flattened_pairs.sort(
+        key=lambda row: (
+            row["reference_start_utc"], row["secondary_start_utc"], row["chain_id"],
+            row["granule_name"],
+        )
+    )
+    one_chain = len(chains) == 1
+    all_continuous = one_chain and chains[0]["continuous_chain_eligible"]
     return {
         "schema_version": "know-place-pairwise-series-plan/1.0",
         "status": "PAIRWISE_SERIES_PLANNED",
         "date_range_inclusive": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "geometry_key": {
-            "track": ordered[0].track,
-            "direction": ordered[0].direction,
-            "polarization": ordered[0].polarization,
-        },
-        "pair_count": len(rows),
-        "pairs": rows,
+        "chain_count": len(chains),
+        "chains": chains,
+        "geometry_key": chains[0]["geometry_key"] if one_chain else None,
+        "pair_count": len(flattened_pairs),
+        "pairs": flattened_pairs,
         "pairwise_metrics_are_not_cumulative": True,
-        "continuous_chain_eligible": bool(rows) and continuous,
+        "continuous_chain_eligible": all_continuous,
         "cumulative_displacement_status": (
-            "ELIGIBLE_FOR_SEPARATE_REVIEW" if len(rows) > 1 and continuous
-            else "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
+            "ELIGIBLE_FOR_SEPARATE_REVIEW" if len(flattened_pairs) > 1 and all_continuous
+            else ("SEPARATE_CHAINS_REVIEW_REQUIRED" if len(chains) > 1
+                  else "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR")
         ),
         "selection_policy": {
             "release_substitution": "forbidden",
-            "geometry_mixing": "forbidden",
+            "geometry_mixing": "forbidden; each chain is calculated separately",
             "date_policy": "both pair acquisitions must lie inside inclusive user date range",
             "pairwise_metric_policy": "report each product interval independently; do not sum overlapping/gapped pair estimates",
         },
         "warnings": [
             "A planned pair series only establishes candidate availability and chronology. It does not establish valid pixel support, scientific reproduction, or hazard detection.",
+            "Different tracks/directions/polarizations are returned as separate chains and must never be pooled into one displacement vector.",
             "A continuous acquisition chain is necessary but not sufficient for cumulative displacement; projection, reference, sign convention, grid parity and uncertainty still require validation.",
         ],
     }
