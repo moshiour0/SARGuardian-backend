@@ -69,7 +69,7 @@
 - [x] Record the paper’s interpretation and explicitly avoid describing this analysis as an early-warning detector.
 - [ ] If the supplement is unavailable or processing differs, clearly label the exact parity gate BLOCKED/NOT_COMPARABLE rather than PASS.
 - [ ] Complete independent scientific review before claiming reproduction; exact author geometry/variant/control golden outputs remain unavailable.
-- [x] Keep the fixed-H​​AE sampling limitation explicit; do not tune it to scalar paper targets before the author's geometry policy is known.
+- [x] Keep the fixed-HAE sampling limitation explicit; do not tune it to scalar paper targets before the author's geometry policy is known.
 - [x] Add blind split enforcement so threshold calibration only accepts validation-only labels and held-out scoring requires a separate test-only registry plus a hash-matched validation registry.
 
 ## Milestone 6 — Operational isolation and review
