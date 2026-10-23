@@ -88,3 +88,46 @@ jobs:
 
       - name: Run semantic GitHub Actions workflow validation
         run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml
+
+  live-asf-catalog-contract:
+    name: Live ASF identity gate for five exact granules (no downloads)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated Know Place Analysis branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          check-latest: false
+
+      - name: Install pinned catalog-only dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir numpy==2.4.6 h5py==3.16.0 asf_search==13.0.0
+
+      - name: Query ASF for the five exact candidate granules without downloading them
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.catalog --out "${{ runner.temp }}/know-place-catalog-manifest.json"
+          python - "${{ runner.temp }}/know-place-catalog-manifest.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          rows=d.get("products",[])
+          if d.get("status")!="PASS" or len(rows)!=5:
+              raise SystemExit("ERROR=ASF_CATALOG_NOT_FIVE_EXACT_PRODUCTS")
+          for p in rows:
+              print("ASF_CATALOG_IDENTITY=PASS {} {}->{} {} {}".format(
+                  p["previous_product_id"],p["reference_date"],p["secondary_date"],
+                  p["release_id"],p["catalog_maturity"]))
+          print("RAW_PRODUCT_DOWNLOADS=0")
+          PY
+
+      - name: Preserve live catalog evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: know-place-live-asf-catalog-evidence
+          path: ${{ runner.temp }}/know-place-catalog-manifest.json
+          if-no-files-found: error
+          retention-days: 14
