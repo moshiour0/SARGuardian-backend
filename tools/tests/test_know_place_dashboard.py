@@ -28,6 +28,7 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
         "pairs": [{
             "reference_date": "2026-07-26",
             "secondary_date": "2026-08-19",
+            "interval_days": 24.0,
             "granule_name": "NISAR_L2_PR_GOFF_TEST.h5",
             "release_id": "P05023",
             "epsg": 32645,
@@ -83,6 +84,10 @@ def test_dashboard_contains_displacement_chart_spatial_preview_and_scientific_ga
     assert "Block-size CI sensitivity" in rendered
     assert "3-cell: 0.700–1.200 m" in rendered
     assert "Direction arrows are orientation-only" in rendered
+    assert "Interval-average magnitude rate" in rendered
+    assert "0.0400 m/day" in rendered
+    assert "Midpoint separation: 24.000 d" in rendered
+    assert "not instantaneous velocity" in rendered
     assert "Grid identity SHA-256" in rendered
     assert "b" * 64 in rendered
     assert "https://" not in rendered  # no CDN/external dependency
