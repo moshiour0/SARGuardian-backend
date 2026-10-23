@@ -277,6 +277,79 @@ def _report_controls(
         }
 
 
+def _coherence_sensitivity(
+    east: np.ndarray,
+    north: np.ndarray,
+    valid: np.ndarray,
+    valid_box: np.ndarray,
+    box_mask: np.ndarray,
+    crown_mask: np.ndarray,
+    magnitude: np.ndarray,
+    *,
+    include_published_magnitude_window: bool,
+) -> dict[str, Any]:
+    """Report how 5x5 R depends on its undocumented minimum valid-neighbour rule.
+
+    The preprint defines a 5x5 mean resultant length but does not state a minimum
+    neighbour count. The primary policy therefore permits any count from 1 to 25;
+    values are only summarized at centres that themselves pass the quality gate.
+    Sensitivity rows expose the effect of stronger neighbour-count requirements.
+    """
+    thresholds = (1, 5, 10, 15, 20, 25)
+    result: dict[str, Any] = {
+        "method_note": (
+            "The preprint specifies a 5x5 mean resultant length but does not "
+            "publish a minimum valid-neighbour count. Primary result uses >=1 "
+            "valid direction, and each summary is restricted to valid centre pixels. "
+            "Sensitivity is reported for >=1,5,10,15,20,25 neighbours."
+        ),
+        "primary_minimum_valid_neighbours": 1,
+        "thresholds": {},
+    }
+    centre_box = valid_box & box_mask & np.isfinite(east) & np.isfinite(north)
+    centre_crown = centre_box & crown_mask
+    centre_background = centre_box & ~crown_mask
+    mag_window = centre_box & np.isfinite(magnitude) & (magnitude >= 0.17) & (magnitude <= 2.75)
+
+    for minimum in thresholds:
+        R = directional_coherence(
+            east, north, valid, window_size=5, minimum_valid_cells=minimum,
+        )
+        def median_on(mask: np.ndarray) -> tuple[float | None, int]:
+            selected = mask & np.isfinite(R)
+            if not selected.any():
+                return None, 0
+            return float(np.median(R[selected])), int(selected.sum())
+
+        crown_value, crown_n = median_on(centre_crown)
+        box_value, box_n = median_on(centre_box)
+        background_value, background_n = median_on(centre_background)
+        record: dict[str, Any] = {
+            "minimum_valid_neighbours": minimum,
+            "crown_median_R": crown_value,
+            "crown_valid_centres": crown_n,
+            "reference_box_median_R_including_crown": box_value,
+            "reference_box_valid_centres": box_n,
+            "outside_crown_median_R": background_value,
+            "outside_crown_valid_centres": background_n,
+        }
+        if include_published_magnitude_window:
+            window_value, window_n = median_on(centre_crown & mag_window)
+            box_window_value, box_window_n = median_on(mag_window)
+            record["target_pair_0_17_to_2_75_m_sensitivity"] = {
+                "crown_median_R": window_value,
+                "crown_valid_centres": window_n,
+                "box_median_R_at_centres_with_same_pointwise_magnitude_window": box_window_value,
+                "box_valid_centres_at_same_pointwise_magnitude_window": box_window_n,
+                "note": (
+                    "This pointwise magnitude-window comparison is a sensitivity "
+                    "diagnostic only; it is not the paper's matched-control sample."
+                ),
+            }
+        result["thresholds"][str(minimum)] = record
+    return result
+
+
 def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str, Any]:
     """Process the five paper date intervals separately and emit auditable outputs."""
     config, config_dir = load_config(config_path)
@@ -296,7 +369,7 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
 
     seed = int(config.get("control_seed", 260826))
     draws = int(config.get("control_draws", 1000))
-    minimum_R = int(config.get("coherence_minimum_valid_cells", 25))
+    minimum_R = int(config.get("coherence_minimum_valid_cells", 1))
     if not (1 <= minimum_R <= 25):
         raise GoffReadError("COHERENCE_MINIMUM_VALID_CELLS_MUST_BE_1_TO_25")
     if draws < 1:
@@ -417,7 +490,16 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
             "window": "5x5",
             "minimum_valid_direction_vectors_per_window": minimum_R,
             "edge_policy": "zero-padded; only windows meeting minimum count are reported",
+            "primary_policy_rationale": (
+                "The preprint does not specify a minimum valid-neighbour count; "
+                "the default is 1, with an explicit 1/5/10/15/20/25 sensitivity table."
+            ),
         }
+        pair_report["directional_coherence_sensitivity"] = _coherence_sensitivity(
+            corrected_east, corrected_north, valid, valid_box, roi.box_mask,
+            roi.crown_mask, magnitude,
+            include_published_magnitude_window=(start, end) == TARGET_PAIR,
+        )
         pair_report["status"] = "METRICS_COMPUTED"
 
         crown_median = float(summary["crown_median_horizontal_magnitude_m"])
