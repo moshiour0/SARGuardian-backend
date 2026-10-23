@@ -321,7 +321,7 @@ def _download_exact_product(record: dict[str, Any], cache_dir: Path, session: An
                 previous = json.loads(receipt.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 raise AOIRunError("SOURCE_CACHE_RECEIPT_INVALID", "Existing source cache receipt is invalid") from None
-            if previous.get("source_url_fingerprint") != url_fingerprint or previous.get("sha256") != actual_hash:
+            if previous.get("source_url_fingerprint") != url_fingerprint or previous.get("source_sha256") != actual_hash:
                 raise AOIRunError("SOURCE_CACHE_PROVENANCE_CONFLICT", "Existing cached granule no longer matches its source receipt")
             if record.get("source_bytes") is not None and target.stat().st_size != record["source_bytes"]:
                 raise AOIRunError("SOURCE_BYTE_SIZE_MISMATCH", "Cached granule byte size conflicts with current catalog evidence")
@@ -788,6 +788,7 @@ def run_aoi_analysis(
             "schema_version": "know-place-aoi-result/1.0",
             "engine_version": ENGINE_VERSION,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "runtime_environment": _runtime_environment(),
             "status": "SCIENTIFIC_METRICS_COMPUTED" if computed else "NO_VALID_PAIR_METRICS",
             "structural_status": "PASS" if computed else "PARTIAL_INSUFFICIENT_DATA",
             "measurement_status": "METRICS_COMPUTED" if computed else "NOT_MEASURABLE",
