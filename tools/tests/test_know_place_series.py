@@ -19,10 +19,12 @@ def row(name, *, polarization="HH", maturity="PROVISIONAL"):
 
 
 def build(rows, **kwargs):
+    start_date = kwargs.pop("start_date", date(2026, 6, 20))
+    end_date = kwargs.pop("end_date", date(2026, 7, 26))
     return build_pairwise_series_plan(
         rows,
-        start_date=date(2026, 6, 20),
-        end_date=date(2026, 7, 26),
+        start_date=start_date,
+        end_date=end_date,
         polarization="HH",
         **kwargs,
     )
@@ -42,8 +44,6 @@ def test_arbitrary_pair_series_keeps_exact_source_identity_and_detects_contiguou
 
 
 def test_products_crossing_request_boundary_are_excluded():
-    result = build([row(PAIR_NAMES[0])], start_date=date(2026, 6, 21))
-    assert result["pair_count"] == 0 if False else True  # helper call below verifies fail-closed
     with pytest.raises(SeriesPlanError, match="NO_GOFF_PRODUCTS_FULLY_WITHIN_REQUEST_DATE_RANGE"):
         build([row(PAIR_NAMES[0])], start_date=date(2026, 6, 21))
 
@@ -78,7 +78,7 @@ def test_date_window_filters_products_by_both_acquisition_dates():
 def test_gap_and_overlap_disable_cumulative_displacement_claim():
     # The two intervals share the same orbit/polarization but aren't a touching
     # pair chain because the second reference acquisition is on 14 July.
-    gapped = PAIR_NAMES[1]
+    gapped = PAIR_NAMES[2]
     result = build([row(PAIR_NAMES[0]), row(gapped)])
     assert result["continuous_chain_eligible"] is False
     assert result["cumulative_displacement_status"] == "NOT_ELIGIBLE_GAPS_OR_OVERLAPS_OR_SINGLE_PAIR"
