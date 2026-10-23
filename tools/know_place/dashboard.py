@@ -180,6 +180,32 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             "preview": preview,
         })
     data_script = _safe_json(pair_data)
+
+    motion_dynamics = report.get("motion_dynamics", {})
+    motion_rows = []
+    for feature in motion_dynamics.get("pairs", []) if isinstance(motion_dynamics, dict) else []:
+        median_rate = feature.get("median_horizontal_displacement_rate_m_per_day")
+        vector_rate = feature.get("mean_vector_magnitude_rate_m_per_day")
+        acceleration = feature.get("vector_rate_acceleration_m_per_day_squared")
+        median_rate_label = f"{_number(median_rate,4)} m/day" if isinstance(median_rate, (int, float)) else "Unavailable"
+        vector_rate_label = f"{_number(vector_rate,4)} m/day" if isinstance(vector_rate, (int, float)) else "Unavailable"
+        acceleration_label = f"{_number(acceleration,6)} m/day²" if isinstance(acceleration, (int, float)) else "Not computed"
+        eligibility = "Eligible descriptive feature" if feature.get("vector_rate_change_eligible") else "Blocked / first pair"
+        block_reason = feature.get("rate_change_block_reason") or "—"
+        motion_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(feature.get('reference_date') or ''))} → {html.escape(str(feature.get('secondary_date') or ''))}</td>"
+            f"<td>{html.escape(str(feature.get('chain_id') or 'not assigned'))}</td>"
+            f"<td>{html.escape(median_rate_label)}</td>"
+            f"<td>{html.escape(vector_rate_label)}</td>"
+            f"<td>{html.escape(acceleration_label)}</td>"
+            f"<td>{html.escape(eligibility)}</td>"
+            f"<td>{html.escape(str(block_reason))}</td>"
+            "</tr>"
+        )
+    motion_dynamics_status = html.escape(str(
+        motion_dynamics.get("status", "NOT_COMPUTED") if isinstance(motion_dynamics, dict) else "NOT_COMPUTED"
+    ))
     request_json = _safe_json(request)
     reproduction_status = html.escape(str(report.get("paper_reproduction_status", "NOT_EVALUATED")))
     detection_status = html.escape(str(report.get("hazard_detection_status", "NOT_EVALUATED")))
@@ -221,6 +247,7 @@ main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(2
 <div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Grid compatibility</p><div class="code">{html.escape(str(report.get('grid_compatibility_status','not evaluated')))} (mismatched pair links are not connected)</div><p>Output checksum policy</p><div class="code">Per-file SHA-256 values are listed in manifest.json; the manifest excludes itself to avoid circular checksums.</div></div>
 </section>
 <section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Orbit chain</th><th>Valid / total AOI pixels</th><th>High-motion review pixels</th><th>Median AOI magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Interval-average magnitude rate</th><th>Mean-vector azimuth</th><th>Median R</th><th>Block-size CI sensitivity</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Interval-average rate is pairwise displacement divided by acquisition-midpoint separation; it is not instantaneous velocity and cannot locate motion onset within the interval. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
+<section class="panel"><h2>Descriptive motion dynamics — not a hazard score</h2><p>Status: {motion_dynamics_status}. Interval-average magnitude/vector rates are based on exact acquisition-midpoint separation. Vector-rate change is computed only within a contiguous, grid-compatible, gap-free processing chain. No calibrated risk score or alarm is emitted.</p><div class="table-wrap"><table><thead><tr><th>Interval</th><th>Processing chain</th><th>Median magnitude rate</th><th>Mean-vector rate magnitude</th><th>Vector-rate acceleration</th><th>Comparability</th><th>Reason / gate</th></tr></thead><tbody>{''.join(motion_rows) if motion_rows else '<tr><td colspan="7">Motion-dynamics features are unavailable for this report.</td></tr>'}</tbody></table></div><p>Acceleration is a descriptive feature in m/day², not an instantaneous physical acceleration or a calibrated probability of failure. Use the independent held-out validation gate before designing alerts.</p></section>
 <section style="margin-top:18px"><h2>Spatial displacement previews</h2><p>Native projected grids downsampled for quick inspection. Use the linked GeoTIFF for full-resolution GIS analysis; the preview is not a substitute for pixel-level data.</p><div class="map-grid">{''.join(map_cards)}</div></section>
 <section class="panel" style="margin-top:18px"><h2>Normalized request</h2><div class="code">{html.escape(json.dumps(request, ensure_ascii=False, indent=2))}</div></section>
 <footer class="footer">Generated by SARGuardian Know Place Analysis. A successful processing run means calculations and provenance checks completed; it does not prove a hazard detection, prediction, or warning. Always inspect acquisition coverage, valid pixel support, control distributions and uncertainty.</footer>
