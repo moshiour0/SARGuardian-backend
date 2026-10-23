@@ -79,14 +79,21 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
         if not isinstance(preview, dict):
             preview = {}
         canvas_id = f"map-canvas-{i}"
+        raster_path = str(pair.get("geotiff_file", ""))
+        if raster_path.startswith("maps/"):
+            dashboard_raster_path = "../" + raster_path
+        else:
+            dashboard_raster_path = raster_path
         map_cards.append(f"""
         <article class="map-card">
           <div class="map-heading"><div><h3>{html.escape(str(pair.get('reference_date','?')))} → {html.escape(str(pair.get('secondary_date','?')))}</h3>
-          <p>{html.escape(str(pair.get('granule_name','')))}</p></div>
+          <p>{html.escape(str(pair.get('granule_name','')))}</p>
+          <p>Valid AOI pixels: {html.escape(str(pair.get('valid_aoi_pixels','—')))}</p>
+          <p>Source SHA-256: <code>{html.escape(str(pair.get('source_sha256','not recorded')))}</code></p></div>
           <span class="status">{html.escape(str(pair.get('status','UNKNOWN')))}</span></div>
           <canvas id="{canvas_id}" width="420" height="280" aria-label="Horizontal displacement magnitude preview"></canvas>
           <div class="legend"><span>Lower magnitude</span><span class="gradient"></span><span>Higher magnitude</span><span>No data = grey</span></div>
-          <p class="map-note">AOI outline over a downsampled native-grid displacement preview; not a basemap. CRS EPSG:{html.escape(str(pair.get('epsg','unknown')))}. Raster download: <a href="{html.escape(str(pair.get('geotiff_file',''), quote=True))}">{html.escape(str(pair.get('geotiff_file','not available')))}</a></p>
+          <p class="map-note">AOI outline over a downsampled native-grid displacement preview; not a basemap. CRS EPSG:{html.escape(str(pair.get('epsg','unknown')))}. Raster download: <a href="{html.escape(dashboard_raster_path, quote=True)}">{html.escape(str(pair.get('geotiff_file','not available')))}</a></p>
         </article>""")
 
     table_rows = []
@@ -110,6 +117,7 @@ def build_dashboard_html(report: dict[str, Any]) -> str:
             f"<td>{_number(stats.get('crown_mean_vector_magnitude_m'))} m</td>"
             f"<td>{_number(stats.get('crown_mean_vector_azimuth_deg_clockwise_from_north'),1)}°</td>"
             f"<td>{_number(stats.get('crown_median_directional_coherence_R'),2)}</td>"
+            f"<td>{html.escape(interval_label)}</td>"
             "</tr>"
         )
     pair_data = []
@@ -160,7 +168,7 @@ main{{max-width:1280px;margin:auto;padding:28px 22px 64px}}h1{{font-size:clamp(2
 <div class="panel chart"><h2>AOI displacement by product interval</h2><p>Each point is a pairwise median magnitude. Intervals are not summed into cumulative movement unless an independently reviewed continuous-chain policy permits it.</p>{trend_svg}</div>
 <div class="panel"><h2>Run provenance</h2><p>Request SHA-256</p><div class="code">{html.escape(str(report.get('request_sha256','not recorded')))}</div><p>Engine version</p><div class="code">{html.escape(str(report.get('engine_version','not recorded')))}</div><p>Source adapter</p><div class="code">{html.escape(', '.join(report.get('source_adapters',[])))}</div><p>Reference policy</p><div class="code">{html.escape(str(report.get('reference_policy','not recorded')))}</div><p>Output checksums</p><div class="code">{html.escape(str(report.get('output_checksums_sha256','not recorded')))}</div></div>
 </section>
-<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Valid AOI pixels</th><th>Median magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
+<section class="panel"><h2>Interval results</h2><div class="table-wrap"><table><thead><tr><th>Acquisition interval</th><th>Release</th><th>Valid AOI pixels</th><th>Median magnitude</th><th>Median 95% spatial-block interval</th><th>Mean-vector magnitude</th><th>Mean-vector azimuth</th><th>Median R</th><th>Spatial-block 95% interval</th></tr></thead><tbody>{''.join(table_rows)}</tbody></table></div><p>Missing values indicate unavailable statistics, not zero movement. Spatial-block intervals represent exploratory spatial sampling variability under the recorded block policy; they exclude systematic geometry, orbit and reference-frame errors and are not event probabilities.</p></section>
 <section style="margin-top:18px"><h2>Spatial displacement previews</h2><p>Native projected grids downsampled for quick inspection. Use the linked GeoTIFF for full-resolution GIS analysis; the preview is not a substitute for pixel-level data.</p><div class="map-grid">{''.join(map_cards)}</div></section>
 <section class="panel" style="margin-top:18px"><h2>Normalized request</h2><div class="code">{html.escape(json.dumps(request, ensure_ascii=False, indent=2))}</div></section>
 <footer class="footer">Generated by SARGuardian Know Place Analysis. A successful processing run means calculations and provenance checks completed; it does not prove a hazard detection, prediction, or warning. Always inspect acquisition coverage, valid pixel support, control distributions and uncertainty.</footer>
