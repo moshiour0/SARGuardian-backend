@@ -67,6 +67,7 @@ class RawGoffProduct:
     source_sha256: str
     dataset_paths: dict[str, str]
     unit_evidence: dict[str, str]
+    fill_evidence: dict[str, list[float]]
     metadata: dict[str, Any]
 
 
@@ -83,6 +84,7 @@ class GeometryCubes:
     along_track_y: np.ndarray
     source_paths: dict[str, str]
     unit_evidence: dict[str, str]
+    metadata_epsg: int
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,37 @@ def _array_units(dataset: h5py.Dataset) -> str | None:
     if raw is None:
         return None
     return _text(raw).lower().replace(" ", "")
+
+
+def _read_float_dataset_masking_declared_fill(dataset: h5py.Dataset) -> tuple[np.ndarray, list[float]]:
+    """Replace only explicit HDF5 fill/missing sentinels with NaN, recording each."""
+    values = np.asarray(dataset[()], dtype=np.float64)
+    markers: list[float] = []
+    for attribute in ("_FillValue", "missing_value", "fill_value", "noDataValue"):
+        if attribute not in dataset.attrs:
+            continue
+        raw = np.asarray(dataset.attrs[attribute]).reshape(-1)
+        for item in raw:
+            try:
+                marker = float(item)
+            except (TypeError, ValueError, OverflowError):
+                raise GoffReadError(f"NONNUMERIC_FILL_MARKER:{dataset.name}:{attribute}") from None
+            markers.append(marker)
+            if np.isnan(marker):
+                values[np.isnan(values)] = np.nan
+            else:
+                values[values == marker] = np.nan
+    return values, markers
+
+
+def _coordinate_units_evidence(dataset: h5py.Dataset, field: str) -> str:
+    units = _array_units(dataset)
+    metre_units = {"m", "meter", "meters", "metre", "metres"}
+    if units is not None and units not in metre_units:
+        raise GoffReadError(f"COORDINATE_UNIT_MISMATCH:{dataset.name}:{units}")
+    if units is not None:
+        return f"dataset_attribute:{units}"
+    return f"NISAR_L2_GOFF_grid_specification:projected_metres:{field}"
 
 
 def _offset_units_evidence(dataset: h5py.Dataset, field: str) -> str:
@@ -249,13 +282,14 @@ def read_raw_goff(
     data_paths = {key: f"{base}/{value}" for key, value in names.items()}
     fields: dict[str, np.ndarray] = {}
     unit_evidence: dict[str, str] = {}
+    fill_evidence: dict[str, list[float]] = {}
     with h5py.File(source, "r") as handle:
         datasets = {key: _require_dataset(handle, value) for key, value in data_paths.items()}
         for key in ("along_track", "slant_range", "snr", "correlation"):
             dataset = datasets[key]
             if dataset.ndim != 2:
                 raise GoffReadError(f"GOFF_MEASUREMENT_NOT_2D:{dataset.name}:{dataset.shape}")
-            fields[key] = np.asarray(dataset[()], dtype=np.float64)
+            fields[key], fill_evidence[key] = _read_float_dataset_masking_declared_fill(dataset)
         shape = fields["along_track"].shape
         for key in ("slant_range", "snr", "correlation"):
             if fields[key].shape != shape:
@@ -286,6 +320,8 @@ def read_raw_goff(
                 f"GOFF_COORDINATE_SHAPE_MISMATCH:grid={shape}:x={len(x)}:y={len(y)}"
             )
         epsg = _epsg_from_projection(datasets["projection"])
+        unit_evidence["x_coordinates"] = _coordinate_units_evidence(datasets["x"], "x")
+        unit_evidence["y_coordinates"] = _coordinate_units_evidence(datasets["y"], "y")
         for key in ("along_track", "slant_range", "snr", "correlation"):
             ds = datasets[key]
             grid_mapping = ds.attrs.get("grid_mapping")
@@ -309,6 +345,7 @@ def read_raw_goff(
         source_sha256=_sha256(source),
         dataset_paths=field_paths,
         unit_evidence=unit_evidence,
+        fill_evidence=fill_evidence,
         metadata={
             "source_path_name_only": source.name,
             "raw_data_only": True,
@@ -349,7 +386,7 @@ def _geometry_units_evidence(dataset: h5py.Dataset) -> str:
     return f"dataset_attribute:{units}"
 
 
-def read_geometry_cubes(path: str | Path) -> GeometryCubes:
+def read_geometry_cubes(path: str | Path, *, expected_epsg: int) -> GeometryCubes:
     """Find one complete metadata cube group; reject mixed or ambiguous groups.
 
     The selected group must contain all geometry parameter cubes and the exact
@@ -402,6 +439,14 @@ def read_geometry_cubes(path: str | Path) -> GeometryCubes:
             raise GoffReadError(f"GOFF_GEOMETRY_CUBE_AMBIGUOUS:{complete}")
 
         group = complete[0]
+        projection_path = f"{group}/projection"
+        if projection_path not in handle:
+            raise GoffReadError(f"GEOMETRY_CRS_EVIDENCE_MISSING:{group}")
+        metadata_epsg = _epsg_from_projection(handle[projection_path])
+        if metadata_epsg != int(expected_epsg):
+            raise GoffReadError(
+                f"GEOMETRY_CRS_MISMATCH:offset_epsg={int(expected_epsg)}:metadata_epsg={metadata_epsg}"
+            )
         x = _validate_coordinate_axis(
             np.asarray(handle[f"{group}/xCoordinates"][()], dtype=float),
             f"{group}/xCoordinates",
@@ -452,6 +497,7 @@ def read_geometry_cubes(path: str | Path) -> GeometryCubes:
         along_track_y=cubes["alongTrackUnitVectorY"],
         source_paths=paths,
         unit_evidence=evidence,
+        metadata_epsg=metadata_epsg,
     )
 
 
@@ -461,6 +507,7 @@ def sample_geometry(
     x_m: Any,
     y_m: Any,
     height_m: float,
+    expected_epsg: int,
 ) -> GeometrySample:
     """Interpolate geometry at projected grid points and a fixed HAE elevation.
 
@@ -471,6 +518,10 @@ def sample_geometry(
         from scipy.interpolate import RegularGridInterpolator
     except ImportError as exc:
         raise GoffReadError("SCIPY_REQUIRED_FOR_GEOMETRY_CUBE_INTERPOLATION") from exc
+    if cubes.metadata_epsg != int(expected_epsg):
+        raise GoffReadError(
+            f"GEOMETRY_CRS_MISMATCH:expected={int(expected_epsg)}:metadata_epsg={cubes.metadata_epsg}"
+        )
     xq, yq = np.asarray(x_m, float), np.asarray(y_m, float)
     if xq.shape != yq.shape:
         raise GoffReadError("GEOMETRY_QUERY_XY_SHAPE_MISMATCH")
