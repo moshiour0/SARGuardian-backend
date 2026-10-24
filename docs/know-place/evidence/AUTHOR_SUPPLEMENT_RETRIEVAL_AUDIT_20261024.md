@@ -35,7 +35,7 @@ POLYGON ((85.5245 28.2847, 85.5400 28.2847,
           85.5245 28.2847))
 ```
 
-Published area is 2.07 km². The 6 km reference box is bounded by 85.500–85.565° E and 28.265–28.318° N. This resolves the polygon-coordinate blocker: the prior AOI WKT uses the same numerical bounds. Rasterization/edge inclusion must still be checked against the author's rasters because the prior replay returned 296 valid cells for 26 Jul–19 Aug while Supplementary Table 4 reports 298.
+Published area is 2.07 km². The 6 km reference box is bounded by 85.500–85.565° E and 28.265–28.318° N. This resolves the polygon-coordinate blocker: the prior AOI WKT uses the same numerical bounds. The earlier “296 versus 298” count comparison mixed estimands: 296 is displacement-valid series count `n`, whereas 298 is polygon-null R-valid count `n_px`. Across the five exported fields, displacement counts `[283, 294, 296, 292, 195]` match `tables/nisar_pot_series.json` key `n`; separately recomputed R-valid counts `[302, 299, 302, 298, 202]` match `tables/polygon_null.json` key `n_px`. Exact pixelwise mask parity on the original GOFF source grid remains unverified.
 
 ### 2.2 Exact five author granule identities
 
@@ -67,7 +67,8 @@ The machine-readable transcription is in `author_benchmark_v1.json`. The key Tab
 
 | Statistic | Published values |
 |---|---|
-| Valid crown cells after 10 m discard | 302, 299, 302, 298, 202 |
+| Displacement-valid crown cells (`n` from `tables/nisar_pot_series.json`) | 283, 294, 296, 292, 195 |
+| Polygon-null R-valid crown cells (`n_px` from `tables/polygon_null.json`; separate estimand) | 302, 299, 302, 298, 202 |
 | Median displacement (m) | 0.99, 0.54, 0.30, 0.96, 0.33 |
 | Median interval-average rate (cm/day) | 8.3, 4.5, 2.5, 4.0, 2.7 |
 | Displacement-null percentile | 94.9, 87.5, 81.0, 94.7, 81.3 |
@@ -96,7 +97,7 @@ These match the rounded source-zone values in the main paper. This is author-der
 - Superseded archive-retrieval note: the Zenodo code/statistics/processed-field ZIP is now downloaded and hash-verified; see `ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md`. Raw GOFF HDF5 and full-footprint per-pair rasters are not in the ZIP.
 - A live ASF query confirmed four of five author P05023 granules by trusted collection URL, but the exact 20 June–2 July P05023 identifier was not found (Run 40035193088). The separate historical-candidate query confirms X05026 for that same interval. No raw source was downloaded during either gate; preserve X05026 only as historical evidence and do not call it author-identical.
 - Pixelwise comparison against author east/north/magnitude/coherence rasters and exact equality/tolerance checks for all five pairs are not complete.
-- The published crown pixel counts differ from the historical replay at least for the 24-day target pair (296 versus 298). Exact rasterization, geometry lookup, sample policy, and processing differences must be isolated before declaring parity.
+- A prior 296-versus-298 comparison mixed displacement-valid series count `n` with polygon-null R-valid count `n_px`. Matched count estimands agree across all five exported fields. Exact pixelwise source-grid mask parity remains unverified because the original GOFF coordinate vectors/read window and author pre-export masks or rasterization extents are absent; no cause is inferred.
 - The site's constant 5151.0 m HAE query is not proven equivalent to the author's crown-local geometry sampling: the paper confirms one crown-local geometry for the site series, but exact height/datum and sampling code are not stated in the PDF/supplement text.
 - The exact random-region generator and acceptance rules and the exact 5×5 coherence missing/edge policy must be taken from the author scripts, not guessed.
 - At the time of the original supplement-only review, only the paper, DOCX and CSV had been supplied. The later Zenodo archive includes original analysis code, numeric tables, site fields and footprint screen rasters, but omits raw GOFF HDF5 payloads and full-footprint per-pair offset rasters.
