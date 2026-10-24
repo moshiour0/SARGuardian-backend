@@ -254,6 +254,12 @@ def test_author_site_series_success_requires_all_archive_checks() -> None:
             "checks_total": 65,
             "mismatch_count": 0,
         },
+        "author_p2_table_comparison": {
+            "status": "PASS_AT_ARCHIVE_ROUNDING",
+            "checks_passed": 15,
+            "checks_total": 15,
+            "mismatch_count": 0,
+        },
     }
     assert acquisition.author_site_series_result_is_complete(0, complete)
     assert not acquisition.author_site_series_result_is_complete(1, complete)
@@ -270,6 +276,18 @@ def test_author_site_series_success_requires_all_archive_checks() -> None:
         },
     }
     assert not acquisition.author_site_series_result_is_complete(0, mismatch)
+    missing_p2 = {key: value for key, value in complete.items() if key != "author_p2_table_comparison"}
+    assert not acquisition.author_site_series_result_is_complete(0, missing_p2)
+    mismatch_p2 = {
+        **complete,
+        "author_p2_table_comparison": {
+            **complete["author_p2_table_comparison"],
+            "status": "MISMATCH",
+            "checks_passed": 14,
+            "mismatch_count": 1,
+        },
+    }
+    assert not acquisition.author_site_series_result_is_complete(0, mismatch_p2)
 
 
 def test_analysis_config_records_source_manifest_hash(tmp_path) -> None:
