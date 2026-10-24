@@ -262,42 +262,23 @@ jobs:
           table7=footprint.get("author_validated_zone_table_comparison",{})
           raster=footprint.get("author_aggregate_raster_comparison",{})
           score_audit=inventory.get("score_formula_audit",{})
-          score_conflict_only=(
-              footprint.get("status")=="FOOTPRINT_SCREEN_COMPUTED"
-              and footprint.get("footprint_screen_parity_status")=="MISMATCH_AUTHOR_FOOTPRINT_PARITY"
-              and raster.get("status")=="PASS" and raster.get("raster_count")==3 and raster.get("rasters_passed")==3
-              and inventory.get("status")=="MISMATCH" and inventory.get("expected_candidate_count")==106
-              and inventory.get("computed_candidate_count")==106 and inventory.get("matched_centroid_count")==106
-              and inventory.get("expected_directional_quality_pass_count")==101
-              and inventory.get("computed_directional_pass_count")==101
-              and inventory.get("mismatch_count")==106
-              and inventory.get("mismatch_count_by_metric")=={"score":106}
-              and not inventory.get("missing_expected") and not inventory.get("extra_computed")
-              and score_audit.get("status")=="ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
-              and score_audit.get("source_code_formula_matches")==0
-              and score_audit.get("alternative_formula_matches")==106
-              and table7.get("status")=="PASS" and table7.get("expected_zone_count")==101
-              and table7.get("computed_directional_zone_count")==101 and table7.get("matched_centroid_count")==101
-              and footprint.get("candidate_summary",{}).get("component_count")==106
-              and footprint.get("candidate_summary",{}).get("directional_pass_count")==101
-          )
           full_parity=(
               footprint.get("status")=="FOOTPRINT_SCREEN_COMPUTED"
               and footprint.get("footprint_screen_parity_status")==expected
               and raster.get("status")=="PASS" and raster.get("raster_count")==3 and raster.get("rasters_passed")==3
               and inventory.get("status")=="PASS" and inventory.get("expected_candidate_count")==106
-              and inventory.get("computed_candidate_count")==106 and inventory.get("computed_directional_pass_count")==101
+              and inventory.get("computed_candidate_count")==106 and inventory.get("computed_quality_pass_count")==101
+              and inventory.get("score_formula_audit",{}).get("status")=="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
               and table7.get("status")=="PASS" and table7.get("expected_zone_count")==101
               and table7.get("computed_directional_zone_count")==101 and table7.get("matched_centroid_count")==101
               and footprint.get("candidate_summary",{}).get("component_count")==106
-              and footprint.get("candidate_summary",{}).get("directional_pass_count")==101
+              and footprint.get("candidate_summary",{}).get("quality_pass_count")==101
           )
-          if not full_parity and not score_conflict_only:
-              state="PARTIAL_AUTHOR_FOOTPRINT_PARITY_MISMATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-          elif score_conflict_only:
-              state="PARTIAL_AUTHOR_FOOTPRINT_SCORE_CONTRACT_CONFLICT_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-          else:
-              state="PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
+          state=(
+              "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
+              if full_parity
+              else "PARTIAL_AUTHOR_FOOTPRINT_PARITY_MISMATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
+          )
           report["footprint_screen_parity_status"]=footprint.get("footprint_screen_parity_status")
           report["author_footprint_inventory_comparison"]=inventory
           report["author_validated_zone_table_comparison"]=table7
@@ -308,13 +289,13 @@ jobs:
           status["footprint_screen_parity_status"]=footprint.get("footprint_screen_parity_status")
           status["footprint_screen_complete_and_archive_matched"]=bool(full_parity)
           status["overall_scientific_screen_complete"]=bool(full_parity)
-          status["candidate_score_contract_conflict"]=bool(score_conflict_only)
+          status["candidate_score_contract_conflict"]=score_audit.get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
           status["paper_reproduction_status"]=state
           site["paper_reproduction_status"]=state
           for path,value in ((report_path,report),(status_path,status),(site_path,site)):
               Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
           print("COMBINED_SITE_AND_FOOTPRINT_REPORT_STATUS="+("PASS" if full_parity else "PARTIAL_BLOCKED"))
-          print("CANDIDATE_SCORE_CONTRACT_CONFLICT="+str(bool(score_conflict_only)).lower())
+          print("AUTHOR_FINAL_ZONAL_SCORE_FORMULA_STATUS="+str(score_audit.get("status")))
           print("PAPER_REPRODUCTION_STATUS="+state)
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           PY
@@ -484,37 +465,20 @@ jobs:
           inventory_check=footprint.get("author_inventory_comparison",{})
           table7_check=footprint.get("author_validated_zone_table_comparison",{})
           score_audit=inventory_check.get("score_formula_audit",{})
-          score_conflict_only=(
-              footprint.get("footprint_screen_parity_status")=="MISMATCH_AUTHOR_FOOTPRINT_PARITY"
-              and raster_check.get("status")=="PASS" and raster_check.get("raster_count")==3 and raster_check.get("rasters_passed")==3
-              and inventory_check.get("status")=="MISMATCH" and inventory_check.get("expected_candidate_count")==106
-              and inventory_check.get("computed_candidate_count")==106 and inventory_check.get("matched_centroid_count")==106
-              and inventory_check.get("expected_directional_quality_pass_count")==101
-              and inventory_check.get("computed_directional_pass_count")==101
-              and inventory_check.get("mismatch_count")==106
-              and inventory_check.get("mismatch_count_by_metric")=={"score":106}
-              and not inventory_check.get("missing_expected") and not inventory_check.get("extra_computed")
-              and score_audit.get("status")=="ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
-              and score_audit.get("source_code_formula_matches")==0
-              and score_audit.get("alternative_formula_matches")==106
-              and table7_check.get("status")=="PASS" and table7_check.get("expected_zone_count")==101
-              and table7_check.get("computed_directional_zone_count")==101 and table7_check.get("matched_centroid_count")==101
-              and footprint.get("candidate_summary",{}).get("component_count")==106
-              and footprint.get("candidate_summary",{}).get("directional_pass_count")==101
-          )
           if raster_check.get("status")!="PASS" or raster_check.get("raster_count")!=3 or raster_check.get("rasters_passed")!=3:
               raise SystemExit("ERROR=AUTHOR_FOOTPRINT_AGGREGATE_RASTER_COMPARISON_FAILED")
-          if inventory_check.get("status")!="PASS":
-              if not score_conflict_only:
-                  raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_INVENTORY_OR_SCORE_CONTRACT_PARITY_FAILED")
-          elif (inventory_check.get("expected_candidate_count")!=106
-              or inventory_check.get("computed_candidate_count")!=106 or inventory_check.get("computed_directional_pass_count")!=101):
-              raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_INVENTORY_COUNTS_INVALID")
+          if (inventory_check.get("status")!="PASS"
+              or inventory_check.get("expected_candidate_count")!=106
+              or inventory_check.get("computed_candidate_count")!=106
+              or inventory_check.get("computed_quality_pass_count")!=101
+              or inventory_check.get("score_formula_audit",{}).get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"):
+              raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_OR_FINAL_ZONAL_SCORE_PARITY_FAILED")
           if (table7_check.get("status")!="PASS" or table7_check.get("expected_zone_count")!=101
               or table7_check.get("computed_directional_zone_count")!=101 or table7_check.get("matched_centroid_count")!=101):
               raise SystemExit("ERROR=AUTHOR_TABLE_S7_101_VALIDATED_ZONE_PARITY_FAILED")
-          if footprint.get("candidate_summary",{}).get("component_count")!=106 or footprint.get("candidate_summary",{}).get("directional_pass_count")!=101:
-              raise SystemExit("ERROR=AUTHOR_SCREEN_COMPONENT_COUNTS_MISMATCH")
+          if (footprint.get("candidate_summary",{}).get("component_count")!=106
+              or footprint.get("candidate_summary",{}).get("quality_pass_count")!=101):
+              raise SystemExit("ERROR=AUTHOR_SCREEN_COMPONENT_OR_QUALITY_COUNTS_MISMATCH")
           if footprint.get("hazard_detection_status")!="NOT_EVALUATED":
               raise SystemExit("ERROR=HAZARD_DETECTION_MUST_REMAIN_NOT_EVALUATED")
           products=source.get("products",[])
@@ -527,12 +491,7 @@ jobs:
           for receipt in (drive1,drive2):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_EXACT_DRIVE_RETENTION_NOT_VERIFIED")
-          expected_paper_status=(
-              "PARTIAL_AUTHOR_FOOTPRINT_SCORE_CONTRACT_CONFLICT_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-              if score_conflict_only
-              else "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-          )
-          if report.get("paper_reproduction_status")!=expected_paper_status:
+          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED":
               raise SystemExit("ERROR=COMBINED_PARTIAL_REPRODUCTION_STATUS_NOT_ALIGNED")
           if report.get("footprint_screen_parity_status")!=footprint.get("footprint_screen_parity_status"):
               raise SystemExit("ERROR=COMBINED_REPORT_FOOTPRINT_STATUS_NOT_RECORDED")
@@ -557,14 +516,8 @@ jobs:
           matched=[row for row in clean_files if row.get("name")=="author-exact-raw-cleanup-receipt.json"]
           if len(matched)!=1 or matched[0].get("sha256")!=clean_sha:
               raise SystemExit("ERROR=RAW_CLEANUP_RECEIPT_DRIVE_SHA256_MISMATCH")
-          if score_conflict_only:
-              print("AUTHOR_FOOTPRINT_SCORE_CONTRACT=SOURCE_SCRIPT_AND_ARCHIVED_INVENTORY_DISAGREE")
-              print("SOURCE_SCRIPT_SCORE_MATCHES=0/106")
-              print("ARCHIVE_RESIDUAL_SCORE_MATCHES=106/106")
-              print("ALL_OTHER_FOOTPRINT_PARITY_GATES=PASS")
-              print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_FOOTPRINT_SCORE_CONTRACT_CONFLICT_DISPLACEMENT_NULL_STILL_UNVERIFIED")
-              print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
-              raise SystemExit("ERROR=AUTHOR_CANDIDATE_SCORE_CONTRACT_CONFLICT_SOURCE_CODE_VS_ARCHIVE")
+          if score_audit.get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION":
+              raise SystemExit("ERROR=AUTHOR_FINAL_ZONAL_SCORE_FORMULA_PARITY_FAILED")
           print("AUTHOR_EXACT_MEASUREMENT_STATUS=PASS")
           print("AUTHOR_SITE_SERIES_TABLE_PARITY=PASS_AT_ARCHIVE_ROUNDING")
           print("AUTHOR_SITE_SERIES_TABLE_CHECKS=65/65")
@@ -573,6 +526,8 @@ jobs:
           print("AUTHOR_FOOTPRINT_SCREEN_PARITY=PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY")
           print("AUTHOR_FOOTPRINT_AGGREGATE_RASTERS=3/3")
           print("AUTHOR_CANDIDATE_INVENTORY=106/106")
+          print("AUTHOR_QUALITY_ZONES=101/101")
+          print("AUTHOR_FINAL_ZONAL_SCORE_FORMULA=PASS")
           print("AUTHOR_TABLE_S7_VALIDATED_ZONES=101/101")
           print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
