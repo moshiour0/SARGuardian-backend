@@ -12,6 +12,7 @@ on:
       - ".github/workflows/know-place-analysis-reanalysis.yml"
       - ".github/workflows/know-place-aoi-analysis.yml"
       - ".github/workflows/know-place-dem-source-acquisition.yml"
+      - ".github/workflows/know-place-terrain-datum-sensitivity.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   pull_request:
     branches:
@@ -51,10 +52,10 @@ jobs:
       - name: Install test/runtime requirements
         run: python -m pip install --disable-pip-version-check numpy pytest h5py scipy pyproj pyyaml rasterio affine
 
-      - name: Compile every isolated analysis module
-        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py
+      - name: Compile every isolated analysis and datum-sensitivity module
+        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py
 
-      - name: Parse all five Know Place workflows as YAML
+      - name: Parse all six Know Place workflows as YAML
         shell: bash
         run: |
           set -euo pipefail
@@ -67,6 +68,7 @@ jobs:
               Path(".github/workflows/know-place-analysis-reanalysis.yml"),
               Path(".github/workflows/know-place-aoi-analysis.yml"),
               Path(".github/workflows/know-place-dem-source-acquisition.yml"),
+              Path(".github/workflows/know-place-terrain-datum-sensitivity.yml"),
           ]
           for path in paths:
               with path.open(encoding="utf-8") as stream:
@@ -98,7 +100,7 @@ jobs:
           tools/tests/test_know_place_author_archive.py
           tools/tests/test_know_place_author_parity.py
           tools/tests/test_know_place_author_fields_verifier.py
-          tools/tests/test_know_place_footprint_screen.py tools/tests/test_know_place_footprint_geometry.py
+          tools/tests/test_know_place_footprint_screen.py tools/tests/test_know_place_footprint_geometry.py tools/tests/test_know_place_terrain_vertical_datum.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash
@@ -112,7 +114,7 @@ jobs:
           /tmp/actionlint -version
 
       - name: Run semantic GitHub Actions workflow validation
-        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml
+        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml
 
   live-asf-catalog-contract:
     name: Live ASF identity gates for historical and author-exact granules (no downloads)
