@@ -23,8 +23,9 @@
 - Branch exists: feat/know-place-analysis.
 - Branch head at the start of this correction: f258b1033ea114b7e9a72d6e6bb71565a1281430.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validation of the corrected code/test tree:** [run 40043784979](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043784979), testing commit e3c180eb470944b3bec54e7a4f6c4d266283da17. Result: **141 tests passed**, four workflow YAML files parsed, actionlint passed, both workflow jobs succeeded. Live ASF identity code ran with **zero raw downloads**; the exact first-pair author P05023 ID remains NOT_FOUND, and the separate author-exact reproduction gate remains BLOCKED.
-- This context-only refresh follows the tested commit and does not change code/test files. Any subsequent code or test change requires fresh validation.
+- **Latest validation of the corrected code/test tree:** [run 40043977505](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977505), testing commit 6e802df389ab38030cfb36fd08a656f736d2dad3. Result: **141 tests passed**, four workflow YAML files parsed, actionlint passed, and both validation jobs succeeded. Live ASF checks downloaded **zero raw products**; the exact first-pair author P05023 ID remains NOT_FOUND, and author-exact reproduction remains BLOCKED.
+- The corresponding raw-replay workflow event was [run 40043977478](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977478); its consent-decision job succeeded and the actual five-pair analysis job was **skipped** because the commit lacked [run-know-place]. No raw GOFF replay was authorized or executed.
+- This context-only refresh follows the tested code/test commit and does not change code/test files. Any subsequent code or test change requires fresh validation.
 - Use the isolated validation workflow at .github/workflows/know-place-analysis-validation.yml and the AOI analysis workflow at .github/workflows/know-place-aoi-analysis.yml. A pushed change to tools/tests/test_know_place_*.py triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download products.
 - Do not run the separate expensive raw replay job without [run-know-place].
 
@@ -80,7 +81,7 @@ Results:
 - Maximum absolute R-band error across the five fields is 3.4930149217515805e-8, below 1e-6.
 - This resolves the former **count comparison** error. It does **not** establish exact pixelwise mask parity on the original GOFF source grid. The original source coordinate vectors/read window and pre-export author masks/rasterization extents are absent; the reason for any source-grid mask difference remains unresolved. **Do not invent a cause.**
 
-Machine-readable details, including per-field SHA-256 values, are in docs/know-place/reference/author_archive_golden_v1.json. Regression test: tools/tests/test_know_place_author_archive.py. Full audit: docs/know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md.
+Machine-readable per-field details are in docs/know-place/reference/author_archive_golden_v1.json. The benchmark was also corrected to schema v1.1 in docs/know-place/reference/author_benchmark_v1.json: displacement_valid_crown_pixels references nisar_pot_series.json key n; polygon_null_R_valid_crown_pixels references polygon_null.json key n_px; the ambiguous legacy valid_crown_pixels key was removed. Both tools/tests/test_know_place_author_archive.py and tools/tests/test_know_place_author_reference_data.py enforce the separation. Full audit: docs/know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md.
 
 ## 5. Exact author source IDs and historical variant warning
 
@@ -135,7 +136,7 @@ Current state: archive integrity and exported derived-R verification pass; the c
 
 - [x] Inspect blueprint, checklist, runbook, source/validation audits, author archive fixture, author kernel and archive verifier.
 - [x] Recompute displacement-valid and R-valid crown counts independently from all five exported fields and separate the two estimands in machine-readable evidence.
-- [x] Commit the count-estimand fixture/test/report corrections only to feat/know-place-analysis; CI passed in [run 40043784979](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043784979), with 141 tests, four workflow YAML parses and actionlint passing. The ASF job downloaded zero products.
+- [x] Correct both the author-archive diagnostic and benchmark fixture so displacement-valid n and polygon-null R-valid n_px are separate. CI passed in [run 40043977505](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977505), with 141 tests, four workflow YAML parses and actionlint passing. The ASF job downloaded zero products; the raw-replay job was skipped for lack of explicit consent.
 - [ ] Extend same-estimand comparison of archived per-pair tables and raster statistics; keep P1/P2/polygon-null/displacement-null separate.
 - [ ] Continue integrating the isolated author-parity path, always testing against archived processed fields/tables without silently changing the exploratory runner.
 - [ ] Resolve and SHA-256-pin the exact first-pair P05023 GOFF HDF5 bytes and verify all five author-exact raw inputs; do not substitute X05026.
