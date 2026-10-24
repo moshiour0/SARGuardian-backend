@@ -314,14 +314,19 @@ jobs:
           if report.get("structural_status")!="PASS" or report.get("status")!="SCIENTIFIC_METRICS_COMPUTED":
               raise SystemExit("ERROR=AUTHOR_EXACT_REPORT_GATE_FAILED")
           site_comparison=author_site.get("author_site_series_table_comparison",{})
+          p2_comparison=author_site.get("author_p2_table_comparison",{})
           if author_site.get("status")!="SCIENTIFIC_METRICS_COMPUTED" or author_site.get("structural_status")!="PASS":
               raise SystemExit("ERROR=AUTHOR_SITE_SERIES_REPORT_GATE_FAILED")
           if author_site.get("method_profile")!="ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE" or author_site.get("source_products_processed")!=5:
               raise SystemExit("ERROR=AUTHOR_SITE_SERIES_PROFILE_OR_PAIR_COUNT_INVALID")
           if site_comparison.get("status")!="PASS_AT_ARCHIVE_ROUNDING" or site_comparison.get("checks_passed")!=65 or site_comparison.get("checks_total")!=65 or site_comparison.get("mismatch_count")!=0:
               raise SystemExit("ERROR=AUTHOR_SITE_SERIES_ARCHIVE_TABLE_PARITY_FAILED")
+          if p2_comparison.get("status")!="PASS_AT_ARCHIVE_ROUNDING" or p2_comparison.get("checks_passed")!=15 or p2_comparison.get("checks_total")!=15 or p2_comparison.get("mismatch_count")!=0:
+              raise SystemExit("ERROR=AUTHOR_P2_LOCAL_MEAN_TABLE_PARITY_FAILED")
           if status.get("author_site_series_complete_and_archive_matched") is not True:
-              raise SystemExit("ERROR=AUTHOR_SITE_SERIES_COMPLETENESS_NOT_RECORDED")
+              raise SystemExit("ERROR=AUTHOR_SITE_SERIES_OR_P2_COMPLETENESS_NOT_RECORDED")
+          if status.get("author_p2_table_comparison_status")!="PASS_AT_ARCHIVE_ROUNDING" or status.get("author_p2_table_comparisons_passed")!=15 or status.get("author_p2_table_comparisons_total")!=15:
+              raise SystemExit("ERROR=AUTHOR_P2_COMPLETENESS_NOT_RECORDED")
           products=source.get("products",[])
           if source.get("status")!="PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED" or len(products)!=5:
               raise SystemExit("ERROR=AUTHOR_EXACT_SOURCE_MANIFEST_GATE_FAILED")
@@ -332,8 +337,8 @@ jobs:
           for receipt in (drive1,drive2):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_EXACT_DRIVE_RETENTION_NOT_VERIFIED")
-          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED":
-              raise SystemExit("ERROR=PARTIAL_TABLE_MATCH_STATUS_NOT_ALIGNED_WITH_SITE_SERIES_PARITY")
+          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED":
+              raise SystemExit("ERROR=PARTIAL_P1_P2_MATCH_STATUS_NOT_ALIGNED_WITH_SITE_SERIES_PARITY")
           if source.get("raw_source_byte_identity")!="FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED":
               raise SystemExit("ERROR=AUTHOR_SOURCE_BYTE_IDENTITY_NOT_VERIFIED")
           if report.get("hazard_detection_status")!="NOT_EVALUATED":
@@ -356,11 +361,13 @@ jobs:
           print("AUTHOR_EXACT_MEASUREMENT_STATUS=PASS")
           print("AUTHOR_SITE_SERIES_TABLE_PARITY=PASS_AT_ARCHIVE_ROUNDING")
           print("AUTHOR_SITE_SERIES_TABLE_CHECKS=65/65")
+          print("AUTHOR_P2_TABLE_PARITY=PASS_AT_ARCHIVE_ROUNDING")
+          print("AUTHOR_P2_TABLE_CHECKS=15/15")
           print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
           print("RAW_HDF5_FILES_REMAINING=0")
           print("POST_DELETE_CLEANUP_RECEIPT_DRIVE_VERIFICATION=PASS")
-          print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED")
+          print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED")
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           print("AUTHOR_EXACT_DRIVE_RETENTION=PASS")
           PY
