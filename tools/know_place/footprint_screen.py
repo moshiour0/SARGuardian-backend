@@ -303,6 +303,8 @@ def screen_pair(
         "hit_magnitude_anomaly_m": np.where(hit, anomaly, np.nan).astype(np.float32, copy=False),
         "hit_residual_R": np.where(hit, residual_r, np.nan).astype(np.float32, copy=False),
         "hit_z_score": np.where(hit, z_score, np.nan).astype(np.float32, copy=False),
+        "hit_residual_east_m": np.where(hit, residual_east, np.nan).astype(np.float32, copy=False),
+        "hit_residual_north_m": np.where(hit, residual_north, np.nan).astype(np.float32, copy=False),
         "diagnostic_maps": {
             "magnitude_m": magnitude,
             "magnitude_anomaly_m": anomaly,
