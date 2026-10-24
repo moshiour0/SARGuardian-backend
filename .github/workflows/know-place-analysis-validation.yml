@@ -176,8 +176,13 @@ jobs:
               print("ASF_AUTHOR_PRODUCT_IDENTITY={} {} {} {}".format(
                   p["catalog_identity_status"],p["interval"],p["release_id"],
                   p.get("catalog_maturity") or "UNRESOLVED"))
-          print("AUTHOR_REPRODUCTION_GATE={}".format(
+          print("AUTHOR_CATALOG_IDENTITY_GATE={}".format(
               "PASS" if d.get("status")=="PASS" else "BLOCKED"))
+          print("RAW_SOURCE_BYTE_IDENTITY=UNVERIFIED")
+          print("AUTHOR_SOURCE_SHA256_COUNT={}".format(
+              sum(p.get("source_sha256") is not None for p in rows)))
+          print("PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED")
+          print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           print("SOURCE_DOWNLOADS=0")
           PY
 
