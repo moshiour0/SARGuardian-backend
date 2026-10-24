@@ -21,6 +21,7 @@ def _cmr_row(target: dict) -> dict:
     )
     return {
         "granule_name": name,
+        "exact_data_url": url,
         "interval": target["interval"],
         "processing": "PR",
         "track": "098",
