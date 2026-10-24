@@ -25,6 +25,31 @@ on:
           - ice_rock_avalanche
           - mixed
         default: mixed
+      analysis_mode:
+        description: "Exploratory measurement or retrospective validation; operational monitoring remains blocked until independent DEM-backed validation"
+        required: true
+        type: choice
+        options:
+          - exploratory
+          - retrospective_validation
+        default: exploratory
+      geometry_height_m:
+        description: "Optional constant ellipsoidal height in metres for an explicit sensitivity run; blank uses geometry-axis median approximation, not a DEM"
+        required: false
+        default: ""
+        type: string
+      coherence_neighbours:
+        description: "Minimum valid neighbours in the local coherence window; retain setting for sensitivity analysis"
+        required: true
+        type: choice
+        options:
+          - "1"
+          - "5"
+          - "10"
+          - "15"
+          - "20"
+          - "25"
+        default: "1"
       polarization:
         description: "NISAR frequency-A polarization"
         required: true
@@ -100,6 +125,9 @@ jobs:
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
           HAZARD_MODE: ${{ inputs.hazard_mode }}
+          ANALYSIS_MODE: ${{ inputs.analysis_mode }}
+          GEOMETRY_HEIGHT_M: ${{ inputs.geometry_height_m }}
+          COHERENCE_NEIGHBOURS: ${{ inputs.coherence_neighbours }}
           POLARIZATION: ${{ inputs.polarization }}
           TRACK: ${{ inputs.track }}
           DIRECTION: ${{ inputs.direction }}
@@ -133,7 +161,7 @@ jobs:
                   "inclusive": True,
               },
               "hazard_mode": os.environ["HAZARD_MODE"].strip(),
-              "analysis_mode": "exploratory",
+              "analysis_mode": os.environ["ANALYSIS_MODE"].strip(),
               "source_adapters": ["NISAR_GOFF"],
               "polarization": os.environ["POLARIZATION"].strip(),
               "product_selection": selection,
@@ -144,9 +172,17 @@ jobs:
               },
               "coherence_policy": {
                   "window_size": 5,
-                  "minimum_valid_neighbours": 1,
+                  "minimum_valid_neighbours": int(os.environ["COHERENCE_NEIGHBOURS"]),
               },
           }
+          raw_height = os.environ.get("GEOMETRY_HEIGHT_M", "").strip()
+          if raw_height:
+              try:
+                  request["geometry_policy"] = {"constant_hae_m": float(raw_height)}
+              except ValueError as exc:
+                  raise SystemExit("ERROR=GEOMETRY_HEIGHT_MUST_BE_NUMERIC") from exc
+          else:
+              request["geometry_policy"] = {}
           reference = os.environ.get("REFERENCE_WKT", "").strip()
           if reference:
               request["reference"] = {
