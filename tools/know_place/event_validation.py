@@ -18,8 +18,9 @@ from .geometry import parse_polygon_wkt
 from .goff_io import GoffReadError
 
 REGISTRY_SCHEMA = "know-place-event-registry/1.0"
-THRESHOLD_SCHEMA = "know-place-frozen-threshold-policy/1.0"
-PREDICTION_SCHEMA = "know-place-event-predictions/1.0"
+THRESHOLD_SCHEMA = "know-place-frozen-threshold-policy/1.1"
+VALIDATION_SCORE_SCHEMA = "know-place-validation-scores/1.1"
+PREDICTION_SCHEMA = "know-place-event-predictions/1.1"
 SPLITS = {"development", "validation", "test"}
 PREDICTION_STATES = {"ALERT", "NO_ALERT", "NO_RESULT"}
 METRIC_NAMES = ("precision", "recall", "specificity", "f1")
@@ -35,6 +36,24 @@ def _canonical_sha256(value: dict[str, Any], *, exclude: set[str] = frozenset())
         body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _validated_sha256(value: Any, code: str) -> str:
+    if not isinstance(value, str):
+        raise EventValidationError(code)
+    digest = value.strip().lower()
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        raise EventValidationError(code)
+    return digest
+
+
+def _source_product_hashes(value: Any, code_prefix: str) -> list[str]:
+    if not isinstance(value, list):
+        raise EventValidationError(f"{code_prefix}_SOURCE_PRODUCT_HASHES_REQUIRED")
+    return [
+        _validated_sha256(item, f"{code_prefix}_SOURCE_PRODUCT_HASH_INVALID")
+        for item in value
+    ]
 
 
 def _required_text(value: Any, code: str) -> str:
@@ -219,6 +238,7 @@ def select_validation_threshold(
     validation_scores_payload: dict[str, Any],
     *,
     model_policy_name: str,
+    model_policy_sha256: str,
     score_name: str,
     objective: str = "max_youden_j",
     decision_rule: str = ">=",
@@ -239,6 +259,7 @@ def select_validation_threshold(
         raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
     registry = validate_event_registry(registry_payload)
     _required_text(model_policy_name, "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
+    model_policy_sha = _validated_sha256(model_policy_sha256, "THRESHOLD_MODEL_POLICY_SHA256_INVALID")
     _required_text(score_name, "THRESHOLD_SCORE_NAME_REQUIRED")
     if objective not in {"max_youden_j", "max_f1", "max_recall_at_min_specificity"}:
         raise EventValidationError("THRESHOLD_SELECTION_OBJECTIVE_UNSUPPORTED")
@@ -255,8 +276,14 @@ def select_validation_threshold(
     elif minimum_specificity is not None:
         raise EventValidationError("MINIMUM_SPECIFICITY_ONLY_ALLOWED_FOR_CONSTRAINED_RECALL_OBJECTIVE")
 
-    if not isinstance(validation_scores_payload, dict) or validation_scores_payload.get("schema_version") != "know-place-validation-scores/1.0":
+    if not isinstance(validation_scores_payload, dict) or validation_scores_payload.get("schema_version") != VALIDATION_SCORE_SCHEMA:
         raise EventValidationError("VALIDATION_SCORE_SCHEMA_UNSUPPORTED")
+    scores_policy_sha = _validated_sha256(
+        validation_scores_payload.get("model_policy_sha256"),
+        "VALIDATION_SCORE_MODEL_POLICY_SHA256_INVALID",
+    )
+    if scores_policy_sha != model_policy_sha:
+        raise EventValidationError("VALIDATION_SCORE_MODEL_POLICY_HASH_MISMATCH")
     raw_rows = validation_scores_payload.get("cases")
     if not isinstance(raw_rows, list):
         raise EventValidationError("VALIDATION_SCORES_CASES_MUST_BE_ARRAY")
@@ -273,6 +300,10 @@ def select_validation_threshold(
             raise EventValidationError(f"VALIDATION_SCORE_NOT_VALIDATION_CASE:{case_id}")
         if case_id in scores:
             raise EventValidationError(f"VALIDATION_SCORE_CASE_DUPLICATE:{case_id}")
+        source_hashes = _source_product_hashes(raw.get("source_product_sha256s"), "VALIDATION_SCORE")
+        expected_hashes = [product["sha256"] for product in validation_cases[case_id]["source_products"]]
+        if sorted(source_hashes) != sorted(expected_hashes):
+            raise EventValidationError(f"VALIDATION_SCORE_SOURCE_PRODUCT_HASH_MISMATCH:{case_id}")
         state = raw.get("state")
         if state not in {"SCORED", "NO_RESULT"}:
             raise EventValidationError(f"VALIDATION_SCORE_STATE_UNSUPPORTED:{case_id}")
@@ -285,7 +316,12 @@ def select_validation_threshold(
                 raise EventValidationError(f"VALIDATION_SCORE_WITHOUT_VERIFIED_SOURCE_PRODUCTS:{case_id}")
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
                 raise EventValidationError(f"VALIDATION_SCORE_NONFINITE_OR_MISSING:{case_id}")
-        scores[case_id] = {"case_id": case_id, "state": state, "score": float(value) if value is not None else None}
+        scores[case_id] = {
+            "case_id": case_id,
+            "state": state,
+            "score": float(value) if value is not None else None,
+            "source_product_sha256s": source_hashes,
+        }
 
     if set(scores) != set(validation_cases):
         missing = sorted(set(validation_cases) - set(scores))
@@ -374,6 +410,7 @@ def select_validation_threshold(
     base_policy = {
         "schema_version": THRESHOLD_SCHEMA,
         "model_policy_name": model_policy_name,
+        "model_policy_sha256": model_policy_sha,
         "score_name": score_name,
         "threshold": selected["threshold"],
         "decision_rule": decision_rule,
@@ -521,6 +558,10 @@ def evaluate_heldout_events(
     if threshold_policy.get("threshold_selection_split") != "validation":
         raise EventValidationError("THRESHOLD_MUST_BE_SELECTED_ON_VALIDATION_SPLIT")
     _required_text(threshold_policy.get("model_policy_name"), "THRESHOLD_MODEL_POLICY_NAME_REQUIRED")
+    threshold_model_policy_sha = _validated_sha256(
+        threshold_policy.get("model_policy_sha256"),
+        "THRESHOLD_MODEL_POLICY_SHA256_INVALID",
+    )
     _required_text(threshold_policy.get("score_name"), "THRESHOLD_SCORE_NAME_REQUIRED")
     if threshold_policy.get("frozen_before_test") is not True:
         raise EventValidationError("THRESHOLD_POLICY_NOT_FROZEN_BEFORE_TEST")
@@ -544,6 +585,12 @@ def evaluate_heldout_events(
 
     if not isinstance(prediction_payload, dict) or prediction_payload.get("schema_version") != PREDICTION_SCHEMA:
         raise EventValidationError("PREDICTION_SCHEMA_UNSUPPORTED")
+    prediction_model_sha = _validated_sha256(
+        prediction_payload.get("model_policy_sha256"),
+        "PREDICTION_MODEL_POLICY_SHA256_INVALID",
+    )
+    if prediction_model_sha != threshold_model_policy_sha:
+        raise EventValidationError("PREDICTION_MODEL_POLICY_HASH_MISMATCH")
     raw_prediction_cases = prediction_payload.get("cases")
     if not isinstance(raw_prediction_cases, list):
         raise EventValidationError("PREDICTIONS_CASES_MUST_BE_ARRAY")
@@ -563,6 +610,10 @@ def evaluate_heldout_events(
             raise EventValidationError(f"PREDICTION_NOT_HELDOUT_TEST_CASE:{case_id}")
         if case_id in predictions:
             raise EventValidationError(f"PREDICTION_CASE_DUPLICATE:{case_id}")
+        source_hashes = _source_product_hashes(raw.get("source_product_sha256s"), "PREDICTION")
+        expected_hashes = [product["sha256"] for product in test_cases[case_id]["source_products"]]
+        if sorted(source_hashes) != sorted(expected_hashes):
+            raise EventValidationError(f"PREDICTION_SOURCE_PRODUCT_HASH_MISMATCH:{case_id}")
         state = raw.get("state")
         if state not in PREDICTION_STATES:
             raise EventValidationError(f"PREDICTION_STATE_UNSUPPORTED:{case_id}")
@@ -596,6 +647,7 @@ def evaluate_heldout_events(
         predictions[case_id] = {
             "case_id": case_id, "state": state,
             "score": float(score_value) if score_value is not None else None,
+            "source_product_sha256s": source_hashes,
             "first_alarm_time_utc": first_alarm_utc.isoformat().replace("+00:00", "Z") if first_alarm_utc else None,
         }
     if set(predictions) != set(test_cases):
@@ -648,6 +700,9 @@ def evaluate_heldout_events(
         "test_registry_sha256": registry["registry_sha256"],
         "validation_registry_sha256": validation_registry["registry_sha256"],
         "threshold_policy_sha256": policy_sha,
+        "model_policy_sha256": threshold_model_policy_sha,
+        "prediction_payload_sha256": _canonical_sha256(prediction_payload),
+        "prediction_source_provenance_status": "PASS_ALL_CASE_SOURCE_HASHES_MATCH_REGISTRY",
         "threshold_selection_split": "validation",
         "test_only": True,
         "total_heldout_cases": len(rows),

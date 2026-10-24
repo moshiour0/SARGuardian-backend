@@ -22,6 +22,22 @@ from tools.know_place.event_validation import (
 
 WKT = "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))"
 GEOMETRY_INDEX = {"DEV-E1": 0, "VAL-E1": 1, "VAL-N1": 2, "T1": 3, "T2": 4, "T3": 5, "T4": 6, "T5": 7, "T6": 8}
+MODEL_POLICY_MANIFEST_BYTES = (
+    b'{"algorithm":"synthetic-known-answer","feature_manifest_sha256":"'
+    + hashlib.sha256(b"synthetic feature manifest").hexdigest().encode("ascii")
+    + b'","implementation_revision":"test-fixture","model_policy_name":"synthetic_detector_v1",'
+    + b'"parameters":{},"schema_version":"know-place-detector-policy/1.0",'
+    + b'"score_name":"mocked_alert_score","score_units":"unitless"}\n'
+)
+MODEL_POLICY_SHA256 = hashlib.sha256(MODEL_POLICY_MANIFEST_BYTES).hexdigest()
+
+
+def source_hash(case_id):
+    return hashlib.sha256(f"synthetic-source-for-{case_id}".encode("ascii")).hexdigest()
+
+
+def source_hashes_for_case(case_id):
+    return [] if case_id in {"T3", "T6"} else [source_hash(case_id)]
 
 
 def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
@@ -52,7 +68,7 @@ def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
         "monitoring_exposure_aoi_months": 1.0 if with_product else 0.0,
         "source_products": [{
             "granule_name": f"fixture-{case_id}.h5",
-            "sha256": hashlib.sha256(f"synthetic-source-for-{case_id}".encode("ascii")).hexdigest(),
+            "sha256": source_hash(case_id),
         }] if with_product else [],
     }
 
@@ -108,15 +124,20 @@ def threshold_policy(reg):
     selected = select_validation_threshold(
         validation_payload,
         validation_scores(positive_score=0.8, negative_score=0.2),
-        model_policy_name="synthetic_known_answer_v1",
-        score_name="mocked_validation_score",
+        model_policy_name="synthetic_detector_v1",
+        model_policy_sha256=MODEL_POLICY_SHA256,
+        score_name="mocked_alert_score",
         objective="max_youden_j",
     )
     return selected["threshold_policy"]
 
 
 def prediction(case_id, state, score=None, alarm=None):
-    item = {"case_id": case_id, "state": state}
+    item = {
+        "case_id": case_id,
+        "state": state,
+        "source_product_sha256s": source_hashes_for_case(case_id),
+    }
     if score is not None:
         item["score"] = score
     if alarm is not None:
@@ -126,7 +147,8 @@ def prediction(case_id, state, score=None, alarm=None):
 
 def prediction_payload():
     return {
-        "schema_version": "know-place-event-predictions/1.0",
+        "schema_version": "know-place-event-predictions/1.1",
+        "model_policy_sha256": MODEL_POLICY_SHA256,
         "cases": [
             prediction("T1", "ALERT", 0.9, "2026-07-30T00:00:00Z"),
             prediction("T2", "NO_ALERT", 0.4),
@@ -337,7 +359,8 @@ def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
     # Build a policy against the compact test registry.
     policy = threshold_policy(reg)
     predictions = {
-        "schema_version": "know-place-event-predictions/1.0",
+        "schema_version": "know-place-event-predictions/1.1",
+        "model_policy_sha256": MODEL_POLICY_SHA256,
         "cases": [prediction("T1", "ALERT", 0.9), prediction("T2", "NO_ALERT", 0.1)],
     }
     result = evaluate_heldout_events(
@@ -374,6 +397,12 @@ def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
     assert code == 0
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert result["test_only"] is True
+    expected_predictions_sha = hashlib.sha256(
+        json.dumps(prediction_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    assert result["prediction_payload_sha256"] == expected_predictions_sha
+    assert result["prediction_source_provenance_status"] == "PASS_ALL_CASE_SOURCE_HASHES_MATCH_REGISTRY"
+    assert result["model_policy_sha256"] == MODEL_POLICY_SHA256
     assert result["test_registry_sha256"] == validate_event_registry(heldout_registry(reg))["registry_sha256"]
     assert result["validation_registry_sha256"] == validate_event_registry(validation_registry(reg))["registry_sha256"]
     output = capsys.readouterr().out
@@ -382,10 +411,11 @@ def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
 
 def validation_scores(*, positive_score=0.9, negative_score=0.2):
     return {
-        "schema_version": "know-place-validation-scores/1.0",
+        "schema_version": "know-place-validation-scores/1.1",
+        "model_policy_sha256": MODEL_POLICY_SHA256,
         "cases": [
-            {"case_id": "VAL-E1", "state": "SCORED", "score": positive_score},
-            {"case_id": "VAL-N1", "state": "SCORED", "score": negative_score},
+            {"case_id": "VAL-E1", "state": "SCORED", "score": positive_score, "source_product_sha256s": [source_hash("VAL-E1")]},
+            {"case_id": "VAL-N1", "state": "SCORED", "score": negative_score, "source_product_sha256s": [source_hash("VAL-N1")]},
         ],
     }
 
@@ -395,6 +425,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
     selected = select_validation_threshold(
         validation_registry(reg), validation_scores(),
         model_policy_name="synthetic_detector_v1",
+        model_policy_sha256=MODEL_POLICY_SHA256,
         score_name="mocked_alert_score",
         objective="max_youden_j",
     )
@@ -409,6 +440,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
     assert selected["selected_validation_metrics"]["fn"] == 0
     assert policy["threshold"] == pytest.approx(0.9)
     assert policy["threshold_selection_split"] == "validation"
+    assert policy["model_policy_sha256"] == MODEL_POLICY_SHA256
     assert policy["frozen_before_test"] is True
     assert policy["validation_registry_sha256"] == validate_event_registry(validation_registry(reg))["registry_sha256"]
     assert len(policy["validation_scores_sha256"]) == 64
@@ -419,6 +451,7 @@ def test_validation_threshold_selection_recovers_known_answer_without_touching_t
     with pytest.raises(EventValidationError, match="VALIDATION_SCORE_NOT_VALIDATION_CASE"):
         select_validation_threshold(
             validation_registry(reg), leaked, model_policy_name="synthetic_detector_v1",
+            model_policy_sha256=MODEL_POLICY_SHA256,
             score_name="mocked_alert_score",
         )
 
@@ -428,6 +461,7 @@ def test_threshold_selection_supports_predeclared_minimum_specificity_objective(
     selected = select_validation_threshold(
         validation_registry(reg), validation_scores(positive_score=0.8, negative_score=0.7),
         model_policy_name="synthetic_detector_v1",
+        model_policy_sha256=MODEL_POLICY_SHA256,
         score_name="mocked_alert_score",
         objective="max_recall_at_min_specificity",
         minimum_specificity=1.0,
@@ -441,15 +475,17 @@ def test_threshold_selection_supports_predeclared_minimum_specificity_objective(
 def test_threshold_selection_rejects_objectives_without_independent_validation_classes():
     reg = registry()
     scores = {
-        "schema_version": "know-place-validation-scores/1.0",
+        "schema_version": "know-place-validation-scores/1.1",
+        "model_policy_sha256": MODEL_POLICY_SHA256,
         "cases": [
-            {"case_id": "VAL-E1", "state": "NO_RESULT", "score": None},
-            {"case_id": "VAL-N1", "state": "SCORED", "score": 0.2},
+            {"case_id": "VAL-E1", "state": "NO_RESULT", "score": None, "source_product_sha256s": [source_hash("VAL-E1")]},
+            {"case_id": "VAL-N1", "state": "SCORED", "score": 0.2, "source_product_sha256s": [source_hash("VAL-N1")]},
         ],
     }
     with pytest.raises(EventValidationError, match="VALIDATION_SCORES_HAVE_NO_POSITIVE_EVENTS"):
         select_validation_threshold(
             validation_registry(reg), scores, model_policy_name="synthetic_detector_v1",
+            model_policy_sha256=MODEL_POLICY_SHA256,
             score_name="mocked_alert_score",
         )
 
@@ -461,13 +497,16 @@ def test_threshold_selection_cli_writes_report_and_frozen_policy(tmp_path, capsy
     scores_path = tmp_path / "validation-scores.json"
     report_path = tmp_path / "out" / "threshold-selection.json"
     policy_path = tmp_path / "out" / "frozen-threshold-policy.json"
+    model_policy_path = tmp_path / "model-policy.json"
     registry_path.write_text(json.dumps(validation_registry(reg)), encoding="utf-8")
     scores_path.write_text(json.dumps(scores), encoding="utf-8")
+    model_policy_path.write_bytes(MODEL_POLICY_MANIFEST_BYTES)
 
     code = select_threshold_main([
         "--registry", str(registry_path),
         "--validation-scores", str(scores_path),
         "--model-policy-name", "synthetic_detector_v1",
+        "--model-policy-manifest", str(model_policy_path),
         "--score-name", "mocked_alert_score",
         "--objective", "max_youden_j",
         "--out", str(report_path),
@@ -480,9 +519,49 @@ def test_threshold_selection_cli_writes_report_and_frozen_policy(tmp_path, capsy
     assert policy == report["threshold_policy"]
     assert policy["threshold"] == pytest.approx(0.9)
     assert policy["threshold_selection_split"] == "validation"
+    assert policy["model_policy_sha256"] == MODEL_POLICY_SHA256
     assert policy["frozen_before_test"] is True
     assert len(policy["policy_sha256"]) == 64
     assert "THRESHOLD_SELECTION_STATUS=THRESHOLD_SELECTED_ON_VALIDATION_SPLIT" in capsys.readouterr().out
+
+
+def test_heldout_evaluation_rejects_prediction_source_product_hash_mismatch():
+    reg = registry()
+    bad = prediction_payload()
+    bad["cases"][0]["source_product_sha256s"] = ["0" * 64]
+    with pytest.raises(EventValidationError, match="PREDICTION_SOURCE_PRODUCT_HASH_MISMATCH:T1"):
+        evaluate_heldout_events(reg, bad, threshold_policy(reg), bootstrap_replicates=100)
+
+
+def test_heldout_evaluation_rejects_prediction_from_a_different_model_policy():
+    reg = registry()
+    bad = prediction_payload()
+    bad["model_policy_sha256"] = "0" * 64
+    with pytest.raises(EventValidationError, match="PREDICTION_MODEL_POLICY_HASH_MISMATCH"):
+        evaluate_heldout_events(reg, bad, threshold_policy(reg), bootstrap_replicates=100)
+
+
+def test_validation_threshold_rejects_source_hash_or_model_policy_mismatch():
+    reg = registry()
+    bad_sources = validation_scores()
+    bad_sources["cases"][0]["source_product_sha256s"] = ["f" * 64]
+    with pytest.raises(EventValidationError, match="VALIDATION_SCORE_SOURCE_PRODUCT_HASH_MISMATCH:VAL-E1"):
+        select_validation_threshold(
+            validation_registry(reg), bad_sources,
+            model_policy_name="synthetic_detector_v1",
+            model_policy_sha256=MODEL_POLICY_SHA256,
+            score_name="mocked_alert_score",
+        )
+
+    bad_policy = validation_scores()
+    bad_policy["model_policy_sha256"] = "0" * 64
+    with pytest.raises(EventValidationError, match="VALIDATION_SCORE_MODEL_POLICY_HASH_MISMATCH"):
+        select_validation_threshold(
+            validation_registry(reg), bad_policy,
+            model_policy_name="synthetic_detector_v1",
+            model_policy_sha256=MODEL_POLICY_SHA256,
+            score_name="mocked_alert_score",
+        )
 
 
 def test_split_registry_contract_rejects_combined_cases_before_any_label_scoring():
@@ -493,6 +572,7 @@ def test_split_registry_contract_rejects_combined_cases_before_any_label_scoring
             full_registry,
             validation_scores(),
             model_policy_name="synthetic_detector_v1",
+            model_policy_sha256=MODEL_POLICY_SHA256,
             score_name="mocked_alert_score",
         )
 
