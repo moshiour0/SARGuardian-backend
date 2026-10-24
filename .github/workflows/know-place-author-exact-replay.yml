@@ -332,8 +332,8 @@ jobs:
           for receipt in (drive1,drive2):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_EXACT_DRIVE_RETENTION_NOT_VERIFIED")
-          if report.get("paper_reproduction_status")!="BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED":
-              raise SystemExit("ERROR=PAPER_PARITY_STATUS_NOT_ALIGNED_WITH_VERIFIED_SOURCE_BYTES")
+          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED":
+              raise SystemExit("ERROR=PARTIAL_TABLE_MATCH_STATUS_NOT_ALIGNED_WITH_SITE_SERIES_PARITY")
           if source.get("raw_source_byte_identity")!="FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED":
               raise SystemExit("ERROR=AUTHOR_SOURCE_BYTE_IDENTITY_NOT_VERIFIED")
           if report.get("hazard_detection_status")!="NOT_EVALUATED":
@@ -360,7 +360,7 @@ jobs:
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
           print("RAW_HDF5_FILES_REMAINING=0")
           print("POST_DELETE_CLEANUP_RECEIPT_DRIVE_VERIFICATION=PASS")
-          print("PAPER_REPRODUCTION_STATUS=BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED")
+          print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED")
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           print("AUTHOR_EXACT_DRIVE_RETENTION=PASS")
           PY
