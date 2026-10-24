@@ -257,6 +257,8 @@ jobs:
       - name: Preflight all required credentials before any raw source download
         if: ${{ inputs.execute_downloads }}
         shell: bash
+        env:
+          CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
         run: |
           set -euo pipefail
           if [[ "$CONSENT_MARKER" != "[run-know-place]" ]]; then
