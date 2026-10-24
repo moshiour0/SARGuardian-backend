@@ -71,6 +71,18 @@ The branch now has a separate `tools/know_place/author_parity.py` module. It con
 Use `python -m tools.know_place.verify_author_fields /path/to/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip --output author-field-verification.json`. The verifier checks ZIP payload entries against the archived manifest, records hashes/profiles for all five small field rasters, recomputes R from bands 1–2, and compares it with band 3. It does not extract or copy the separately licensed CC BY-NC runout outline, download raw GOFF products, or claim source-to-output parity.
 
 
-## Crown-mask count discrepancy across all five exported fields
+## Crown-crop metric reconciliation across all five exported fields
 
-Applying the archived crown-slice function to each exported 80×73 field while using the GeoTIFF bounds as the extent endpoints gives valid crown-displacement counts 283, 294, 296, 292 and 195. Table S4 reports 302, 299, 302, 298 and 202. The differences are -19, -5, -6, -6 and -7 respectively. The GeoTIFF affine bounds describe pixel edges, while the author code constructs the plotting extent from transformed first/last GOFF grid samples; that could explain the offset, but is not proven without the original coordinate axes/window or author pre-export masks. The mismatch is recorded as BLOCKED_CROWN_PIXEL_MASK_PARITY; no mask is being altered just to force agreement.
+The previous comparison was invalid because it treated two different estimands as if they were one count. The author archive contains displacement-valid crown counts in `tables/nisar_pot_series.json` under `n`, and polygon-null coherence-valid crown counts in `tables/polygon_null.json` under `n_px`. The latter is based on finite cells of the author coherence map computed over the full field and then cropped; it is not the P1 crown-R estimator, which computes coherence after cropping.
+
+| Pair | Export displacement-valid / series `n` | Difference | Export R-valid / polygon-null `n_px` | Difference |
+|---|---:|---:|---:|---:|
+| 2026-06-20 → 2026-07-02 | 283 / 283 | 0 | 302 / 302 | 0 |
+| 2026-07-02 → 2026-07-14 | 294 / 294 | 0 | 299 / 299 | 0 |
+| 2026-07-14 → 2026-07-26 | 296 / 296 | 0 | 302 / 302 | 0 |
+| 2026-07-26 → 2026-08-19 | 292 / 292 | 0 | 298 / 298 | 0 |
+| 2026-08-19 → 2026-08-31 | 195 / 195 | 0 | 202 / 202 | 0 |
+
+The counts above were independently recomputed from the five exported TIFFs with the author crown crop policy. The author coherence map was recomputed from each TIFF's dE/dN bands; its finite mask matched archived band 3 for all five fields, and the largest absolute R error was `3.4930149217515805e-8`, below the `1e-6` comparison tolerance. Exported-field counts match their respective archived table counts; there is no residual count discrepancy when the estimands are kept separate.
+
+This does **not** establish pixelwise mask parity on the original GOFF source grid. The original GOFF coordinate vectors/read window and author pre-export masks or rasterization extents are not in the ZIP. The reason for any source-grid mask difference remains unresolved; no cause is inferred. The remaining gate is `BLOCKED_SOURCE_GRID_PIXEL_MASK_PARITY_UNVERIFIED`.
