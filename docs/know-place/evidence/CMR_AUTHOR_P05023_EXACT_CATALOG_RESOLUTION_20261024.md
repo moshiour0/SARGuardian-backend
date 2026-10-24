@@ -2,8 +2,8 @@
 
 **Checked:** 2026-10-24 UTC  
 **Branch:** `feat/know-place-analysis`  
-**Latest isolated validation:** [run 40092715120](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40092715120) — 204 tests passed in 4.55 s; seven workflow YAML files parsed and actionlint v1.7.12 plus semantic validation passed.  
-**Live exact-CMR artifact:** ID `12559850649`, name `know-place-author-exact-live-cmr-access-evidence`, 4,118 bytes, ZIP SHA-256 `e2d62d5b955e76083c90b64ace06f7e69109da628f7a5f37f62f15d37519377f`. The ZIP was downloaded and independently integrity/hash checked against the GitHub artifact digest.
+**Latest isolated validation:** [run 40093352981](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40093352981) — 204 tests passed in 4.73 s; seven workflow YAML files parsed and actionlint v1.7.12 plus semantic validation passed.  
+**Live exact-CMR artifact:** ID `12559877337`, name `know-place-author-exact-live-cmr-access-evidence`, 4,118 bytes, ZIP SHA-256 `20929525a6d20e4011563d23ddde16d1144b5f4afbad44505b54c220c42e8897`. The ZIP was downloaded and independently integrity/hash checked against the GitHub artifact digest.
 
 ## Exact catalog resolution
 
@@ -27,4 +27,4 @@ References: [CMR Search API documentation](https://cmr.earthdata.nasa.gov/search
 
 ## Raw replay remains separately gated
 
-Legacy raw-replay run [40092715126](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40092715126) completed its decision job but skipped the five-pair analysis. Dedicated author-exact workflow run [40058988016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988016) also skipped because the exact manual input `[run-know-place]` was absent. No raw GOFF payloads were downloaded. `main` remains unchanged at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
+Legacy raw-replay run [40093380207](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40093380207) completed its decision job but skipped the five-pair analysis. Dedicated author-exact workflow run [40058988016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988016) also skipped because the exact manual input `[run-know-place]` was absent. No raw GOFF payloads were downloaded. `main` remains unchanged at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
