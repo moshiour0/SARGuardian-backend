@@ -255,49 +255,45 @@ jobs:
           python - "$DERIVED_ROOT/author-exact-analysis-status.json" "$DERIVED_ROOT/know-place-analysis-report.json" "$DERIVED_ROOT/author-raw-site-series-report.json" "$DERIVED_ROOT/footprint/author-footprint-replay-report.json" <<'PY'
           import json,sys
           from pathlib import Path
+          from tools.know_place.scientific_status import assess_reproduction_status
           status_path,report_path,site_path,footprint_path=sys.argv[1:]
           status,report,site,footprint=[json.loads(Path(path).read_text(encoding="utf-8")) for path in (status_path,report_path,site_path,footprint_path)]
-          expected="PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY"
+          assessment=assess_reproduction_status(status, site, footprint)
           inventory=footprint.get("author_inventory_comparison",{})
           table7=footprint.get("author_validated_zone_table_comparison",{})
           raster=footprint.get("author_aggregate_raster_comparison",{})
           score_audit=inventory.get("score_formula_audit",{})
-          full_parity=(
-              footprint.get("status")=="FOOTPRINT_SCREEN_COMPUTED"
-              and footprint.get("footprint_screen_parity_status")==expected
-              and raster.get("status")=="PASS" and raster.get("raster_count")==3 and raster.get("rasters_passed")==3
-              and inventory.get("status")=="PASS" and inventory.get("expected_candidate_count")==106
-              and inventory.get("computed_candidate_count")==106 and inventory.get("computed_quality_pass_count")==101
-              and inventory.get("score_formula_audit",{}).get("status")=="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
-              and inventory.get("ranking_order_comparison",{}).get("status")=="PASS"
-              and table7.get("status")=="PASS" and table7.get("expected_zone_count")==101
-              and table7.get("computed_quality_zone_count")==101 and table7.get("matched_centroid_count")==101
-              and footprint.get("candidate_summary",{}).get("component_count")==106
-              and footprint.get("candidate_summary",{}).get("quality_pass_count")==101
-          )
-          state=(
-              "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-              if full_parity
-              else "PARTIAL_AUTHOR_FOOTPRINT_PARITY_MISMATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
-          )
           report["footprint_screen_parity_status"]=footprint.get("footprint_screen_parity_status")
           report["author_footprint_inventory_comparison"]=inventory
           report["author_validated_zone_table_comparison"]=table7
           report["author_footprint_raster_comparison"]=raster
           report["candidate_score_formula_audit"]=score_audit
-          report["paper_reproduction_status"]=state
+          report["author_site_series_table_comparison"]=site.get("author_site_series_table_comparison",{})
+          report["author_p2_table_comparison"]=site.get("author_p2_table_comparison",{})
+          report["author_reproduction_assessment"]=assessment
+          report["paper_reproduction_status"]=assessment["paper_reproduction_status"]
           report["hazard_detection_status"]="NOT_EVALUATED"
           status["footprint_screen_parity_status"]=footprint.get("footprint_screen_parity_status")
-          status["footprint_screen_complete_and_archive_matched"]=bool(full_parity)
-          status["overall_scientific_screen_complete"]=bool(full_parity)
+          status["footprint_screen_complete_and_archive_matched"]=assessment["footprint_screen_complete_and_archive_matched"]
+          status["author_site_series_complete_and_archive_matched"]=assessment["author_site_series_table_parity"]
+          status["author_p2_table_comparison_status"]=("PASS_AT_ARCHIVE_ROUNDING" if assessment["author_p2_table_parity"] else "MISMATCH")
+          p2=site.get("author_p2_table_comparison",{})
+          status["author_p2_table_comparisons_passed"]=p2.get("checks_passed",0)
+          status["author_p2_table_comparisons_total"]=p2.get("checks_total",0)
+          status["author_site_and_p2_complete_and_archive_matched"]=assessment["site_series_and_p2_complete_and_archive_matched"]
+          status["overall_scientific_screen_complete"]=assessment["overall_scientific_screen_complete"]
           status["candidate_score_contract_conflict"]=score_audit.get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
-          status["paper_reproduction_status"]=state
-          site["paper_reproduction_status"]=state
+          status["paper_reproduction_status"]=assessment["paper_reproduction_status"]
+          status["hazard_detection_status"]="NOT_EVALUATED"
+          site["paper_reproduction_status"]=assessment["paper_reproduction_status"]
+          site["author_reproduction_assessment"]=assessment
           for path,value in ((report_path,report),(status_path,status),(site_path,site)):
               Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
-          print("COMBINED_SITE_AND_FOOTPRINT_REPORT_STATUS="+("PASS" if full_parity else "PARTIAL_BLOCKED"))
-          print("AUTHOR_FINAL_ZONAL_SCORE_FORMULA_STATUS="+str(score_audit.get("status")))
-          print("PAPER_REPRODUCTION_STATUS="+state)
+          print("AUTHOR_SITE_SERIES_TABLE_PARITY="+assessment["site_series_table_parity_status"])
+          print("AUTHOR_P2_TABLE_PARITY="+assessment["p2_table_parity_status"])
+          print("AUTHOR_FOOTPRINT_SCREEN_PARITY="+assessment["footprint_parity_status"])
+          print("OVERALL_SITE_AND_FOOTPRINT_NUMERICS="+("PASS" if assessment["overall_scientific_screen_complete"] else "PARTIAL_BLOCKED"))
+          print("PAPER_REPRODUCTION_STATUS="+assessment["paper_reproduction_status"])
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           PY
 

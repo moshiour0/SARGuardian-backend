@@ -271,3 +271,11 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [x] Verified push-triggered raw replay gate [run 40135538673](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40135538673): the consent evaluator passed but the heavy five-product acquisition/analysis job was **skipped**. New raw downloads in that run were **0**. This is not a full-footprint source replay result.
 - [ ] After an explicitly consented manual dispatch, require actual 3/3 raster parity, 106/106 final candidate/rank parity, 101/101 Table S7 parity, 65/65 site-series checks and 15/15 P2 checks. The displacement-null three columns per interval remain independently unresolved unless the author’s exact draw-level method can be sourced.
 - Scientific status remains `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. `main` remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
+
+
+## Combined scientific-result state guard — 2026-10-25
+
+- [x] Corrected a reporting weakness found during source audit: full-footprint raster/candidate parity alone must not produce a combined “site and footprint numerics match” status. The combined status now independently gates the 65/65 site-series table comparisons, the 15/15 P2 table comparisons, source-processing status, and full-footprint outputs.
+- [x] Added pure status-assessment logic plus synthetic regression tests for site-series mismatch, P2 mismatch, footprint mismatch, and joint success/failure. The workflow keeps component statuses separate and marks the overall scientific screen complete only when the relevant site/P2 and footprint gates all pass.
+- [x] Integrated the helper into the final-report step and isolated CI file lists. This change requires no raw product downloads.
+- [ ] Run the newly integrated raw-source site + full-footprint analysis only after explicit `[run-know-place]` authorization. Raw source replay remains unrun in this follow-up; paper reproduction is not promoted, and hazard detection remains `NOT_EVALUATED`.
