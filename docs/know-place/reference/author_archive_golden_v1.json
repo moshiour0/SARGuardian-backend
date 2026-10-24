@@ -1,5 +1,5 @@
 {
-  "schema_version": "know-place-author-archive-audit/1.0",
+  "schema_version": "know-place-author-archive-audit/1.1",
   "audit_date": "2026-10-24",
   "source": {
     "title": "Bhote Koshi 2026 ice–rock avalanche: NISAR L2 GOFF site series and footprint-wide offset-tracking screen — data and code",
@@ -308,7 +308,13 @@
   },
   "exported_field_crown_mask_diagnostic": {
     "source_function": "code/make_fig_timeseries.py:crown_slice",
-    "diagnostic_input": "Apply the source crop function to each 80x73 exported WGS84 field array using the GeoTIFF bounds as extent endpoints; this is only a diagnostic of the export, not the original source-grid crop.",
+    "diagnostic_input": "Apply the author's crown_slice to each 80x73 exported WGS84 field array using the GeoTIFF bounds as extent endpoints. This diagnoses the exported grids only; it is not the original GOFF source-grid crop.",
+    "crown_bounds_lonlat": [
+      85.5245,
+      28.2847,
+      85.54,
+      28.297
+    ],
     "pair_order": [
       "20260620->20260702",
       "20260702->20260714",
@@ -316,30 +322,140 @@
       "20260726->20260819",
       "20260819->20260831"
     ],
-    "valid_crown_cells_from_exported_geotiff_bounds": [
-      283,
-      294,
-      296,
-      292,
-      195
+    "count_estimands": {
+      "displacement_valid_crown_cells": {
+        "definition": "Count finite dE and dN pairs (equivalently finite horizontal magnitude) within the author crown slice. This is a displacement-support count, not a coherence-window count.",
+        "source_table": "tables/nisar_pot_series.json",
+        "source_key": "n",
+        "exported_geotiff_bounds_counts": [
+          283,
+          294,
+          296,
+          292,
+          195
+        ],
+        "published_counts": [
+          283,
+          294,
+          296,
+          292,
+          195
+        ],
+        "difference_export_minus_published": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "count_parity": "PASS_ON_EXPORTED_FIELD_DIAGNOSTIC"
+      },
+      "R_valid_crown_cells": {
+        "definition": "Compute the author's 5x5 coherence map across the full exported dE/dN field using scipy.ndimage.uniform_filter default reflected edges, finite-vector normalization, and finite-support fraction >0.5; then count finite R cells within the author crown slice. This is the polygon-null R support count, not P1 crown R (which computes coherence after cropping).",
+        "source_table": "tables/polygon_null.json",
+        "source_key": "n_px",
+        "exported_geotiff_bounds_counts": [
+          302,
+          299,
+          302,
+          298,
+          202
+        ],
+        "published_counts": [
+          302,
+          299,
+          302,
+          298,
+          202
+        ],
+        "difference_export_minus_published": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "count_parity": "PASS_ON_EXPORTED_FIELD_DIAGNOSTIC"
+      }
+    },
+    "per_pair_results": [
+      {
+        "interval": "20260620->20260702",
+        "field": "fields/offsets_20260620_20260702.tif",
+        "field_sha256": "9b2ad8628a0d85dff0e589aeac8df4dbb71866800f5f13517936c3a231ccc6a1",
+        "finite_dE_dN_cells_whole_field": 4062,
+        "finite_R_cells_whole_field": 4539,
+        "displacement_valid_crown_cells_export": 283,
+        "displacement_valid_crown_cells_author_series_n": 283,
+        "R_valid_crown_cells_export": 302,
+        "polygon_null_n_px": 302,
+        "finite_R_mask_equals_archived_band3": true,
+        "max_absolute_R_error": 3.343086929508132e-8
+      },
+      {
+        "interval": "20260702->20260714",
+        "field": "fields/offsets_20260702_20260714.tif",
+        "field_sha256": "d5ffcbb8fe53bfb467837e2e3032cd4889051e4b47eff06da9276cac84df66f1",
+        "finite_dE_dN_cells_whole_field": 4277,
+        "finite_R_cells_whole_field": 4676,
+        "displacement_valid_crown_cells_export": 294,
+        "displacement_valid_crown_cells_author_series_n": 294,
+        "R_valid_crown_cells_export": 299,
+        "polygon_null_n_px": 299,
+        "finite_R_mask_equals_archived_band3": true,
+        "max_absolute_R_error": 3.4930149217515805e-8
+      },
+      {
+        "interval": "20260714->20260726",
+        "field": "fields/offsets_20260714_20260726.tif",
+        "field_sha256": "3421e697bf279292aaf3a11d4d2e90f1f74fc2a574fb1dbc276806552caf32bd",
+        "finite_dE_dN_cells_whole_field": 4361,
+        "finite_R_cells_whole_field": 4802,
+        "displacement_valid_crown_cells_export": 296,
+        "displacement_valid_crown_cells_author_series_n": 296,
+        "R_valid_crown_cells_export": 302,
+        "polygon_null_n_px": 302,
+        "finite_R_mask_equals_archived_band3": true,
+        "max_absolute_R_error": 3.261290359990454e-8
+      },
+      {
+        "interval": "20260726->20260819",
+        "field": "fields/offsets_20260726_20260819.tif",
+        "field_sha256": "0ac703908f1483f03469eae64dfe7d4f2722853386da419edafb6a378a4afc74",
+        "finite_dE_dN_cells_whole_field": 4296,
+        "finite_R_cells_whole_field": 4657,
+        "displacement_valid_crown_cells_export": 292,
+        "displacement_valid_crown_cells_author_series_n": 292,
+        "R_valid_crown_cells_export": 298,
+        "polygon_null_n_px": 298,
+        "finite_R_mask_equals_archived_band3": true,
+        "max_absolute_R_error": 3.361975842164355e-8
+      },
+      {
+        "interval": "20260819->20260831",
+        "field": "fields/offsets_20260819_20260831.tif",
+        "field_sha256": "2bf4685f932725107c5bc5bf4ea2abf5fce62115ccf151177e84a3ff6a554156",
+        "finite_dE_dN_cells_whole_field": 4100,
+        "finite_R_cells_whole_field": 4461,
+        "displacement_valid_crown_cells_export": 195,
+        "displacement_valid_crown_cells_author_series_n": 195,
+        "R_valid_crown_cells_export": 202,
+        "polygon_null_n_px": 202,
+        "finite_R_mask_equals_archived_band3": true,
+        "max_absolute_R_error": 3.3599545590234925e-8
+      }
     ],
-    "published_table_s4_valid_crown_cells": [
-      302,
-      299,
-      302,
-      298,
-      202
-    ],
-    "difference_export_minus_published": [
-      -19,
-      -5,
-      -6,
-      -6,
-      -7
-    ],
-    "exact_pixel_mask_parity": false,
-    "cause": "UNRESOLVED. Pixel-edge GeoTIFF bounds differ from endpoint coordinates built from the original GOFF sample axes; this is a plausible explanation, not a proven correction.",
-    "required_evidence_to_resolve": "Original GOFF source grid coordinate vectors plus exact source read window, plus the author per-pair pre-export masks or rasterization extents.",
-    "gate": "BLOCKED_CROWN_PIXEL_MASK_PARITY"
+    "R_band_crosscheck": {
+      "method": "Recomputed full-grid R from each exported dE/dN pair using the author coherence kernel and compared it with archived band 3 on common finite cells.",
+      "finite_masks_equal_for_all_five_fields": true,
+      "maximum_absolute_error_across_fields": 3.4930149217515805e-8,
+      "comparison_tolerance": 0.000001,
+      "result": "PASS_STORED_R_BAND_MATCHES_D_E_D_N"
+    },
+    "exact_source_grid_pixel_mask_parity": "UNVERIFIED",
+    "interpretation": "The prior audit incorrectly compared displacement-valid crown counts with polygon-null R-valid n_px counts. Once the estimands are matched, both count series agree across all five exported fields. Aggregate counts on the exported WGS84 fields do not prove pixelwise parity against the original GOFF source grid.",
+    "remaining_uncertainty": "The original GOFF coordinate vectors, exact source read window and author pre-export masks/rasterization extents are not present in the archive. The reason for any source-grid pixel-mask difference is unresolved and no cause is inferred.",
+    "required_evidence_to_resolve": "Exact author P05023 raw GOFF source bytes and SHA-256, original grid-coordinate vectors and source read window, plus author pre-export masks/rasterization extents or enough source code/data to reconstruct and compare them.",
+    "gate": "BLOCKED_SOURCE_GRID_PIXEL_MASK_PARITY_UNVERIFIED"
   }
 }
