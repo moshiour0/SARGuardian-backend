@@ -242,6 +242,36 @@ def test_analysis_success_requires_zero_exit_and_complete_metrics() -> None:
     )
 
 
+def test_author_site_series_success_requires_all_archive_checks() -> None:
+    complete = {
+        "status": "SCIENTIFIC_METRICS_COMPUTED",
+        "structural_status": "PASS",
+        "method_profile": "ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE",
+        "source_products_processed": 5,
+        "author_site_series_table_comparison": {
+            "status": "PASS_AT_ARCHIVE_ROUNDING",
+            "checks_passed": 65,
+            "checks_total": 65,
+            "mismatch_count": 0,
+        },
+    }
+    assert acquisition.author_site_series_result_is_complete(0, complete)
+    assert not acquisition.author_site_series_result_is_complete(1, complete)
+    assert not acquisition.author_site_series_result_is_complete(
+        0, {**complete, "source_products_processed": 4}
+    )
+    mismatch = {
+        **complete,
+        "author_site_series_table_comparison": {
+            **complete["author_site_series_table_comparison"],
+            "status": "MISMATCH",
+            "checks_passed": 64,
+            "mismatch_count": 1,
+        },
+    }
+    assert not acquisition.author_site_series_result_is_complete(0, mismatch)
+
+
 def test_analysis_config_records_source_manifest_hash(tmp_path) -> None:
     targets = load_author_granules()
     run_root = tmp_path / "source-run"
