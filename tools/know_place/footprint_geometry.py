@@ -81,6 +81,7 @@ def build_per_pixel_coefficients(
     dem_elevation_m: Any,
     target_transform: Any,
     *,
+    dem_transform: Any,
     target_epsg: int,
     geometry_metadata_epsg: int,
     dem_epsg: int,
@@ -139,7 +140,12 @@ def build_per_pixel_coefficients(
     if dem.ndim != 2 or min(dem.shape) < 1:
         raise FootprintGeometryError("DEM_MUST_BE_2D_AND_MATCH_TARGET_GRID")
     height, width = dem.shape
-    a, c, e, f = _target_transform(target_transform)
+    target_grid_transform = _target_transform(target_transform)
+    dem_grid_transform = _target_transform(dem_transform)
+    if not np.allclose(target_grid_transform, dem_grid_transform, rtol=0.0, atol=1e-9):
+        raise FootprintGeometryError("DEM_GRID_TRANSFORM_MISMATCH")
+    a, c, e, f = target_grid_transform
+    dem_a, dem_c, dem_e, dem_f = dem_grid_transform
     elevation = dem.copy()
     elevation[elevation == np.float32(dem_nodata)] = np.nan
     finite_dem = np.isfinite(elevation)
@@ -206,6 +212,8 @@ def build_per_pixel_coefficients(
         "dem_epsg": dem_epsg,
         "target_shape": [height, width],
         "target_transform": {"a": a, "c": c, "e": e, "f": f},
+        "dem_transform": {"a": dem_a, "c": dem_c, "e": dem_e, "f": dem_f},
+        "dem_transform_matches_target": True,
         "source_radar_grid_shape": list(source_shape),
         "source_height_axis_bounds_m": [float(heights[0]), float(heights[-1])],
         "source_y_axis_reversed_to_ascending": reverse_y,

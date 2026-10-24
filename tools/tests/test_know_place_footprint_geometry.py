@@ -37,6 +37,7 @@ def build(grid=None, dem=None, transform=None, **kwargs):
     grid = source_grid() if grid is None else grid
     dem = dem_fixture() if dem is None else dem
     transform = Affine(5.0, 0.0, 10.0, 0.0, -1.0, 2.5) if transform is None else transform
+    kwargs.setdefault("dem_transform", transform)
     kwargs.setdefault("target_epsg", 32645)
     kwargs.setdefault("geometry_metadata_epsg", 32645)
     kwargs.setdefault("dem_epsg", 32645)
@@ -117,6 +118,13 @@ def test_geometry_rejects_shape_epsg_rotation_and_empty_dem():
         build(transform=Affine(5.0, 0.1, 10.0, 0.0, -1.0, 2.5))
     with pytest.raises(FootprintGeometryError, match='DEM_HAS_NO_FINITE_NON_NODATA_ELEVATIONS'):
         build(dem=np.full((3, 3), -9999.0, dtype=np.float32))
+
+
+def test_geometry_rejects_same_shape_dem_with_misaligned_transform():
+    transform = Affine(5.0, 0.0, 10.0, 0.0, -1.0, 2.5)
+    shifted_dem_transform = Affine(5.0, 0.0, 15.0, 0.0, -1.0, 2.5)
+    with pytest.raises(FootprintGeometryError, match="DEM_GRID_TRANSFORM_MISMATCH"):
+        build(transform=transform, dem_transform=shifted_dem_transform)
 
 
 def test_geometry_block_size_does_not_change_results():
