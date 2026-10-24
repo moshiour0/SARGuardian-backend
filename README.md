@@ -102,6 +102,8 @@ source-AOI streaming workflow remains independently callable.
 
 
 ## Generic Know Place polygon/date-range analysis
+
+For continuity across chats, read and keep the [Know Place living context](docs/know-place/CONTEXT.md) updated before making further changes on `feat/know-place-analysis`.
 The result also includes exact-acquisition-midpoint interval-average rates and descriptive vector-rate-change features. A rate-change/acceleration-like value is withheld if a pair is not contiguous, belongs to a different processing chain, has incompatible grid geometry, is not measurable, or crosses a documented instrument gap. These are research features only: the engine reports no risk score or operational alarm. \n\n
 The isolated `feat/know-place-analysis` branch includes an opt-in [polygon/date-range workflow](.github/workflows/know-place-aoi-analysis.yml) for NISAR GOFF measurement, GIS exports and an offline dashboard. Its default run is catalog-only, with no raw downloads. A downloaded analysis requires explicit opt-in and configured Earthdata/Drive secrets. It reports measurement, paper-reproduction and hazard-detection statuses separately; a measurement result is not an operational landslide/glacier-collapse alarm.
 
