@@ -1,5 +1,5 @@
 {
-  "schema_version": "know-place-author-archive-audit/1.1",
+  "schema_version": "know-place-author-archive-audit/1.2",
   "audit_date": "2026-10-24",
   "source": {
     "title": "Bhote Koshi 2026 ice–rock avalanche: NISAR L2 GOFF site series and footprint-wide offset-tracking screen — data and code",
@@ -457,5 +457,204 @@
     "remaining_uncertainty": "The original GOFF coordinate vectors, exact source read window and author pre-export masks/rasterization extents are not present in the archive. The reason for any source-grid pixel-mask difference is unresolved and no cause is inferred.",
     "required_evidence_to_resolve": "Exact author P05023 raw GOFF source bytes and SHA-256, original grid-coordinate vectors and source read window, plus author pre-export masks/rasterization extents or enough source code/data to reconstruct and compare them.",
     "gate": "BLOCKED_SOURCE_GRID_PIXEL_MASK_PARITY_UNVERIFIED"
+  },
+  "processed_field_table_parity": {
+    "status": "PASS_EXPORTED_FIELDS_MATCH_ARCHIVED_TABLES",
+    "verified_against_archive_sha256": "002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3",
+    "scope": "Recomputed statistics on the five exported 80x73 WGS84 fields and compared them with same-estimand archived tables. This is processed-field/table parity only, not raw GOFF replay or pixelwise parity on the original source grid.",
+    "archived_table_hashes": {
+      "tables/nisar_pot_series.json": {
+        "bytes": 1138,
+        "sha256": "a50e1a1853f270aafcc4a0e04e01e6017166473d2739d278089e0386e6a5b73a"
+      },
+      "tables/polygon_null.json": {
+        "bytes": 1185,
+        "sha256": "141249f00b05f7ad4cbb405600006e4c0395fea4341895b3fd5b409fb967eb87"
+      },
+      "tables/displacement_null.json": {
+        "bytes": 497,
+        "sha256": "b8a16de84a0c3f732daf7d3d3cd261596edbe312a432d7f65978a1a5947ac207"
+      },
+      "tables/TableS4_site_series.json": {
+        "bytes": 4348,
+        "sha256": "38cbda0bcd7e5920bfdc33e1fceb80a79a6fa3f00ccbf23985ee657c61f46f4a"
+      }
+    },
+    "metric_definitions": {
+      "displacement_valid_crown_cells": "Finite dE/dN cell count in the author crop; matches n in nisar_pot_series.json.",
+      "P1_R_valid_crown_cells": "Finite coherence cells after cropping dE/dN to the crown and then applying the author coherence kernel.",
+      "polygon_null_R_valid_crown_cells": "Finite cells from the author coherence map computed over the full field and then cropped; matches n_px in polygon_null.json.",
+      "displacement_null": "This audit cross-checks TableS4's displacement-null values against displacement_null.json but does not claim to regenerate the displacement-null sampler because a standalone source generator is absent."
+    },
+    "comparison_policy": {
+      "site_series_full_precision_absolute_tolerance": 0.000001,
+      "site_series_rate_m_per_day_absolute_tolerance": 1e-8,
+      "rounded_table_values": "All three-decimal and one-decimal stored values matched at their stated precision.",
+      "integer_counts_and_accepted_draws": "Exact equality.",
+      "polygon_null_rng": "One shared numpy.default_rng(20260907) across the five ordered pairs; 1200 candidate centres per pair (all available if fewer).",
+      "crop_geometry": "Author endpoint-linear searchsorted policy applied using exported GeoTIFF bounds as extent endpoints.",
+      "pixelwise_source_grid_parity": "UNVERIFIED"
+    },
+    "summary": {
+      "pairs_checked": 5,
+      "series_checks_per_pair": 5,
+      "polygon_null_checks_per_pair": 9,
+      "table_s4_checks_per_pair": 10,
+      "total_same_estimand_checks": 120,
+      "passed_checks": 120,
+      "failed_checks": 0,
+      "displacement_valid_crown_cells": [
+        283,
+        294,
+        296,
+        292,
+        195
+      ],
+      "P1_R_valid_crown_cells": [
+        308,
+        304,
+        306,
+        300,
+        199
+      ],
+      "P1_background_R_valid_cells": [
+        4539,
+        4676,
+        4802,
+        4657,
+        4461
+      ],
+      "polygon_null_R_valid_crown_cells": [
+        302,
+        299,
+        302,
+        298,
+        202
+      ],
+      "polygon_null_accepted_draws": [
+        857,
+        887,
+        920,
+        916,
+        996
+      ],
+      "polygon_null_rejected_draws": [
+        343,
+        313,
+        280,
+        284,
+        204
+      ],
+      "maximum_full_field_R_band_absolute_error": 3.4930149219e-8,
+      "finite_R_masks_match_stored_band3_for_all_pairs": true
+    },
+    "pair_results": [
+      {
+        "pair": "20260620->20260702",
+        "days": 12,
+        "displacement_valid_crown_cells": 283,
+        "crown_median_displacement_m": 0.9949599627491784,
+        "crown_median_rate_cm_per_day": 8.29133302290982,
+        "P1_crown_R_valid_cells": 308,
+        "P1_background_R_valid_cells": 4539,
+        "P1_crown_R": 0.7500952358674076,
+        "P1_background_R": 0.6411098976060035,
+        "polygon_null_R_valid_crown_cells": 302,
+        "polygon_null_crown_R": 0.738532,
+        "polygon_null_box_R": 0.64111,
+        "polygon_null_crown_percentile": 77.2462,
+        "polygon_null_fraction_controls_above_box_percent": 47.4912,
+        "polygon_null_p5": 0.459538,
+        "polygon_null_p95": 0.863146,
+        "polygon_null_accepted_draws": 857,
+        "polygon_null_rejected_draws": 343,
+        "status": "PASS"
+      },
+      {
+        "pair": "20260702->20260714",
+        "days": 12,
+        "displacement_valid_crown_cells": 294,
+        "crown_median_displacement_m": 0.5390713432000466,
+        "crown_median_rate_cm_per_day": 4.492261193333722,
+        "P1_crown_R_valid_cells": 304,
+        "P1_background_R_valid_cells": 4676,
+        "P1_crown_R": 0.6115176578577783,
+        "P1_background_R": 0.7188790284889461,
+        "polygon_null_R_valid_crown_cells": 299,
+        "polygon_null_crown_R": 0.583001,
+        "polygon_null_box_R": 0.718879,
+        "polygon_null_crown_percentile": 23.3371,
+        "polygon_null_fraction_controls_above_box_percent": 37.655,
+        "polygon_null_p5": 0.485156,
+        "polygon_null_p95": 0.890984,
+        "polygon_null_accepted_draws": 887,
+        "polygon_null_rejected_draws": 313,
+        "status": "PASS"
+      },
+      {
+        "pair": "20260714->20260726",
+        "days": 12,
+        "displacement_valid_crown_cells": 296,
+        "crown_median_displacement_m": 0.2955509728068851,
+        "crown_median_rate_cm_per_day": 2.462924773390709,
+        "P1_crown_R_valid_cells": 306,
+        "P1_background_R_valid_cells": 4802,
+        "P1_crown_R": 0.6105438462711383,
+        "P1_background_R": 0.7569553784714398,
+        "polygon_null_R_valid_crown_cells": 302,
+        "polygon_null_crown_R": 0.593569,
+        "polygon_null_box_R": 0.756955,
+        "polygon_null_crown_percentile": 39.7826,
+        "polygon_null_fraction_controls_above_box_percent": 37.1739,
+        "polygon_null_p5": 0.481054,
+        "polygon_null_p95": 0.965198,
+        "polygon_null_accepted_draws": 920,
+        "polygon_null_rejected_draws": 280,
+        "status": "PASS"
+      },
+      {
+        "pair": "20260726->20260819",
+        "days": 24,
+        "displacement_valid_crown_cells": 292,
+        "crown_median_displacement_m": 0.964510352178484,
+        "crown_median_rate_cm_per_day": 4.018793134077017,
+        "P1_crown_R_valid_cells": 300,
+        "P1_background_R_valid_cells": 4657,
+        "P1_crown_R": 0.8710673652842345,
+        "P1_background_R": 0.686506621841563,
+        "polygon_null_R_valid_crown_cells": 298,
+        "polygon_null_crown_R": 0.847894,
+        "polygon_null_box_R": 0.686507,
+        "polygon_null_crown_percentile": 85.1528,
+        "polygon_null_fraction_controls_above_box_percent": 46.7249,
+        "polygon_null_p5": 0.412534,
+        "polygon_null_p95": 0.896221,
+        "polygon_null_accepted_draws": 916,
+        "polygon_null_rejected_draws": 284,
+        "status": "PASS"
+      },
+      {
+        "pair": "20260819->20260831",
+        "days": 12,
+        "displacement_valid_crown_cells": 195,
+        "crown_median_displacement_m": 0.32783177401131686,
+        "crown_median_rate_cm_per_day": 2.7319314500943075,
+        "P1_crown_R_valid_cells": 199,
+        "P1_background_R_valid_cells": 4461,
+        "P1_crown_R": 0.5514780044009807,
+        "P1_background_R": 0.592464798455241,
+        "polygon_null_R_valid_crown_cells": 202,
+        "polygon_null_crown_R": 0.511221,
+        "polygon_null_box_R": 0.592465,
+        "polygon_null_crown_percentile": 29.1165,
+        "polygon_null_fraction_controls_above_box_percent": 50.2008,
+        "polygon_null_p5": 0.411844,
+        "polygon_null_p95": 0.813912,
+        "polygon_null_accepted_draws": 996,
+        "polygon_null_rejected_draws": 204,
+        "status": "PASS"
+      }
+    ],
+    "interpretation": "The matched estimands agree across all five exported fields at archived table precision. This does not establish source-grid pixelwise mask parity or raw GOFF source-to-output reproduction."
   }
 }

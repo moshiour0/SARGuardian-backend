@@ -93,7 +93,7 @@ def test_repository_inventory_round_trips_to_source_hash_after_git_newline_norma
 
 def test_exported_field_displacement_and_R_crown_counts_are_separate_estimands() -> None:
     fixture = _read_json(FIXTURE_PATH)
-    assert fixture["schema_version"] == "know-place-author-archive-audit/1.1"
+    assert fixture["schema_version"] == "know-place-author-archive-audit/1.2"
     diagnostic = fixture["exported_field_crown_mask_diagnostic"]
 
     displacement = diagnostic["count_estimands"]["displacement_valid_crown_cells"]
@@ -133,3 +133,16 @@ def test_author_method_parity_blockers_and_nonhazard_status_are_explicit() -> No
     assert len(fixture["branch_method_mismatches"]) >= 5
     assert fixture["hazard_detection_status"] == "NOT_EVALUATED"
     assert "extent_CC-BY-NC-4.0/" in fixture["source"]["record_license"]
+
+    table_parity = fixture["processed_field_table_parity"]
+    assert table_parity["status"] == "PASS_EXPORTED_FIELDS_MATCH_ARCHIVED_TABLES"
+    assert table_parity["summary"]["pairs_checked"] == 5
+    assert table_parity["summary"]["total_same_estimand_checks"] == 120
+    assert table_parity["summary"]["passed_checks"] == 120
+    assert table_parity["summary"]["failed_checks"] == 0
+    assert table_parity["summary"]["displacement_valid_crown_cells"] == [283, 294, 296, 292, 195]
+    assert table_parity["summary"]["polygon_null_R_valid_crown_cells"] == [302, 299, 302, 298, 202]
+    assert table_parity["comparison_policy"]["pixelwise_source_grid_parity"] == "UNVERIFIED"
+    assert all(row["status"] == "PASS" for row in table_parity["pair_results"])
+    assert table_parity["interpretation"].startswith("The matched estimands agree")
+

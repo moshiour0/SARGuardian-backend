@@ -33,3 +33,7 @@ A live ASF query in [validation run 40035193088](https://github.com/moshiour0/SA
 - The ZIP passes integrity validation, and all 90 manifest-listed payload files contained in it match the declared sizes and MD5 hashes.
 - The archive's TableS7 inventory is byte-identical to the user-supplied 101-zone CSV.
 - See the audit for the README versus GeoTIFF profile discrepancy, author-vs-current-branch method mismatches, and remaining raw-source/full-footprint blockers.
+
+## Processed-field verification
+
+The source archive's five field rasters were recomputed against `nisar_pot_series.json`, `polygon_null.json`, `displacement_null.json` (table-to-table only) and `TableS4_site_series.json`. See [`AUTHOR_PROCESSED_FIELD_TABLE_PARITY_20261024.md`](../evidence/AUTHOR_PROCESSED_FIELD_TABLE_PARITY_20261024.md). This validates consistency among exported products and tables, not raw GOFF source reproduction or hazard detection.
