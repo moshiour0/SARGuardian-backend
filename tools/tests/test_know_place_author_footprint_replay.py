@@ -155,7 +155,7 @@ def _make_candidate_rows(count: int = 106) -> list[dict[str, object]]:
             "n_px": 16,
             "n_epochs": 3,
             "anom_m": 0.6,
-            "R": 0.8,
+            "R": 0.7,
             "score": 3.0 * 0.6 * (0.90 - i * 0.001),
             "disp_az": angle,
             "res_mag_m": 1.0,
