@@ -66,7 +66,7 @@ def test_bhote_koshi_frozen_pair_ids_and_published_reference_match_author_fixtur
     assert site["source_product_plan"]["source_sha256"] == []
     assert site["published_reference"]["median_crown_displacement_m"] == 0.96
     assert site["published_reference"]["displacement_null_percentile"] == 94.7
-    assert "not" in site["expected_engine_test"].lower()
+    assert "non-distinctive" in site["expected_engine_test"].lower()
 
 
 @pytest.mark.parametrize(
