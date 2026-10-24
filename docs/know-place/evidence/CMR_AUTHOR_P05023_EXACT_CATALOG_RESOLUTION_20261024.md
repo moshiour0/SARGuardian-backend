@@ -1,53 +1,30 @@
-# Exact author P05023 product resolved in NASA CMR catalog
+# Exact author P05023 products resolved in NASA CMR catalog
 
 **Checked:** 2026-10-24 UTC  
 **Branch:** `feat/know-place-analysis`  
-**Validation:** [run 40056005969](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056005969) — 191 tests passed.  
-**Catalog artifact:** ID `12544869799`, name `know-place-author-live-asf-catalog-evidence`, 2,823 bytes, SHA-256 `57426b152b6ab83001d5472d03786c1da78401e75f13018559a3619b6cf132f9`.
+**Latest isolated validation:** [run 40059962163](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40059962163) — 204 tests passed in 6.56 s; seven workflow YAML files parsed and actionlint v1.7.12 plus semantic validation passed.  
+**Live exact-CMR artifact:** ID `12546952625`, name `know-place-author-exact-live-cmr-access-evidence`, 4,117 bytes, ZIP SHA-256 `7b91d3db92422d1e39f3412e1318b1455dc87aeb1e8677897339ee24f459dbb7`. The ZIP was downloaded and independently integrity/hash checked against the GitHub artifact digest.
 
-## Exact product recovered
+## Exact catalog resolution
 
-The first author-selected pair is **2026-06-20 → 2026-07-02**, release `P05023`, PR, ascending track 098, HH:
+The isolated runner queried NASA CMR collection `C2854341702-ASF` for the five exact producer-granule IDs pinned in the author's benchmark. For each product, both `producer_granule_id[]` and `readable_granule_name[]` returned HTTP 200 with exactly one result. Each record supplies exactly one accepted HDF5 data link on `nisar.asf.earthdatacloud.nasa.gov`, under `NISAR_L2_GOFF_PROVISIONAL_V1`, with the exact producer ID in the path and filename.
 
-`NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001`
+| Author interval | CMR granule concept ID | Release identity | Exact HDF5 data link |
+|---|---|---|---|
+| 2026-06-20 → 2026-07-02 | `G4248299988-ASF` | `P05023` | [Open P05023 HDF5](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5) |
+| 2026-07-02 → 2026-07-14 | `G4261120661-ASF` | `P05023` | [Open P05023 HDF5](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001/NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5) |
+| 2026-07-14 → 2026-07-26 | `G4264302811-ASF` | `P05023` | [Open P05023 HDF5](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001/NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5) |
+| 2026-07-26 → 2026-08-19 | `G4286855543-ASF` | `P05023` | [Open P05023 HDF5](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001/NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5) |
+| 2026-08-19 → 2026-08-31 | `G4296814366-ASF` | `P05023` | [Open P05023 HDF5](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001/NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233952_P05023_N_F_J_001.h5) |
 
-ASF Search's direct-ID, AOI/date and wildcard paths did not return that row; the latter two surfaced the parallel `X05026` variant. A collection-scoped NASA CMR lookup then confirmed the exact producer-granule ID:
+## Interpretation boundary
 
-| CMR field | Value |
-|---|---|
-| CMR granule concept ID | `G4248299988-ASF` |
-| Collection concept ID | `C2854341702-ASF` |
-| Producer-granule ID | Exact P05023 ID above |
-| Start | `2026-06-20T23:39:21.000Z` |
-| End | `2026-07-02T23:39:55.999Z` |
-| Updated | `2026-07-15T16:07:07.506Z` |
-| Exact producer-ID query | HTTP 200, 1 result |
-| Exact readable-granule-name query | HTTP 200, 1 result |
+Live manifest results: catalog identities 5/5, exact data URLs 5/5, blocking products 0, source payload downloads 0, source SHA-256 pins 0/5. `RAW_SOURCE_BYTE_IDENTITY=UNVERIFIED`. Paper reproduction remains `BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; hazard detection remains `NOT_EVALUATED`.
 
-CMR's API documentation defines `producer_granule_id[]` and `readable_granule_name[]` as exact granule search filters and requires a collection-scoped query. References: [CMR Search API](https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html), [official CMR date listing](https://cmr.earthdata.nasa.gov/virtual-directory/collections/C2854341702-ASF/temporal/2026/06/20).
+The earlier ASF-only search missed the first P05023 and surfaced X05026 as a same-interval variant. The later collection-scoped CMR queries resolve that catalog identity discrepancy. Do not substitute X05026. A catalog link is not proof of authenticated download, byte hash, HDF5 validity, grid parity or paper reproduction.
 
-## Official access URL returned by CMR
+References: [CMR Search API documentation](https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html), [official CMR collection/date listing](https://cmr.earthdata.nasa.gov/virtual-directory/collections/C2854341702-ASF/temporal/2026/06/20).
 
-CMR returned this data endpoint for the exact HDF5:
+## Raw replay remains separately gated
 
-**[Open P05023 HDF5 access URL](https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5)**
-
-S3 URI from the same metadata:
-
-`s3://sds-n-cumulus-prod-nisar-products/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5`
-
-These are catalog access routes, **not** proof that the payload downloaded. This catalog run downloaded zero GOFF payloads. The first product's byte size and SHA-256 remain unknown.
-
-## Live five-product identity gate
-
-| Interval | Identity status | SHA-256 |
-|---|---|---|
-| 2026-06-20 → 2026-07-02 | `EXACT_CMR_GRANULE_CONFIRMED` | Not downloaded |
-| 2026-07-02 → 2026-07-14 | `EXACT_URL_CONFIRMED` | Not downloaded |
-| 2026-07-14 → 2026-07-26 | `EXACT_URL_CONFIRMED` | Not downloaded |
-| 2026-07-26 → 2026-08-19 | `EXACT_URL_CONFIRMED` | Not downloaded |
-| 2026-08-19 → 2026-08-31 | `EXACT_URL_CONFIRMED` | Not downloaded |
-
-Result: **catalog identity 5/5 confirmed; source SHA-256 pins 0/5; raw source downloads 0**. The workflow output correctly distinguishes `AUTHOR_CATALOG_IDENTITY_GATE=PASS` from `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`. `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
-
-Raw replay run [40056005985](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056005985) skipped its five-pair analysis job because `[run-know-place]` was not supplied. No merge or write to `main` occurred; its baseline is `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
+Legacy raw-replay run [40060195873](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40060195873) completed its decision job but skipped the five-pair analysis. Dedicated author-exact workflow run [40058988016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988016) also skipped because the exact manual input `[run-know-place]` was absent. No raw GOFF payloads were downloaded. `main` remains unchanged at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.

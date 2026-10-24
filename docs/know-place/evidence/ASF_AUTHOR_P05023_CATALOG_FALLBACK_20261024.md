@@ -3,7 +3,7 @@
 **Checked:** 2026-10-24 UTC  
 **Isolated branch:** `feat/know-place-analysis`  
 **Historical ASF-only catalog run:** [40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010)  
-**Historical ASF-only artifact:** ID `12544428178`, ZIP bytes 1,561, SHA-256 `cf23a0893ae6b08f18abb379a76e483edf99c8f1f37a020c552f82adbcb07711`. It records ASF query results only. Its ASF-only finding is superseded for catalog identity by `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md` and live validation run 40056005969.
+**Historical ASF-only artifact:** ID `12544428178`, ZIP bytes 1,561, SHA-256 `cf23a0893ae6b08f18abb379a76e483edf99c8f1f37a020c552f82adbcb07711`. It records ASF query results only. Its ASF-only finding is superseded for catalog identity by `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md` and latest live validation run 40059962163; all five exact P05023 identities and URLs are now confirmed.
 
 ## Query sequence and outcome
 
@@ -25,7 +25,7 @@ The sole same-interval candidate in both fallback searches is:
 
 `NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_X05026_N_F_J_001`
 
-with `release_id=X05026`, recorded as `SAME_INTERVAL_VARIANT_CANDIDATE_ONLY`. The manifest remains `BLOCKED` with one blocking author product. At the time of this ASF-only audit the first P05023 identity was unresolved. A later independent CMR collection-scoped query confirmed the exact P05023 catalog record; source SHA-256 remains unknown because the payload was not downloaded.
+with `release_id=X05026`, recorded as `SAME_INTERVAL_VARIANT_CANDIDATE_ONLY`. The manifest remains `BLOCKED` with one blocking author product. At the time of this ASF-only audit the first P05023 identity was unresolved. Later CMR collection-scoped queries confirmed the exact P05023 catalog record, and the latest live evidence confirms all five P05023 IDs and direct HDF5 URLs; source SHA-256 remains unknown because no payload was downloaded.
 
 ASF's published search documentation describes `granule_list` wildcard queries and notes that NISAR CMR has limited searchable extra attributes, making granule-name patterns useful for catalog-only discovery: [wildcard query guidance](https://docs.asf.alaska.edu/datasets/wildcard_usage/), [NISAR ASF search guide](https://nisar-docs.asf.alaska.edu/asf-search/). The extra wildcard query confirms the same variant returned by spatial/time search but does not produce the exact P05023 record.
 
@@ -38,7 +38,7 @@ ASF's published search documentation describes `granule_list` wildcard queries a
 
 ## Scientific disposition
 
-- ASF's direct/AOI/wildcard paths did not find the first P05023, but a later NASA CMR collection-scoped query confirmed its exact metadata. See `CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md`; do not substitute X05026.
+- ASF's direct/AOI/wildcard paths did not find the first P05023, but later NASA CMR collection-scoped queries confirmed all five exact P05023 product records and direct HDF5 links. See `CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md`; do not substitute X05026.
 - The four other author P05023 identifiers have trusted collection-route evidence only. Their HDF5 bytes and SHA-256 hashes remain unverified.
 - CMR confirms catalog identity only; source HDF5 bytes and SHA-256 remain unverified. Paper reproduction remains `BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`.
 - Hazard detection remains `NOT_EVALUATED`.
