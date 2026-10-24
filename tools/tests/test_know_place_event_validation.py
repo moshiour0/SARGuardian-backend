@@ -21,6 +21,7 @@ from tools.know_place.event_validation import (
 )
 
 WKT = "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))"
+GEOMETRY_INDEX = {"DEV-E1": 0, "VAL-E1": 1, "VAL-N1": 2, "T1": 3, "T2": 4, "T3": 5, "T4": 6, "T5": 7, "T6": 8}
 
 
 def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
@@ -30,7 +31,10 @@ def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
         "split": split,
         "event_label": label,
         "hazard_type": "landslide" if label else "non_event",
-        "aoi_wkt": WKT,
+        "aoi_wkt": (
+            lambda shift: f"POLYGON (({85.52 + shift:.6f} 28.28, {85.54 + shift:.6f} 28.28, "
+            f"{85.54 + shift:.6f} 28.30, {85.52 + shift:.6f} 28.30, {85.52 + shift:.6f} 28.28))"
+        )(GEOMETRY_INDEX[case_id] * 0.03),
         "independent_label_evidence": {
             "source_url_or_doi": f"https://example.org/independent-inventory/{case_id}",
             "label_method": "independent published event inventory and manual review",
@@ -147,11 +151,14 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     assert result["total_heldout_cases"] == 6
     assert result["independent_heldout_sites"] == 6
     assert result["validation_site_independence"] == {
-        "status": "PASS_DISJOINT_SITE_SPLITS",
+        "status": "PASS_DISJOINT_SITE_AND_GEOMETRY_SPLITS",
         "validation_site_count": 2,
         "test_site_count": 6,
         "overlapping_site_ids": [],
-        "policy": "No site_id may occur in both validation and held-out test registries; repeated observations from one site must remain in one split.",
+        "validation_unique_aoi_geometry_count": 2,
+        "test_unique_aoi_geometry_count": 6,
+        "overlapping_aoi_geometry_hashes": [],
+        "policy": "No site_id or exact canonical WGS84 AOI ring may occur in both validation and held-out test registries. Repeated observations from one site remain in one split; exact polygon reuse with a renamed site is still leakage.",
     }
     assert result["availability"] == {
         "evaluable_cases": 4,
@@ -215,6 +222,21 @@ def test_heldout_evaluation_rejects_site_overlap_between_validation_and_test():
     overlapping = copy.deepcopy(reg)
     next(case_row for case_row in overlapping["cases"] if case_row["case_id"] == "T1")["site_id"] = "VAL-SITE"
     with pytest.raises(EventValidationError, match="VALIDATION_TEST_SITE_OVERLAP:VAL-SITE"):
+        evaluate_heldout_events(
+            overlapping,
+            prediction_payload(),
+            threshold_policy(reg),
+            bootstrap_replicates=100,
+        )
+
+
+def test_heldout_evaluation_rejects_exact_geometry_reuse_with_renamed_site():
+    reg = registry()
+    overlapping = copy.deepcopy(reg)
+    validation_case = next(row for row in overlapping["cases"] if row["case_id"] == "VAL-E1")
+    test_case = next(row for row in overlapping["cases"] if row["case_id"] == "T1")
+    test_case["aoi_wkt"] = validation_case["aoi_wkt"]
+    with pytest.raises(EventValidationError, match="VALIDATION_TEST_AOI_GEOMETRY_OVERLAP"):
         evaluate_heldout_events(
             overlapping,
             prediction_payload(),

@@ -55,6 +55,18 @@ def _utc_datetime(value: Any, code: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _canonical_geometry_identity(wkt: str) -> str:
+    """Hash a polygon ring independent of its start vertex or winding direction."""
+    ring = parse_polygon_wkt(wkt)
+    vertices = tuple((float(lon), float(lat)) for lon, lat in ring[:-1])
+    candidates = []
+    for sequence in (vertices, tuple(reversed(vertices))):
+        for offset in range(len(sequence)):
+            candidates.append(sequence[offset:] + sequence[:offset])
+    canonical_ring = min(candidates)
+    return _canonical_sha256({"canonical_wgs84_ring": [[lon, lat] for lon, lat in canonical_ring]})
+
+
 def _safe_ratio(numerator: float, denominator: float) -> float | None:
     return float(numerator / denominator) if denominator else None
 
@@ -485,6 +497,17 @@ def evaluate_heldout_events(
         raise EventValidationError(
             "VALIDATION_TEST_SITE_OVERLAP:" + ",".join(overlapping_site_ids)
         )
+    validation_geometry_ids = {
+        _canonical_geometry_identity(case["aoi_wkt"]) for case in validation_registry["cases"]
+    }
+    test_geometry_ids = {
+        _canonical_geometry_identity(case["aoi_wkt"]) for case in registry["cases"]
+    }
+    overlapping_geometry_ids = sorted(validation_geometry_ids & test_geometry_ids)
+    if overlapping_geometry_ids:
+        raise EventValidationError(
+            "VALIDATION_TEST_AOI_GEOMETRY_OVERLAP:" + ",".join(overlapping_geometry_ids)
+        )
     if not isinstance(threshold_policy, dict) or threshold_policy.get("schema_version") != THRESHOLD_SCHEMA:
         raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
     if threshold_policy.get("threshold_selection_split") != "validation":
@@ -622,11 +645,14 @@ def evaluate_heldout_events(
         "total_heldout_cases": len(rows),
         "independent_heldout_sites": len({row["site_id"] for row in rows}),
         "validation_site_independence": {
-            "status": "PASS_DISJOINT_SITE_SPLITS",
+            "status": "PASS_DISJOINT_SITE_AND_GEOMETRY_SPLITS",
             "validation_site_count": len(validation_site_ids),
             "test_site_count": len(test_site_ids),
             "overlapping_site_ids": [],
-            "policy": "No site_id may occur in both validation and held-out test registries; repeated observations from one site must remain in one split.",
+            "validation_unique_aoi_geometry_count": len(validation_geometry_ids),
+            "test_unique_aoi_geometry_count": len(test_geometry_ids),
+            "overlapping_aoi_geometry_hashes": [],
+            "policy": "No site_id or exact canonical WGS84 AOI ring may occur in both validation and held-out test registries. Repeated observations from one site remain in one split; exact polygon reuse with a renamed site is still leakage.",
         },
         "availability": {
             "evaluable_cases": len(available),

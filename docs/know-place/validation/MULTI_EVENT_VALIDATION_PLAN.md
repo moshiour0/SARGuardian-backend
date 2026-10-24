@@ -74,7 +74,7 @@ These candidates form a *case registry plan*, not a claim that the present branc
 
 ## 4. Train/validation/test separation
 
-**Independent-site split requirement:** validation and held-out test registries must have disjoint `site_id` sets. Multiple windows or event cases from one physical site must stay in the same split; changing the case ID is not independence. The evaluator rejects any cross-split site overlap before computing test metrics, preventing threshold calibration on one site's observations from being described as an independent test on that same site.
+**Independent-site split requirement:** validation and held-out test registries must have disjoint `site_id` sets. Multiple windows or event cases from one physical site must stay in the same split; changing the case ID is not independence. The evaluator rejects any cross-split site overlap before computing test metrics, preventing threshold calibration on one site's observations from being described as an independent test on that same site. It also rejects exact canonical WGS84 AOI-ring reuse even if a new `site_id` is assigned. This exact-geometry gate does not detect all partial polygon overlaps or nearby AOIs; those still require an explicit spatial-separation/buffer audit.
 
 
 - **Development set:** Bhote Koshi reproduction and synthetic known-answer fixtures. Parameters may be debugged here, but benchmark values must not be used to tune hazard thresholds and then reported as held-out accuracy.
