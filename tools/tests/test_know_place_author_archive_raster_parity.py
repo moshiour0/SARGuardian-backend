@@ -47,6 +47,7 @@ def _write_author_tif() -> bytes:
                 np.full((7, 8), 0.86, dtype=np.float32),
             ]
             arrays[0][0, 0] = np.nan
+            arrays[1][0, 0] = np.nan
             for band, (array, (_, _, description)) in enumerate(zip(arrays, CHANNELS, strict=True), 1):
                 dataset.write(array, band)
                 dataset.set_band_description(band, description)
@@ -122,6 +123,7 @@ def _make_run_artifact(path: Path, *, release: str = "P05023", mismatch: bool = 
                 np.full((7, 8), 0.86, dtype=np.float32),
             ]
             values[0][0, 0] = np.nan
+            values[1][0, 0] = np.nan
             if mismatch and i == 0:
                 values[1][2, 3] = -0.72
             buf = io.BytesIO()
