@@ -154,7 +154,7 @@ def test_synthetic_five_pair_pipeline_writes_auditable_report_and_keeps_parity_b
     assert saved["runtime_environment"]["packages"]["numpy"]
     assert saved["runtime_environment"]["packages"]["h5py"]
     assert saved["runtime_environment"]["packages"]["scipy"]
-    assert result["paper_reproduction_status"] == "BLOCKED_CROWN_GEOMETRY_NOT_AUTHOR_SUPPLEMENT_VERIFIED"
+    assert result["paper_reproduction_status"] == "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
     assert result["hazard_detection_status"] == "NOT_EVALUATED"
     assert len(saved["products"]) == 5
     for pair in saved["products"]:
