@@ -1,0 +1,10 @@
+# Author-exact replay consent trigger (feature branch only)
+
+This file is a branch-only fallback because GitHub does not expose `workflow_dispatch` for workflow files that exist only outside the default branch.
+
+- Branch: `feat/know-place-analysis`
+- Current dispatch nonce: `0`
+- The raw acquisition job is authorized only when a push touching this file (or another configured workflow path) has the exact commit title `[run-know-place]`.
+- Any other commit title leaves the raw acquisition job skipped.
+- To request a run, increment the nonce and commit the change with the commit title exactly `[run-know-place]`. Do this only when ready to download and process the five exact author P05023 HDF5 products (about 5.47 GB source payload).
+- This trigger does not alter or merge anything into `main`.
