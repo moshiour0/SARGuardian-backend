@@ -343,3 +343,13 @@ Failed run [40107037642](https://github.com/moshiour0/SARGuardian-backend/action
 - [x] Latest legacy run [40121243034](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40121243034) skipped acquisition because the exact consent marker was absent. No new raw products were downloaded in that run.
 - [ ] Manually dispatch the author-exact workflow with exact `[run-know-place]` and configured Earthdata/Drive secrets to test post-cleanup receipt; do not infer consent from a prior request.
 - Paper reproduction remains `BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED`; hazard detection remains `NOT_EVALUATED`. Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; do not merge or write to main.
+
+
+## 24. Independent archive polygon-null replay — 2026-10-25
+
+- The supplied Zenodo archive was read offline; no NISAR product was downloaded. Archive SHA-256 remains `002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3`.
+- Recomputed the author's 5 × 5 R field from the five exported east/north site-field TIFFs using the archived finite-support/reflect-edge rule. Then replayed the archived `code/polygon_null.py` policy over all five pairs in one shared RNG sequence (`default_rng(20260907)`, up to 1,200 unique candidate centers, equal-area-in-pixel disk, reject supports below 60%). Compared all nine output values per pair to `tables/polygon_null.json`: **45/45 matches at stored precision, zero mismatches**, including accepted draw counts [857, 887, 920, 916, 996].
+- Detailed evidence: `docs/know-place/evidence/AUTHOR_ARCHIVE_POLYGON_NULL_REPLAY_20261025.md`; checklist updated in `docs/KNOW_PLACE_ANALYSIS_CHECKLIST.md`.
+- Interpretation limit: the archived polygon null is a post-hoc analysis, not a metric in the published paper. This check proves repeatability from cropped processed fields only; it does not establish source-grid pixel-mask parity, raw HDF5-to-field parity, full-footprint raster replay, or hazard-detection skill.
+- Next independent/offline target: compare full author-compatible site-series calculations and geometry estimator against source code/processed fields, and inspect vertical-reference effects as a separate sensitivity. The raw source workflow still requires a new manual dispatch with the exact explicit input `[run-know-place]` to exercise the revised post-cleanup Drive receipt. Do not infer that consent from a normal continuation request.
+- Paper reproduction remains `BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED`; hazard detection remains `NOT_EVALUATED`. Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; this work is confined to `feat/know-place-analysis`.
