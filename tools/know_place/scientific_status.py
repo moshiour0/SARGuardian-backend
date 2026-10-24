@@ -5,6 +5,7 @@ from typing import Any
 
 FOOTPRINT_PASS = "PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY"
 PAPER_PARTIAL_MATCH = "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
+BLOCKED_INCOMPLETE = "BLOCKED_AUTHOR_SITE_OR_FOOTPRINT_EVIDENCE_INCOMPLETE_DISPLACEMENT_NULL_STILL_UNVERIFIED"
 
 
 def _comparison_passes(value: Any, expected_count: int) -> bool:
@@ -18,12 +19,23 @@ def _comparison_passes(value: Any, expected_count: int) -> bool:
     )
 
 
+def _comparison_is_definitive_mismatch(value: Any, expected_count: int) -> bool:
+    """Only classify a result as mismatch when its expected comparison set was actually evaluated."""
+    if not isinstance(value, dict) or value.get("checks_total") != expected_count:
+        return False
+    return (
+        value.get("status") == "MISMATCH"
+        or value.get("mismatch_count", 0) > 0
+        or value.get("checks_passed") != expected_count
+    )
+
+
 def assess_reproduction_status(
     status: dict[str, Any],
     site: dict[str, Any],
     footprint: dict[str, Any],
 ) -> dict[str, Any]:
-    """Assess each evidence gate separately; footprint parity cannot imply site parity."""
+    """Keep parity mismatch distinct from missing/incomplete evidence."""
     inventory = footprint.get("author_inventory_comparison", {})
     table7 = footprint.get("author_validated_zone_table_comparison", {})
     raster = footprint.get("author_aggregate_raster_comparison", {})
@@ -55,46 +67,73 @@ def assess_reproduction_status(
         and site.get("method_profile") == "ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE"
         and site.get("source_products_processed") == 5
     )
-    site_table_pass = site_profile_pass and _comparison_passes(
-        site.get("author_site_series_table_comparison"), 65
-    )
-    p2_table_pass = site_profile_pass and _comparison_passes(
-        site.get("author_p2_table_comparison"), 15
-    )
+    site_comparison = site.get("author_site_series_table_comparison", {})
+    p2_comparison = site.get("author_p2_table_comparison", {})
+    site_table_pass = site_profile_pass and _comparison_passes(site_comparison, 65)
+    p2_table_pass = site_profile_pass and _comparison_passes(p2_comparison, 15)
     analysis_ready = (
         status.get("status") == "OUTPUTS_WRITTEN"
         and status.get("analysis_metrics_complete") is True
     )
     site_and_p2_pass = analysis_ready and site_table_pass and p2_table_pass
+
+    site_p2_definitive_mismatch = (
+        analysis_ready
+        and site_profile_pass
+        and (
+            _comparison_is_definitive_mismatch(site_comparison, 65)
+            or _comparison_is_definitive_mismatch(p2_comparison, 15)
+        )
+    )
+    site_p2_state = (
+        "PASS" if site_and_p2_pass
+        else "MISMATCH" if site_p2_definitive_mismatch
+        else "INCOMPLETE"
+    )
+    footprint_state = (
+        "PASS" if footprint_pass
+        else "MISMATCH" if footprint.get("status") == "FOOTPRINT_SCREEN_COMPUTED"
+        else "INCOMPLETE"
+    )
     combined_pass = site_and_p2_pass and footprint_pass
 
     if combined_pass:
         paper_status = PAPER_PARTIAL_MATCH
-    elif site_and_p2_pass and not footprint_pass:
+    elif site_p2_state == "PASS" and footprint_state == "MISMATCH":
         paper_status = (
             "PARTIAL_AUTHOR_SITE_SERIES_MATCH_FOOTPRINT_PARITY_MISMATCH_"
             "DISPLACEMENT_NULL_STILL_UNVERIFIED"
         )
-    elif footprint_pass and not site_and_p2_pass:
+    elif site_p2_state == "MISMATCH" and footprint_state == "PASS":
         paper_status = (
             "PARTIAL_AUTHOR_SITE_SERIES_OR_P2_PARITY_MISMATCH_FOOTPRINT_MATCH_"
             "DISPLACEMENT_NULL_STILL_UNVERIFIED"
         )
-    else:
+    elif site_p2_state == "MISMATCH" and footprint_state == "MISMATCH":
         paper_status = (
             "PARTIAL_AUTHOR_SITE_SERIES_AND_FOOTPRINT_PARITY_MISMATCH_"
             "DISPLACEMENT_NULL_STILL_UNVERIFIED"
         )
+    else:
+        paper_status = BLOCKED_INCOMPLETE
 
     return {
         "author_site_series_table_parity": bool(site_table_pass),
-        "site_series_table_parity_status": "PASS" if site_table_pass else "MISMATCH",
+        "site_series_table_parity_status": "PASS" if site_table_pass else (
+            "MISMATCH" if _comparison_is_definitive_mismatch(site_comparison, 65) and site_profile_pass else "INCOMPLETE"
+        ),
         "author_p2_table_parity": bool(p2_table_pass),
-        "p2_table_parity_status": "PASS" if p2_table_pass else "MISMATCH",
+        "p2_table_parity_status": "PASS" if p2_table_pass else (
+            "MISMATCH" if _comparison_is_definitive_mismatch(p2_comparison, 15) and site_profile_pass else "INCOMPLETE"
+        ),
         "analysis_outputs_ready": bool(analysis_ready),
         "site_series_and_p2_complete_and_archive_matched": bool(site_and_p2_pass),
+        "site_series_and_p2_evidence_status": site_p2_state,
         "footprint_screen_complete_and_archive_matched": bool(footprint_pass),
-        "footprint_parity_status": "PASS" if footprint_pass else "MISMATCH_OR_INCOMPLETE",
+        "footprint_evidence_status": footprint_state,
+        "footprint_parity_status": "PASS" if footprint_pass else (
+            "MISMATCH" if footprint_state == "MISMATCH" else "INCOMPLETE"
+        ),
         "overall_scientific_screen_complete": bool(combined_pass),
         "paper_reproduction_status": paper_status,
         "displacement_null_status": "UNVERIFIED",

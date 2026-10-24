@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from tools.know_place.scientific_status import (
+    BLOCKED_INCOMPLETE,
     FOOTPRINT_PASS,
     PAPER_PARTIAL_MATCH,
     assess_reproduction_status,
@@ -76,8 +77,8 @@ def test_footprint_pass_cannot_mask_site_series_table_mismatch() -> None:
     assert assessment["footprint_screen_complete_and_archive_matched"] is True
     assert assessment["author_site_series_table_parity"] is False
     assert assessment["site_series_and_p2_complete_and_archive_matched"] is False
+    assert assessment["site_series_and_p2_evidence_status"] == "MISMATCH"
     assert assessment["overall_scientific_screen_complete"] is False
-    assert assessment["paper_reproduction_status"] != PAPER_PARTIAL_MATCH
     assert "SITE_SERIES_OR_P2_PARITY_MISMATCH" in assessment["paper_reproduction_status"]
 
 
@@ -86,6 +87,7 @@ def test_footprint_pass_cannot_mask_p2_table_mismatch() -> None:
 
     assert assessment["author_site_series_table_parity"] is True
     assert assessment["author_p2_table_parity"] is False
+    assert assessment["site_series_and_p2_evidence_status"] == "MISMATCH"
     assert assessment["overall_scientific_screen_complete"] is False
     assert assessment["paper_reproduction_status"] != PAPER_PARTIAL_MATCH
 
@@ -95,6 +97,7 @@ def test_site_and_p2_pass_cannot_mask_footprint_mismatch() -> None:
 
     assert assessment["site_series_and_p2_complete_and_archive_matched"] is True
     assert assessment["footprint_screen_complete_and_archive_matched"] is False
+    assert assessment["footprint_evidence_status"] == "MISMATCH"
     assert assessment["overall_scientific_screen_complete"] is False
     assert "FOOTPRINT_PARITY_MISMATCH" in assessment["paper_reproduction_status"]
 
@@ -116,4 +119,30 @@ def test_missing_processing_completion_blocks_joint_match() -> None:
 
     assert assessment["author_site_series_table_parity"] is True
     assert assessment["overall_scientific_screen_complete"] is False
-    assert assessment["paper_reproduction_status"] != PAPER_PARTIAL_MATCH
+    assert assessment["paper_reproduction_status"] == BLOCKED_INCOMPLETE
+    assert assessment["site_series_and_p2_evidence_status"] == "INCOMPLETE"
+
+
+def test_missing_footprint_output_is_blocked_not_reported_as_parity_mismatch() -> None:
+    status, site, footprint = make_inputs()
+    footprint["status"] = "FOOTPRINT_REPLAY_FAILED"
+    assessment = assess_reproduction_status(status, site, footprint)
+
+    assert assessment["footprint_evidence_status"] == "INCOMPLETE"
+    assert assessment["footprint_parity_status"] == "INCOMPLETE"
+    assert assessment["paper_reproduction_status"] == BLOCKED_INCOMPLETE
+
+
+def test_missing_site_comparison_is_blocked_not_reported_as_parity_mismatch() -> None:
+    status, site, footprint = make_inputs()
+    site["author_site_series_table_comparison"] = {
+        "status": "MISMATCH",
+        "checks_passed": 0,
+        "checks_total": 0,
+        "mismatch_count": 0,
+    }
+    assessment = assess_reproduction_status(status, site, footprint)
+
+    assert assessment["site_series_table_parity_status"] == "INCOMPLETE"
+    assert assessment["site_series_and_p2_evidence_status"] == "INCOMPLETE"
+    assert assessment["paper_reproduction_status"] == BLOCKED_INCOMPLETE

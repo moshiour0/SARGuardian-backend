@@ -288,3 +288,9 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [x] Corrected the footprint step to use `source-run/know-place-inputs.json` and `source-run/author-exact-source-manifest.json`; this resolves both the config-directory mismatch and the relative raw-product paths.
 - [x] Strengthened the regression test to require the active source-run paths and reject the derived-copy path. No HDF5 product was downloaded or processed for this fix.
 - [ ] The corrected path wiring still requires a future explicitly consented manual replay to validate the complete raw-source + footprint run. Do not claim full-footprint parity before that run.
+
+
+## Status vocabulary hardening — 2026-10-25
+
+- [x] Split comparison status into `PASS`, definitive `MISMATCH`, and `INCOMPLETE`. Missing processing outputs or missing/partial comparison sets no longer get mislabeled as a scientific parity mismatch.
+- [x] Added synthetic regression tests for absent footprint outputs and incomplete site comparison reports. Actual source replay remains a separate consent-gated validation; no raw payloads were downloaded for this code change.
