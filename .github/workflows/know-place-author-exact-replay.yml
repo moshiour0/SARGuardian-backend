@@ -218,7 +218,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          RUN_GEOMETRY_HEIGHT_M ${{ inputs.geometry_height_m || '5151' }}
+          RUN_GEOMETRY_HEIGHT_M: ${{ inputs.geometry_height_m || '5151' }}
           RUN_CONTROL_DRAWS: ${{ inputs.control_draws || '1000' }}
           RUN_SEED: ${{ inputs.seed || '260826' }}
         run: python -m tools.know_place.author_exact_acquisition --operation download-and-analyze --out-root "$RUN_ROOT" --science-root "$GITHUB_WORKSPACE/science-source" --consent-marker "[run-know-place]" --geometry-height-m "$RUN_GEOMETRY_HEIGHT_M" --control-draws "$RUN_CONTROL_DRAWS" --seed "$RUN_SEED"
@@ -245,6 +245,42 @@ jobs:
           rm -f "${AUTHOR_ARCHIVE:-$RUN_ROOT/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip}"
           rm -rf "${AUTHOR_TERRAIN_ROOT:-$RUN_ROOT/author-archive-terrain}"
           echo "TEMP_AUTHOR_ARCHIVE_REMOVED=true"
+
+      - name: Finalize combined site and full-footprint scientific status
+        id: final_report
+        if: steps.footprint.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$DERIVED_ROOT/author-exact-analysis-status.json" "$DERIVED_ROOT/know-place-analysis-report.json" "$DERIVED_ROOT/author-raw-site-series-report.json" "$DERIVED_ROOT/footprint/author-footprint-replay-report.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          status_path,report_path,site_path,footprint_path=sys.argv[1:]
+          status,report,site,footprint=[json.loads(Path(path).read_text(encoding="utf-8")) for path in (status_path,report_path,site_path,footprint_path)]
+          expected="PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY"
+          if footprint.get("footprint_screen_parity_status")!=expected:
+              raise SystemExit("ERROR=FOOTPRINT_PARITY_NOT_PASS_FOR_COMBINED_STATUS")
+          if footprint.get("author_aggregate_raster_comparison",{}).get("rasters_passed")!=3:
+              raise SystemExit("ERROR=FOOTPRINT_RASTER_PARITY_INCOMPLETE")
+          if footprint.get("author_inventory_comparison",{}).get("computed_directional_zone_count")!=101:
+              raise SystemExit("ERROR=FOOTPRINT_INVENTORY_PARITY_INCOMPLETE")
+          state="PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
+          report["footprint_screen_parity_status"]=expected
+          report["author_footprint_inventory_comparison"]=footprint["author_inventory_comparison"]
+          report["author_footprint_raster_comparison"]=footprint["author_aggregate_raster_comparison"]
+          report["paper_reproduction_status"]=state
+          report["hazard_detection_status"]="NOT_EVALUATED"
+          status["footprint_screen_parity_status"]=expected
+          status["footprint_screen_complete_and_archive_matched"]=True
+          status["overall_scientific_screen_complete"]=True
+          status["paper_reproduction_status"]=state
+          site["paper_reproduction_status"]=state
+          for path,value in ((report_path,report),(status_path,status),(site_path,site)):
+              Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
+          print("COMBINED_SITE_AND_FOOTPRINT_REPORT_STATUS=PASS")
+          print("PAPER_REPRODUCTION_STATUS="+state)
+          print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
+          PY
 
       - name: Write failure receipt if acquisition stops before derived evidence
         if: always()
