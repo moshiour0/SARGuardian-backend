@@ -198,3 +198,14 @@
 - [x] Validation [40120575317](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40120575317), commit `60dcde7cb3b3895d419b14b689201b6d00d3eb07`: **224 tests passed**, eight workflows plus dispatcher parsed, actionlint checksum/semantic checks passed, live exact-author CMR links 5/5, payload downloads 0.
 - [ ] A fresh explicitly consented manual replay is still required to test the new post-cleanup receipt end-to-end; latest runs [40120575271](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40120575271) and [40120575285](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40120575285) correctly skipped raw acquisition without `[run-know-place]`.
 - Paper reproduction remains `BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED`; hazard detection `NOT_EVALUATED`. Main remains unchanged; no merge.
+
+
+## 23. Independent artifact recheck and latest validation — 2026-10-25
+
+- [x] Re-downloaded artifact `know-place-author-exact-40114703362-1` (ID `12567509703`); independently recomputed SHA-256 `d49b6aa10da27138de6b8b8f2af6a4b5d3ffd86a8ccb87cef7765e3c597a0b59`, matching GitHub's digest. No raw HDF5 is in the artifact or its derived bundle.
+- [x] Independently verified the five manifest entries are exact `P05023`, all download/hash/HDF5 identity/grid checks pass, and total source bytes are 5,473,566,720. Grid: 4311 × 4230, EPSG:32645, 80 m posting. See `docs/know-place/evidence/AUTHOR_EXACT_ARTIFACT_INDEPENDENT_RECHECK_20261025.md` for all five hashes and per-pair counts.
+- [!] Both historical Drive receipts say `raw_source_deleted=false`; they prove remote verification of the derived bundle/receipt copy, not post-delete cleanup. The new post-cleanup receipt path was added later but is not yet exercised end-to-end.
+- [x] Latest validation [40121243012](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40121243012), commit `56ef9f52977a7ac6a0c314b8560bfe4ff27743b0`: **224 tests passed in 2.58 s**, eight workflow YAMLs plus branch dispatcher parsed, pinned actionlint checksum/semantic validation passed; live CMR/data links confirmed 5/5 and raw downloads stayed 0.
+- [x] Latest legacy run [40121243034](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40121243034) skipped acquisition because the exact consent marker was absent. No new raw products were downloaded in that run.
+- [ ] Manually dispatch the author-exact workflow with exact `[run-know-place]` and configured Earthdata/Drive secrets to test post-cleanup receipt; do not infer consent from a prior request.
+- Paper reproduction remains `BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED`; hazard detection remains `NOT_EVALUATED`. Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; do not merge or write to main.
