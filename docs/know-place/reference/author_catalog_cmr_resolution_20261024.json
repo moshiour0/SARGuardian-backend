@@ -5,10 +5,10 @@
   "artifact_zip_bytes": 2823,
   "artifact_zip_sha256": "57426b152b6ab83001d5472d03786c1da78401e75f13018559a3619b6cf132f9",
   "validation": {
-    "run_id": 40092715120,
-    "tested_commit": "e0268bf891329cae4698da0bef8611606da69a4e",
+    "run_id": 40093352981,
+    "tested_commit": "87dce99f5f20b7e02c46d8e5a168c4c877d8a3d2",
     "tests_passed": 204,
-    "duration_seconds": 4.55,
+    "duration_seconds": 4.73,
     "workflow_yaml_count": 7,
     "actionlint": "1.7.12",
     "semantic_validation": "PASS",
@@ -42,7 +42,7 @@
     "main_sha": "2218dfeb73353080d8d94bd733d9e7bd9a848886",
     "data_urls": "PASS_5_OF_5",
     "raw_source_byte_identity": "UNVERIFIED",
-    "latest_legacy_raw_run_id": 40092715126,
+    "latest_legacy_raw_run_id": 40093380207,
     "latest_legacy_raw_run_status": "SKIPPED_MISSING_EXPLICIT_CONSENT_MARKER",
     "dedicated_author_exact_workflow_run_id": 40058988016,
     "dedicated_author_exact_run_status": "SKIPPED_MISSING_EXPLICIT_CONSENT_MARKER"
@@ -52,11 +52,11 @@
     "cmr_virtual_directory": "https://cmr.earthdata.nasa.gov/virtual-directory/collections/C2854341702-ASF/temporal/2026/06/20"
   },
   "evidence_artifact": {
-    "run_id": 40092715120,
-    "id": 12559850649,
+    "run_id": 40093352981,
+    "id": 12559877337,
     "name": "know-place-author-exact-live-cmr-access-evidence",
     "zip_bytes": 4118,
-    "sha256": "e2d62d5b955e76083c90b64ace06f7e69109da628f7a5f37f62f15d37519377f",
+    "sha256": "20929525a6d20e4011563d23ddde16d1144b5f4afbad44505b54c220c42e8897",
     "downloaded_and_integrity_checked": true
   },
   "products": [
