@@ -54,3 +54,17 @@ Current status:
 - Operational warning / alert: not implemented.
 
 Raw-source replay was not run. A branch push alone is not authorization; the exact [run-know-place] consent marker remains required.
+
+
+## Implementation follow-up — 2026-10-25
+
+The audit above records the state of the array-only kernels as of 2026-10-24. Since then, branch `feat/know-place-analysis` has gained the end-to-end *runner and gated workflow integration*:
+
+- `tools/know_place/author_footprint_replay.py` connects exact-source manifest/hash verification, the strict GOFF reader, author per-pixel geometry coefficient builder, five ordered footprint screen passes, 2-of-5 persistence, 4-connected component filtering, hit-field observations, terrain-direction attribution and archive comparisons.
+- Before running the footprint pass, `.github/workflows/know-place-author-exact-replay.yml` downloads the author Zenodo ZIP with the pinned SHA-256, validates ZIP CRC, extracts only the three required terrain rasters with individual SHA-256 checks, and runs the screen against the already downloaded five raw P05023 granules. It does not re-download the GOFF products in the footprint step.
+- After the five-pair screen, the workflow requires all three derived footprint rasters to match their archived golden rasters and the computed directional candidate inventory to match all 101 source-derived zones, with 106 components before directional filtering and 101 directional passes. A mismatch fails the overall workflow after producing and retaining the available evidence; the raw HDF5 retention/deletion contract remains separate.
+- The new helper's unit tests and archive-inventory logic passed in isolated validation [run 40133358388](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40133358388): **238 tests passed**, eight workflow YAML files parsed, pinned actionlint validation passed, and live ASF identity checks passed without raw downloads. Shell continuation errors found by actionlint were corrected in the following branch commit.
+
+**Important boundary:** this is implementation plus synthetic/contract validation, not yet a full-footprint numerical replay. The latest push-triggered author workflows were consent-gated and skipped raw acquisition. A fresh manual workflow dispatch with exact `[run-know-place]` authorization is still required to run P2 and footprint-wide source processing. Until its artifacts show 3/3 raster parity and 101/101 candidate inventory parity, do not claim that the published full-footprint screen has been reproduced.
+
+Even after successful screen parity, displacement-null reproduction remains blocked because the supplied archive lacks the exact draw-level generator/script. Hazard-detection precision, recall, false-alarm rate, lead time and operational warning skill remain `NOT_EVALUATED`. Main remains unchanged; all integration work is isolated on `feat/know-place-analysis`.
