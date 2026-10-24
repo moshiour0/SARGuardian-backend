@@ -549,6 +549,10 @@ def compare_candidate_inventory(
                     "reason": "DIRECTIONAL_QUALITY_FLAG_MISMATCH",
                 })
     extra = [{"lon": key[0], "lat": key[1]} for key in sorted(by_key)]
+    mismatch_count_by_metric: dict[str, int] = {}
+    for row in mismatches:
+        metric = str(row.get("metric", "UNSPECIFIED"))
+        mismatch_count_by_metric[metric] = mismatch_count_by_metric.get(metric, 0) + 1
     passed = (
         not missing and not extra and not mismatches
         and len(expected_rows) == 106 and len(computed_rows) == 106
@@ -564,6 +568,7 @@ def compare_candidate_inventory(
         "missing_expected": missing,
         "extra_computed": extra,
         "mismatch_count": len(mismatches),
+        "mismatch_count_by_metric": mismatch_count_by_metric,
         "mismatches": mismatches[:200],
         "max_absolute_error_by_metric": maximum_error,
         "numeric_tolerance": numeric_tolerance,
