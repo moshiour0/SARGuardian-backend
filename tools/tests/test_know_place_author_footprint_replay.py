@@ -187,7 +187,7 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert result["expected_candidate_count"] == result["computed_candidate_count"] == 106
     assert result["matched_centroid_count"] == 106
     assert result["expected_directional_quality_pass_count"] == 101
-    assert result["computed_directional_pass_count"] == 101
+    assert result["computed_quality_pass_count"] == 101
     assert result["mismatch_count"] == 0
     assert result["score_formula_audit"]["postprocessed_formula_matches"] == 106
     assert result["score_formula_audit"]["status"] == "PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
