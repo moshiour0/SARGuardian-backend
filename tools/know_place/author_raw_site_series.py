@@ -342,6 +342,16 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
         for check in row["archive_table_comparison"]["comparisons"]
         if not check["passed"]
     ]
+    site_table_match = (
+        len(pair_reports) == 5
+        and comparison_count == 65
+        and comparison_passed == 65
+        and not mismatches
+    )
+    paper_status = (
+        "PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
+        if site_table_match else PAPER_BLOCKED
+    )
     report = {
         "schema_version": "know-place-author-raw-site-series/1.0",
         "status": "SCIENTIFIC_METRICS_COMPUTED",
@@ -369,7 +379,7 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             "geometry_height_m_from_exploratory_config_ignored": config.get("geometry_height_m"),
             "vertical_datum_correction_applied": False,
         },
-        "paper_reproduction_status": PAPER_BLOCKED,
+        "paper_reproduction_status": paper_status,
         "hazard_detection_status": "NOT_EVALUATED",
         "pair_reports": pair_reports,
         "limitations": [
