@@ -467,7 +467,8 @@ def _candidate_table(
         # This is the deposited final score formula in fix_zonal_attrs.py, not
         # the provisional centroid score written by wide_screen.py.
         score = float(n_epochs * anomaly_rounded * R_res) if np.isfinite(anomaly_rounded + R_res) else math.nan
-        quality_pass = bool(np.isfinite(R_res) and R_res >= 0.75 and np.isfinite(d_down) and d_down < 45.0)
+        valid_directional = bool(np.isfinite(d_down) and d_down < 45.0)
+        quality_pass = bool(np.isfinite(R_res) and R_res >= 0.75 and valid_directional)
         rows.append({
             "component_id": zone_id,
             "lon": round(float(lon), 5), "lat": round(float(lat), 5),
@@ -479,13 +480,15 @@ def _candidate_table(
             "elev_m": float(elev), "slope_deg": float(slope),
             "downslope_az": down_az, "range_az": gr_az,
             "d_downslope": d_down, "d_range": d_range,
-            "valid_directional": quality_pass,
+            "valid_directional": valid_directional,
+            "quality": quality_pass,
             "center_row": row_centre, "center_col": col_centre,
         })
     rows.sort(key=lambda row: row["score"], reverse=True)
     return rows, {
         "component_count": len(rows),
         "directional_pass_count": sum(bool(row["valid_directional"]) for row in rows),
+        "quality_pass_count": sum(bool(row["quality"]) for row in rows),
         "minimum_component_pixels": 10,
         "directional_validation_max_misfit_deg_strict": 45.0,
         "centroid_policy": "mean of cell centres, equivalent to polygon centroid for union of equal-size grid cells",
@@ -518,7 +521,7 @@ def compare_candidate_inventory(
     missing: list[dict[str, Any]] = []
     maximum_error: dict[str, float] = {name: 0.0 for name in CANDIDATE_METRIC_COLUMNS}
     expected_quality_pass = 0
-    computed_quality_pass = sum(bool(row["valid_directional"]) for row in computed_rows)
+    computed_quality_pass = sum(bool(row["quality"]) for row in computed_rows)
     archived_residual_score_match_count = 0
     score_formula_rows: list[dict[str, Any]] = []
     for expected in expected_rows:
@@ -556,16 +559,16 @@ def compare_candidate_inventory(
         if quality_raw not in {"true", "false"}:
             mismatches.append({
                 "lon": key[0], "lat": key[1], "metric": "quality",
-                "expected": expected.get("quality"), "actual": bool(actual["valid_directional"]),
+                "expected": expected.get("quality"), "actual": bool(actual["quality"]),
                 "reason": "ARCHIVE_QUALITY_FLAG_INVALID",
             })
         else:
             expected_quality = quality_raw == "true"
             expected_quality_pass += int(expected_quality)
-            if expected_quality != bool(actual["valid_directional"]):
+            if expected_quality != bool(actual["quality"]):
                 mismatches.append({
                     "lon": key[0], "lat": key[1], "metric": "quality",
-                    "expected": expected_quality, "actual": bool(actual["valid_directional"]),
+                    "expected": expected_quality, "actual": bool(actual["quality"]),
                     "reason": "DIRECTIONAL_QUALITY_FLAG_MISMATCH",
                 })
     extra = [{"lon": key[0], "lat": key[1]} for key in sorted(by_key)]
@@ -584,7 +587,7 @@ def compare_candidate_inventory(
         "computed_candidate_count": len(computed_rows),
         "matched_centroid_count": len(expected_rows) - len(missing),
         "expected_directional_quality_pass_count": expected_quality_pass,
-        "computed_directional_pass_count": computed_quality_pass,
+        "computed_quality_pass_count": computed_quality_pass,
         "missing_expected": missing,
         "extra_computed": extra,
         "mismatch_count": len(mismatches),
@@ -618,7 +621,7 @@ def compare_validated_zone_table(
     with zipfile.ZipFile(archive_path) as archive:
         text = archive.read("tables/TableS7_all_validated_zones.csv").decode("utf-8")
     expected_rows = list(csv.DictReader(text.splitlines()))
-    computed = [row for row in computed_rows if bool(row["valid_directional"])]
+    computed = [row for row in computed_rows if bool(row["quality"])]
     by_key: dict[tuple[float, float], dict[str, Any]] = {}
     for row in computed:
         key = (round(float(row["lon"]), 5), round(float(row["lat"]), 5))
