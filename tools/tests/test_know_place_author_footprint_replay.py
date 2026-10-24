@@ -107,7 +107,7 @@ def _expected_inventory_csv(rows: list[dict[str, object]]) -> str:
         record = {column: row[column] for column in CANDIDATE_METRIC_COLUMNS}
         record["lon"] = row["lon"]
         record["lat"] = row["lat"]
-        record["quality"] = bool(row["valid_directional"])
+        record["quality"] = bool(row["quality"])
         writer.writerow(record)
     return stream.getvalue()
 
@@ -156,11 +156,11 @@ def _make_candidate_rows(count: int = 106) -> list[dict[str, object]]:
             "n_epochs": 3,
             "anom_m": 0.6,
             "R": 0.8,
-            "score": 1.62,
+            "score": 3.0 * 0.6 * (0.90 - i * 0.001),
             "disp_az": angle,
             "res_mag_m": 1.0,
             "R_raw": 0.95,
-            "R_res": 0.9,
+            "R_res": 0.90 - i * 0.001,
             "mag_m": 1.2,
             "elev_m": 5000.0,
             "slope_deg": 20.0,
@@ -189,6 +189,9 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert result["expected_directional_quality_pass_count"] == 101
     assert result["computed_quality_pass_count"] == 101
     assert result["mismatch_count"] == 0
+    assert result["ranking_order_comparison"]["status"] == "PASS"
+    assert result["ranking_order_comparison"]["source_inventory_sorted_descending_by_final_score"] is True
+    assert result["ranking_order_comparison"]["rank_inversion_count"] == 0
     assert result["score_formula_audit"]["postprocessed_formula_matches"] == 106
     assert result["score_formula_audit"]["status"] == "PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
 
@@ -197,6 +200,16 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert validated["expected_zone_count"] == validated["computed_directional_zone_count"] == 101
     assert validated["matched_centroid_count"] == 101
     assert validated["mismatch_count"] == 0
+
+    reversed_archive_path = tmp_path / "author-inventory-wrong-order.zip"
+    reversed_rows = list(reversed(rows))
+    with zipfile.ZipFile(reversed_archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("inventory/candidates_attributed.csv", _expected_inventory_csv(reversed_rows))
+        archive.writestr("tables/TableS7_all_validated_zones.csv", _table_s7_csv(rows[:101]))
+    wrong_order = compare_candidate_inventory(rows, reversed_archive_path, numeric_tolerance=1e-9)
+    assert wrong_order["status"] == "MISMATCH"
+    assert wrong_order["ranking_order_comparison"]["status"] == "MISMATCH"
+    assert wrong_order["ranking_order_comparison"]["source_inventory_sorted_descending_by_final_score"] is False
 
     modified = [dict(row) for row in rows]
     modified[50]["R_res"] = 0.91
