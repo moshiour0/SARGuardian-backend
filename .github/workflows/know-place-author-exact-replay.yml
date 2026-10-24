@@ -293,7 +293,7 @@ jobs:
           status["paper_reproduction_status"]=state
           site["paper_reproduction_status"]=state
           for path,value in ((report_path,report),(status_path,status),(site_path,site)):
-              Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
+              Path(path).write_text(json.dumps(value,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
           print("COMBINED_SITE_AND_FOOTPRINT_REPORT_STATUS="+("PASS" if full_parity else "PARTIAL_BLOCKED"))
           print("AUTHOR_FINAL_ZONAL_SCORE_FORMULA_STATUS="+str(score_audit.get("status")))
           print("PAPER_REPRODUCTION_STATUS="+state)
