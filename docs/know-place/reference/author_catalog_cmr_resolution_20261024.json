@@ -1,0 +1,79 @@
+{
+  "schema_version": "know-place-author-cmr-catalog-resolution/1.0",
+  "catalog_run_id": 40056005969,
+  "artifact_id": 12544869799,
+  "artifact_zip_bytes": 2823,
+  "artifact_zip_sha256": "57426b152b6ab83001d5472d03786c1da78401e75f13018559a3619b6cf132f9",
+  "validation": {
+    "run_id": 40056005969,
+    "tests_passed": 191,
+    "duration_seconds": 2.35,
+    "workflow_yaml_count": 6,
+    "actionlint": "1.7.12",
+    "result": "PASS"
+  },
+  "cmr": {
+    "api": "https://cmr.earthdata.nasa.gov/search/granules.json",
+    "collection_concept_id": "C2854341702-ASF",
+    "producer_granule_id_query": {
+      "http_status": 200,
+      "result_count": 1
+    },
+    "readable_granule_name_query": {
+      "http_status": 200,
+      "result_count": 1
+    }
+  },
+  "product": {
+    "granule_name": "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001",
+    "granule_concept_id": "G4248299988-ASF",
+    "collection_concept_id": "C2854341702-ASF",
+    "interval": "2026-06-20/2026-07-02",
+    "release_id": "P05023",
+    "time_start": "2026-06-20T23:39:21.000Z",
+    "time_end": "2026-07-02T23:39:55.999Z",
+    "updated": "2026-07-15T16:07:07.506Z",
+    "catalog_identity_status": "EXACT_CMR_GRANULE_CONFIRMED",
+    "source_sha256": null,
+    "source_bytes": null,
+    "source_downloaded": false,
+    "official_data_url": "https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5",
+    "s3_uri": "s3://sds-n-cumulus-prod-nisar-products/NISAR_L2_GOFF_PROVISIONAL_V1/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001/NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5"
+  },
+  "other_author_pairs": [
+    {
+      "interval": "2026-07-02/2026-07-14",
+      "status": "EXACT_URL_CONFIRMED",
+      "source_sha256": null
+    },
+    {
+      "interval": "2026-07-14/2026-07-26",
+      "status": "EXACT_URL_CONFIRMED",
+      "source_sha256": null
+    },
+    {
+      "interval": "2026-07-26/2026-08-19",
+      "status": "EXACT_URL_CONFIRMED",
+      "source_sha256": null
+    },
+    {
+      "interval": "2026-08-19/2026-08-31",
+      "status": "EXACT_URL_CONFIRMED",
+      "source_sha256": null
+    }
+  ],
+  "gates": {
+    "catalog_identity": "PASS_5_OF_5",
+    "source_sha256": "0_OF_5",
+    "raw_payload_downloads": 0,
+    "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
+    "hazard_detection_status": "NOT_EVALUATED",
+    "raw_replay_run_id": 40056005985,
+    "raw_replay_status": "SKIPPED_MISSING_EXPLICIT_CONSENT_MARKER",
+    "main_sha": "2218dfeb73353080d8d94bd733d9e7bd9a848886"
+  },
+  "references": {
+    "cmr_api_docs": "https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html",
+    "cmr_virtual_directory": "https://cmr.earthdata.nasa.gov/virtual-directory/collections/C2854341702-ASF/temporal/2026/06/20"
+  }
+}
