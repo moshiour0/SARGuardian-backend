@@ -1,6 +1,6 @@
 # Know Place Analysis — Isolated Runbook
 
-This guide applies only to branch `feat/know-place-analysis`. Do not run the existing source-AOI workflow as a substitute and do not merge these files to `main`.
+This guide applies only to branch `feat/know-place-analysis`. Do not run the existing source-AOI workflow as a substitute and do not merge these files to `main`. Read the [living branch context](know-place/CONTEXT.md) before resuming work in a new chat, and update it whenever material evidence or status changes.
 
 ## Current phase
 
@@ -28,7 +28,7 @@ Reference box (the user's GEE polygon):
 POLYGON ((85.500000 28.265000, 85.565000 28.265000, 85.565000 28.318000, 85.500000 28.318000, 85.500000 28.265000))
 ```
 
-The paper and Supplementary Fig. 2 specify these crown bounds, area 2.07 km²; the same rectangular bounds are used in the current WKT. This resolves the coordinate-geometry uncertainty. Exact raster mask inclusion / pixel-centre and edge rules must still be checked against the author golden raster; the historic target-pair replay has 296 valid crown cells whereas Supplementary Table 4 reports 298:
+The paper and Supplementary Fig. 2 specify these crown bounds, area 2.07 km²; the same rectangular bounds are used in the current WKT. The previous “296 versus 298” claim was an invalid cross-estimand comparison: 296 is the displacement-valid series count (`n`), while 298 is the polygon-null R-valid count (`n_px`). Across all five exported fields, displacement counts `[283, 294, 296, 292, 195]` match `tables/nisar_pot_series.json` key `n`; the separately recomputed R-valid counts `[302, 299, 302, 298, 202]` match `tables/polygon_null.json` key `n_px`. Pixelwise source-grid mask parity is still unverified; see the [living context](know-place/CONTEXT.md) and archive audit:
 
 ```text
 POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))
