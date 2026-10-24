@@ -122,7 +122,9 @@ def test_author_site_series_uses_cropped_crown_coherence():
         east, north, (0.0, 8.0, 0.0, 8.0), 12,
         crown_bounds_lonlat=(2.0, 2.0, 6.0, 6.0),
     )
-    assert result["valid_crown_pixels"] == 16
+    assert result["displacement_valid_crown_cells"] == 16
+    assert result["P1_crown_R_valid_cells"] > 0
+    assert result["P1_background_R_valid_cells"] > 0
     assert result["P1_R_crown"] == pytest.approx(1.0)
     assert result["P1_R_background"] == pytest.approx(1.0)
     assert result["crown_median_rate_cm_per_day"] == pytest.approx(100.0 / 12.0)
@@ -141,6 +143,8 @@ def test_author_polygon_null_is_deterministic_and_uses_strict_quantiles():
     assert first == second
     assert first["candidate_centres_examined"] == 40
     assert first["accepted_draws"] > 0
+    assert first["null_p5"] == pytest.approx(1.0)
+    assert first["null_p95"] == pytest.approx(1.0)
     assert first["crown_percentile_strict_less_than"] == pytest.approx(0.0)
 
 

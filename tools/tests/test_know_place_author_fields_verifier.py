@@ -11,7 +11,7 @@ from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
 from tools.know_place.author_parity import author_coherence_map
-from tools.know_place.verify_author_fields import verify_author_archive
+from tools.know_place.verify_author_fields import _author_table_parity, verify_author_archive
 
 
 def _tiny_field_tiff() -> bytes:
@@ -61,6 +61,23 @@ def test_field_verifier_accepts_manifest_valid_author_r_band(tmp_path: Path) -> 
     assert len(report["site_fields"]) == 1
     assert report["site_fields"][0]["R_band_match"] is True
     assert report["site_fields"][0]["maximum_absolute_error"] <= 1e-6
+    assert report["author_table_parity"]["status"] == "NOT_APPLICABLE_FIELD_ONLY_FIXTURE"
+
+
+def test_full_archive_table_parity_fails_closed_when_reference_tables_are_missing() -> None:
+    result = _author_table_parity(
+        names={"fields/offsets_20260620_20260702.tif"},
+        payloads={},
+        read_member=lambda name: b"{}",
+        required=True,
+    )
+    assert result["status"] == "BLOCKED_REFERENCE_TABLES_MISSING"
+    assert set(result["missing_tables"]) == {
+        "tables/nisar_pot_series.json",
+        "tables/polygon_null.json",
+        "tables/displacement_null.json",
+        "tables/TableS4_site_series.json",
+    }
 
 
 def test_field_verifier_flags_r_band_mismatch(tmp_path: Path) -> None:

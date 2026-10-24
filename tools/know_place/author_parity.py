@@ -326,10 +326,12 @@ def author_site_series_statistics(
         raise AuthorParityError("AUTHOR_COHERENCE_HAS_NO_VALID_WINDOWS")
     median_mag = float(np.median(crown_mag))
     return {
-        "valid_crown_pixels": int(crown_mag.size),
+        "displacement_valid_crown_cells": int(crown_mag.size),
         "crown_slice_shape": [int(crop_mag.shape[0]), int(crop_mag.shape[1])],
         "crown_median_displacement_m": median_mag,
         "crown_median_rate_cm_per_day": median_mag / interval_days * 100.0,
+        "P1_crown_R_valid_cells": int(crown_r.size),
+        "P1_background_R_valid_cells": int(background_r.size),
         "P1_R_crown": float(np.median(crown_r)),
         "P1_R_background": float(np.median(background_r)),
     }
@@ -387,4 +389,6 @@ def author_polygon_null_statistics(
         "rng_policy": "shared numpy.default_rng(20260907), one sequence across the five pairs",
         "crown_percentile_strict_less_than": float(np.mean(draws < crown_R) * 100.0),
         "fraction_controls_strictly_above_box": float(np.mean(draws > box_R) * 100.0),
+        "null_p5": float(np.percentile(draws, 5)),
+        "null_p95": float(np.percentile(draws, 95)),
     }
