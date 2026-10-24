@@ -210,10 +210,11 @@ jobs:
           print("AUTHOR_ARCHIVE_CRC=PASS")
           print("RAW_NISAR_HDF5_DOWNLOADS=0")
           PY
+          echo "archive_ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Query exact CMR records, preflight authenticated URLs, download and analyse
         id: analysis
-        if: steps.credentials.outputs.secrets_ready == 'true' && steps.author_archive.outputs.archive_ready != 'false'
+        if: steps.credentials.outputs.secrets_ready == 'true' && steps.author_archive.outputs.archive_ready == 'true'
         continue-on-error: true
         shell: bash
         env:
