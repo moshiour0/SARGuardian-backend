@@ -545,7 +545,7 @@ def analyze_config(config_path: str | Path, output_dir: str | Path) -> dict[str,
         analysis_status = "PARTIAL_INSUFFICIENT_DATA"
     paper_status = "BLOCKED_AUTHOR_GOLDEN_DATA_PARITY_NOT_VERIFIED"
     if not exact_geometry:
-        paper_status = "BLOCKED_CROWN_GEOMETRY_NOT_AUTHOR_SUPPLEMENT_VERIFIED"
+        paper_status = "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
     result = {
         "schema_version": OUTPUT_SCHEMA,
         "project": "Know Place Analysis",

@@ -38,6 +38,7 @@ CROWN_GEOMETRY_HEIGHT_M = 5151.0
 DEFAULT_CONTROL_DRAWS = 1000
 DEFAULT_CONTROL_SEED = 260826
 DEFAULT_COHERENCE_MINIMUM = 1
+PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS = "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
 TRUSTED_ASF_HOSTS = (
     "asf.alaska.edu",
     ".asf.alaska.edu",
@@ -409,7 +410,7 @@ def _build_analysis_config(
         "source_manifest_sha256": source_manifest_sha256,
         "configuration": config,
         "scientific_scope": "Exploratory metrics from author-exact source granules. Not a validated hazard detector.",
-        "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
+        "paper_reproduction_status": PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS,
         "hazard_detection_status": "NOT_EVALUATED",
     }
     _write_json_atomic(run_root / "run-config-provenance.json", provenance)
@@ -736,6 +737,7 @@ def acquire_and_analyze(
     source_manifest.update(source_receipt_counts(source_manifest["products"]))
     source_manifest["author_exact_source_sha256_count"] = source_manifest["source_sha256_count"]
     source_manifest["raw_source_byte_identity"] = "FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED"
+    source_manifest["paper_reproduction_status"] = PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
     source_manifest["download_completed_at_utc"] = _utc_now()
     _write_json_atomic(manifest_path, source_manifest)
     _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
@@ -780,7 +782,9 @@ def acquire_and_analyze(
                 for product in source_manifest["products"]
             },
         }
-        report["paper_reproduction_status"] = "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED"
+        # Keep the analyzer's specific scientific blocker. Source-byte identity is
+        # evidenced separately by the five validated SHA-256 pins above.
+        report.setdefault("paper_reproduction_status", PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS)
         report["hazard_detection_status"] = "NOT_EVALUATED"
         _write_json_atomic(report_path, report)
         analysis_success = analysis_result_is_complete(completed.returncode, report)

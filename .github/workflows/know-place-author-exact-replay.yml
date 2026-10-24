@@ -301,12 +301,15 @@ jobs:
           for receipt in (drive1,drive2):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_EXACT_DRIVE_RETENTION_NOT_VERIFIED")
-          if report.get("paper_reproduction_status")!="BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED":
-              raise SystemExit("ERROR=PAPER_PARITY_MUST_REMAIN_BLOCKED")
+          if report.get("paper_reproduction_status")!="BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED":
+              raise SystemExit("ERROR=PAPER_PARITY_STATUS_NOT_ALIGNED_WITH_VERIFIED_SOURCE_BYTES")
+          if source.get("raw_source_byte_identity")!="FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED":
+              raise SystemExit("ERROR=AUTHOR_SOURCE_BYTE_IDENTITY_NOT_VERIFIED")
           if report.get("hazard_detection_status")!="NOT_EVALUATED":
               raise SystemExit("ERROR=HAZARD_DETECTION_MUST_REMAIN_NOT_EVALUATED")
           print("AUTHOR_EXACT_MEASUREMENT_STATUS=PASS")
-          print("PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED")
+          print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
+          print("PAPER_REPRODUCTION_STATUS=BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED")
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           print("AUTHOR_EXACT_DRIVE_RETENTION=PASS")
           PY

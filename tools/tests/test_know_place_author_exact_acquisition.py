@@ -267,6 +267,8 @@ def test_analysis_config_records_source_manifest_hash(tmp_path) -> None:
     assert len(config["products"]) == 5
     assert all(product["path"].startswith("raw/") for product in config["products"])
     assert provenance["source_manifest_sha256"] == "c" * 64
+    assert provenance["paper_reproduction_status"] == acquisition.PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
+    assert acquisition.PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS == "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
     assert provenance["config_sha256"] == acquisition.sha256_file(run_root / "know-place-inputs.json")
     assert saved == config
 
