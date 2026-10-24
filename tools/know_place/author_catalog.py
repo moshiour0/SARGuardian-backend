@@ -358,7 +358,7 @@ def _fallback_candidate_record(
     return None
 
 
-def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _discover_author_products_with_fallback(*, include_cmr: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Run exact-ID lookups, then an AOI/date catalog search for any unresolved pair.
 
     The fallback is discovery-only. It records same-pair release variants, but
@@ -519,14 +519,56 @@ def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], lis
             target_row["spatiotemporal_fallback_search_status"] = status
             target_row["same_interval_candidates"] = matching_candidates
 
+        cmr_record = None
+        cmr_report: dict[str, Any] = {
+            "status": "NOT_RUN_OFFLINE_TEST_MODE" if not include_cmr else "NOT_NEEDED_EXACT_ASF_MATCH",
+            "target_granule_name": target["granule_name"],
+            "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+            "exact_author_id_found": False,
+            "source_downloads": 0,
+        }
+        if include_cmr and not exact_found and target_row.get("catalog_identity_status") == "NOT_FOUND":
+            try:
+                cmr_record, cmr_report = query_cmr_exact_author_product(target)
+            except Exception as exc:
+                # Catalog transport/parsing failure is evidence, not an exact-ID miss.
+                cmr_record = None
+                cmr_report = {
+                    "status": "QUERY_FAILED",
+                    "target_granule_name": target["granule_name"],
+                    "interval": target["interval"],
+                    "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+                    "exception_type": type(exc).__name__,
+                    "exact_author_id_found": False,
+                    "source_downloads": 0,
+                }
+            if cmr_record is not None:
+                cmr_record["direct_asf_id_query_status"] = "NOT_FOUND"
+                cmr_record["asf_fallback_status"] = target_row.get(
+                    "spatiotemporal_fallback_search_status", "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
+                )
+                cmr_record["same_interval_variant_candidates"] = matching_candidates
+                cmr_record["asf_catalog_identity_status"] = "NOT_FOUND"
+                cmr_record["source_sha256"] = None
+                cmr_record["source_sha256_status"] = "NOT_DOWNLOADED"
+                verified[verified.index(target_row)] = cmr_record
+                target_row = cmr_record
+
+        cmr_exact_found = cmr_record is not None
+        fallback_status = (
+            "EXACT_AUTHOR_ID_CONFIRMED_BY_CMR" if cmr_exact_found else
+            ("EXACT_AUTHOR_ID_CONFIRMED_BY_ASF" if exact_found else (
+                "CMR_QUERY_FAILED" if include_cmr and cmr_report.get("status") == "QUERY_FAILED" else (
+                    "QUERY_FAILED" if all_fallbacks_failed else (
+                        "RESULT_CAP_REACHED" if result_cap_reached else "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
+                    )
+                )
+            ))
+        )
         fallback_reports.append({
             "target_granule_name": target["granule_name"],
             "interval": target["interval"],
-            "status": "EXACT_AUTHOR_ID_CONFIRMED" if exact_found else (
-                "QUERY_FAILED" if all_fallbacks_failed else (
-                    "RESULT_CAP_REACHED" if result_cap_reached else "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
-                )
-            ),
+            "status": fallback_status,
             "spatiotemporal_query": {
                 key: value for key, value in spatial_query.items() if key != "intersectsWith"
             },
@@ -539,22 +581,25 @@ def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], lis
             "wildcard_query_result_count": len(wildcard_candidates) if wildcard_error is None else None,
             "wildcard_query_exception_type": wildcard_error,
             "same_interval_candidates": matching_candidates,
-            "exact_author_id_found": exact_found,
+            "asf_exact_author_id_found": exact_found,
+            "cmr_exact_author_id_found": cmr_exact_found,
+            "cmr_fallback": cmr_report,
+            "exact_author_id_found": exact_found or cmr_exact_found,
             "source_downloads": 0,
         })
     return verified, fallback_reports
 
 
 def discover_author_products() -> list[dict[str, Any]]:
-    """Query exact IDs and catalog-only fallback searches; never downloads GOFF."""
-    return _discover_author_products_with_fallback()[0]
+    """Query ASF and NASA CMR catalog metadata; never downloads GOFF payloads."""
+    return _discover_author_products_with_fallback(include_cmr=True)[0]
 
 
 def write_manifest(out_path: str | Path) -> dict[str, Any]:
-    products, fallback_searches = _discover_author_products_with_fallback()
+    products, fallback_searches = _discover_author_products_with_fallback(include_cmr=True)
     blocked = [
         row for row in products
-        if row.get("catalog_identity_status") != "EXACT_URL_CONFIRMED"
+        if row.get("catalog_identity_status") not in CMR_CONFIRMED_STATUSES
     ]
     manifest = {
         "schema_version": "know-place-author-catalog-manifest/1.0",
@@ -571,6 +616,9 @@ def write_manifest(out_path: str | Path) -> dict[str, Any]:
         ),
         "products": products,
         "spatiotemporal_fallback_searches": fallback_searches,
+        "cmr_collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+        "catalog_identity_confirmed_count": sum(p.get("catalog_identity_status") in CMR_CONFIRMED_STATUSES for p in products),
+        "raw_payload_downloads": 0,
     }
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -590,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"KNOW_PLACE_AUTHOR_CATALOG_STATUS={manifest['status']}")
     print(f"AUTHOR_GRANULE_COUNT={len(manifest['products'])}")
-    print(f"AUTHOR_GRANULES_CONFIRMED={sum(p.get('catalog_identity_status') == 'EXACT_URL_CONFIRMED' for p in manifest['products'])}")
+    print(f"CATALOG_GRANULE_IDENTITIES_CONFIRMED={manifest['catalog_identity_confirmed_count']}")
     print(f"BLOCKING_PRODUCTS={manifest['blocking_product_count']}")
     print("SOURCE_DOWNLOADS=0")
     print(f"MANIFEST={args.out.resolve()}")
