@@ -78,11 +78,67 @@ on:
         description: "Optional reference/background polygon WKT; blank uses a 2 km local-context component-median reference"
         required: false
         type: string
+      consent_marker:
+        description: "Required: enter exactly [run-know-place] when execute_downloads is true"
+        required: false
+        default: ""
+        type: string
       execute_downloads:
         description: "Download selected raw GOFF products, compute measurements, GeoTIFFs and dashboard, and upload a derived result bundle to Drive"
         required: true
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      aoi_wkt:
+        required: true
+        type: string
+      start_date:
+        required: true
+        type: string
+      end_date:
+        required: true
+        type: string
+      hazard_mode:
+        required: false
+        default: mixed
+        type: string
+      analysis_mode:
+        required: false
+        default: exploratory
+        type: string
+      geometry_height_m:
+        required: false
+        default: ""
+        type: string
+      coherence_neighbours:
+        required: false
+        default: "1"
+        type: string
+      polarization:
+        required: false
+        default: HH
+        type: string
+      track:
+        required: false
+        default: ANY
+        type: string
+      direction:
+        required: false
+        default: ANY
+        type: string
+      reference_wkt:
+        required: false
+        default: ""
+        type: string
+      consent_marker:
+        required: false
+        default: ""
+        type: string
+      execute_downloads:
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -132,6 +188,7 @@ jobs:
           TRACK: ${{ inputs.track }}
           DIRECTION: ${{ inputs.direction }}
           REFERENCE_WKT: ${{ inputs.reference_wkt }}
+          CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -202,6 +259,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$CONSENT_MARKER" != "[run-know-place]" ]]; then
+            echo "ERROR=EXPLICIT_RAW_DOWNLOAD_CONSENT_MARKER_REQUIRED"
+            exit 1
+          fi
           if [[ -z "$EARTHDATA_TOKEN" && ( -z "$EARTHDATA_USERNAME" || -z "$EARTHDATA_PASSWORD" ) ]]; then
             echo "ERROR=EARTHDATA_CREDENTIALS_REQUIRED_BEFORE_DOWNLOAD"
             exit 1
