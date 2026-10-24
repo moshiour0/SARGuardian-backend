@@ -878,7 +878,11 @@ def acquire_and_analyze(
             "complete_and_archive_matched": author_site_success,
         }
         report["exploratory_analysis_complete"] = exploratory_analysis_success
-        report["paper_reproduction_status"] = PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
+        report["paper_reproduction_status"] = (
+            "PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
+            if author_site_success
+            else PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
+        )
         report["hazard_detection_status"] = "NOT_EVALUATED"
         _write_json_atomic(report_path, report)
 
