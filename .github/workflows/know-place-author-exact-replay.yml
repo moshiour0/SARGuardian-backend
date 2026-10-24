@@ -231,8 +231,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m tools.know_place.author_footprint_replay \
-            --config "$DERIVED_ROOT/know-place-inputs.json" \
-            --source-manifest "$DERIVED_ROOT/author-exact-source-manifest.json" \
+            --config "$RUN_ROOT/source-run/know-place-inputs.json" \
+            --source-manifest "$RUN_ROOT/source-run/author-exact-source-manifest.json" \
             --terrain-root "$AUTHOR_TERRAIN_ROOT" \
             --author-archive "$AUTHOR_ARCHIVE" \
             --out "$DERIVED_ROOT/footprint"

@@ -284,6 +284,7 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 ## Full-footprint input path wiring fix — 2026-10-25
 
 - [x] Source audit found the footprint step was reading its config and source manifest from the top-level run directory, while `author_exact_acquisition.py` writes the durable copies into `derived/` and the working copies into `source-run/`. The old paths would block the footprint screen after site analysis finished.
-- [x] Changed the footprint step to read `derived/know-place-inputs.json` and `derived/author-exact-source-manifest.json`, the exact paths copied by the acquisition runner before it reports success.
-- [x] Added a regression test that verifies those workflow arguments agree with the acquisition output locations. No HDF5 product was downloaded or processed for this fix.
+- [x] A second path-resolution check found that the copied config contains relative product paths `raw/<filename>`. Therefore the footprint command must use the active config under `source-run/`, where `raw/` actually exists; the copied config under `derived/` is provenance only.
+- [x] Corrected the footprint step to use `source-run/know-place-inputs.json` and `source-run/author-exact-source-manifest.json`; this resolves both the config-directory mismatch and the relative raw-product paths.
+- [x] Strengthened the regression test to require the active source-run paths and reject the derived-copy path. No HDF5 product was downloaded or processed for this fix.
 - [ ] The corrected path wiring still requires a future explicitly consented manual replay to validate the complete raw-source + footprint run. Do not claim full-footprint parity before that run.
