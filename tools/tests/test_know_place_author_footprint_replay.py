@@ -186,6 +186,8 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert result["expected_directional_quality_pass_count"] == 101
     assert result["computed_directional_pass_count"] == 101
     assert result["mismatch_count"] == 0
+    assert result["score_formula_audit"]["source_code_formula_matches"] == 106
+    assert result["score_formula_audit"]["status"] == "PASS_SOURCE_CODE_SCORE_CONVENTION"
 
     validated = compare_validated_zone_table(rows, archive_path)
     assert validated["status"] == "PASS"
@@ -198,3 +200,19 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     mismatch = compare_candidate_inventory(modified, archive_path, numeric_tolerance=1e-9)
     assert mismatch["status"] == "MISMATCH"
     assert mismatch["mismatch_count"] == 1
+
+    # Recreate the score convention present in the deposited candidate inventory:
+    # n_epochs * anomaly * zone-aggregated R_res, which differs from
+    # wide_screen.py's n_epochs * anomaly * centroid R formula.
+    archived_residual_rows = [dict(row) for row in rows]
+    for row in archived_residual_rows:
+        row["score"] = float(row["n_epochs"]) * float(row["anom_m"]) * float(row["R_res"])
+    score_archive_path = tmp_path / "author-score-contract.zip"
+    with zipfile.ZipFile(score_archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("inventory/candidates_attributed.csv", _expected_inventory_csv(archived_residual_rows))
+        archive.writestr("tables/TableS7_all_validated_zones.csv", _table_s7_csv(archived_residual_rows[:101]))
+    score_contract = compare_candidate_inventory(rows, score_archive_path, numeric_tolerance=1e-9)
+    assert score_contract["status"] == "MISMATCH"
+    assert score_contract["score_formula_audit"]["source_code_formula_matches"] == 0
+    assert score_contract["score_formula_audit"]["alternative_formula_matches"] == 106
+    assert score_contract["score_formula_audit"]["status"] == "ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
