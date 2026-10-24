@@ -3,7 +3,7 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Current feature head at last validated code/test/workflow commit:** 407828dcab3585810eadada4dd777b12008b5d1d  
+**Latest validated substantive code/test/docs commit:** b990cab542923fadb77b9c17700ec9ee1c3827a9  
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -24,12 +24,13 @@
 - Branch exists: feat/know-place-analysis.
 - Branch head at the start of this correction: f258b1033ea114b7e9a72d6e6bb71565a1281430.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validated code/test/workflow commit:** `407828dcab3585810eadada4dd777b12008b5d1d`.
-- **Latest isolated validation:** [run 40050020868](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020868), testing that exact commit. Result: **176 tests passed in 4.68 seconds**; all four Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
-- The suite includes the separate footprint-screen equations, an array-only per-pixel geometry builder, a geometry → dE/dN projection → screen integration test, and fail-closed vertical-reference checks. It does not use actual raw GOFF or the original DEM tiles.
+- **Latest validated substantive code/test/docs commit:** `b990cab542923fadb77b9c17700ec9ee1c3827a9`.
+- **Latest isolated validation:** [run 40050299408](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050299408), testing that exact commit. Result: **176 tests passed in 3.85 seconds**; all four Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
+- The validated tree includes the separate footprint-screen equations, an array-only per-pixel geometry builder, geometry → dE/dN projection → screen integration tests, and fail-closed vertical-reference checks. These are synthetic/array-level tests, not processing of raw GOFF or original DEM source tiles.
+- The geometry builder audit records a potentially material vertical-reference issue: Copernicus GLO-90 is EGM2008-referenced, while the NISAR radarGrid height axis is height above ellipsoid; author terrain-prep code shows no visible vertical transformation. The original 16 terrain tiles are absent, so exact upstream treatment remains unresolved; no correction was silently applied.
 - The live ASF job recorded `RAW_PRODUCT_DOWNLOADS=0` and `SOURCE_DOWNLOADS=0`. First exact author pair P05023 is still `NOT_FOUND / UNRESOLVED`; the other four are `COLLECTION_ROUTE_ONLY`; author reproduction remains BLOCKED.
-- Corresponding raw-replay run [40050020872](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020872) succeeded in its consent decision, but the actual five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run.
-- Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. Any future code/test change requires fresh validation.
+- Corresponding raw-replay run [40050299404](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050299404) succeeded in its consent decision, but the actual five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run.
+- Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. This current handoff refresh is context-only and does not change code/tests; any future code/test change requires fresh validation.
 - Use the isolated validation workflow at .github/workflows/know-place-analysis-validation.yml and the AOI analysis workflow at .github/workflows/know-place-aoi-analysis.yml. A pushed change to tools/tests/test_know_place_*.py triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download products.
 - Do not run the separate expensive raw replay job without [run-know-place].
 
