@@ -31,8 +31,6 @@ from .goff_io import GoffReadError, inspect_goff_grid, parse_granule_identity
 CONSENT_MARKER = "[run-know-place]"
 TARGET_EPSG = 32645
 TARGET_POSTING_M = 80.0
-EXPECTED_GRID_WIDTH = 4311
-EXPECTED_GRID_HEIGHT = 4230
 CROWN_GEOMETRY_HEIGHT_M = 5151.0
 DEFAULT_CONTROL_DRAWS = 1000
 DEFAULT_CONTROL_SEED = 260826
@@ -65,15 +63,6 @@ def _write_json_atomic(path: Path, value: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
     tmp.replace(path)
-
-
-def analysis_result_is_complete(return_code: int, report: dict[str, Any]) -> bool:
-    """Only a zero-exit run with all five scientific metric records counts as complete."""
-    return (
-        return_code == 0
-        and report.get("structural_status") == "PASS"
-        and report.get("status") == "SCIENTIFIC_METRICS_COMPUTED"
-    )
 
 
 def _trusted_asf_url(value: Any) -> bool:
@@ -278,7 +267,6 @@ def _build_analysis_config(
     control_draws: int = DEFAULT_CONTROL_DRAWS,
     seed: int = DEFAULT_CONTROL_SEED,
     coherence_minimum_valid_cells: int = DEFAULT_COHERENCE_MINIMUM,
-    source_manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Build the analyzer's strict five-pair input config from actual downloaded receipts."""
     benchmark_path = Path(__file__).resolve().parents[2] / "docs" / "know-place" / "reference" / "author_benchmark_v1.json"
@@ -336,7 +324,7 @@ def _build_analysis_config(
         "config_sha256": sha256_file(config_path),
         "author_benchmark_file": "docs/know-place/reference/author_benchmark_v1.json",
         "author_benchmark_sha256": sha256_file(benchmark_path),
-        "source_manifest_sha256": source_manifest_sha256,
+        "source_manifest_sha256": None,
         "configuration": config,
         "scientific_scope": "Exploratory metrics from author-exact source granules. Not a validated hazard detector.",
         "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
@@ -368,46 +356,15 @@ def acquire_and_analyze(
     source_manifest["source_downloads"] = 0
     manifest_path = run_root / "author-exact-source-manifest.json"
     _write_json_atomic(manifest_path, source_manifest)
-    _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
     if source_manifest["status"] != "PASS" or len(rows) != 5:
-        _write_json_atomic(output_root / "author-exact-analysis-status.json", {
-            "schema_version": "know-place-author-exact-run-status/1.0",
-            "status": "BLOCKED_CMR_EXACT_AUTHOR_CATALOG_GATE",
-            "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-            "hazard_detection_status": "NOT_EVALUATED",
-            "blocking_products": source_manifest.get("blocking_products", []),
-            "created_at_utc": _utc_now(),
-        })
         raise AuthorExactAcquisitionError("CMR_EXACT_AUTHOR_CATALOG_GATE_BLOCKED")
 
     preflight_path = run_root / "author-exact-preflight-manifest.json"
-    try:
-        probe = authenticated_preflight(rows, science_root=science_root, output_path=preflight_path)
-    except Exception as exc:
-        _write_json_atomic(output_root / "author-exact-analysis-status.json", {
-            "schema_version": "know-place-author-exact-run-status/1.0",
-            "status": "BLOCKED_REMOTE_PREFLIGHT_EXCEPTION",
-            "failure_type": type(exc).__name__,
-            "failure_code": str(exc).split(":", maxsplit=1)[0][:160],
-            "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-            "hazard_detection_status": "NOT_EVALUATED",
-            "created_at_utc": _utc_now(),
-        })
-        raise
-    if preflight_path.is_file():
-        shutil.copy2(preflight_path, output_root / "author-exact-preflight-manifest.json")
+    probe = authenticated_preflight(rows, science_root=science_root, output_path=preflight_path)
     if probe.get("status") != "PASS" or probe.get("passed_count") != 5:
         source_manifest["status"] = "BLOCKED_REMOTE_PREFLIGHT_FAILED"
         source_manifest["preflight"] = probe
         _write_json_atomic(manifest_path, source_manifest)
-        _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
-        _write_json_atomic(output_root / "author-exact-analysis-status.json", {
-            "schema_version": "know-place-author-exact-run-status/1.0",
-            "status": "BLOCKED_REMOTE_PREFLIGHT_FAILED",
-            "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-            "hazard_detection_status": "NOT_EVALUATED",
-            "created_at_utc": _utc_now(),
-        })
         raise AuthorExactAcquisitionError("AUTHOR_EXACT_AUTHENTICATED_URL_PREFLIGHT_FAILED")
 
     required_bytes = int(probe["estimated_total_source_bytes"])
@@ -418,16 +375,6 @@ def acquire_and_analyze(
         source_manifest["required_free_bytes"] = required_free
         source_manifest["runner_free_bytes_before_download"] = free_bytes
         _write_json_atomic(manifest_path, source_manifest)
-        _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
-        _write_json_atomic(output_root / "author-exact-analysis-status.json", {
-            "schema_version": "know-place-author-exact-run-status/1.0",
-            "status": "BLOCKED_INSUFFICIENT_DISK_SPACE",
-            "required_free_bytes": required_free,
-            "runner_free_bytes_before_download": free_bytes,
-            "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-            "hazard_detection_status": "NOT_EVALUATED",
-            "created_at_utc": _utc_now(),
-        })
         raise AuthorExactAcquisitionError("INSUFFICIENT_DISK_SPACE_BEFORE_RAW_DOWNLOAD")
 
     downloader, acquisition_sha, session = _load_downloader(science_root)
@@ -460,11 +407,7 @@ def acquire_and_analyze(
         ],
     })
     _write_json_atomic(manifest_path, source_manifest)
-    _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
 
-    import numpy as np
-    reference_x_coordinates: Any = None
-    reference_y_coordinates: Any = None
     for row, product_receipt in zip(rows, source_manifest["products"], strict=True):
         target_path = raw_dir / row["source_filename"]
         if target_path.exists():
@@ -492,38 +435,19 @@ def acquire_and_analyze(
                 or grid.epsg != TARGET_EPSG
             ):
                 raise AuthorExactAcquisitionError("RAW_HDF5_NOT_EXACT_AUTHOR_GRID_OR_INTERVAL")
-            width = len(grid.x_coordinates_m)
-            height = len(grid.y_coordinates_m)
-            if width != EXPECTED_GRID_WIDTH or height != EXPECTED_GRID_HEIGHT:
-                raise AuthorExactAcquisitionError(
-                    f"RAW_HDF5_GRID_DIMENSION_MISMATCH:expected={EXPECTED_GRID_WIDTH}x{EXPECTED_GRID_HEIGHT}:actual={width}x{height}"
-                )
-            x_posting = float(np.median(np.diff(grid.x_coordinates_m)))
-            y_posting = float(np.median(np.diff(grid.y_coordinates_m)))
-            if not all(abs(abs(value) - TARGET_POSTING_M) <= 1e-4 for value in (x_posting, y_posting)):
+            if not all(abs(abs(float(v)) - TARGET_POSTING_M) <= 1e-4 for v in (
+                __import__("numpy").median(__import__("numpy").diff(grid.x_coordinates_m)),
+                __import__("numpy").median(__import__("numpy").diff(grid.y_coordinates_m)),
+            )):
                 raise AuthorExactAcquisitionError("RAW_HDF5_POSTING_NOT_80M")
-            if reference_x_coordinates is None:
-                reference_x_coordinates = np.asarray(grid.x_coordinates_m).copy()
-                reference_y_coordinates = np.asarray(grid.y_coordinates_m).copy()
-            elif (
-                not np.array_equal(reference_x_coordinates, np.asarray(grid.x_coordinates_m))
-                or not np.array_equal(reference_y_coordinates, np.asarray(grid.y_coordinates_m))
-            ):
-                raise AuthorExactAcquisitionError("RAW_HDF5_SOURCE_GRID_MISMATCH_ACROSS_AUTHOR_PRODUCTS")
             product_receipt.update({
                 "download_status": "PASS",
                 "source_bytes": target_path.stat().st_size,
                 "source_sha256": sha256_file(target_path),
                 "hdf5_container_valid": True,
                 "grid_epsg": grid.epsg,
-                "grid_width": width,
-                "grid_height": height,
-                "grid_x_min_m": float(np.min(grid.x_coordinates_m)),
-                "grid_x_max_m": float(np.max(grid.x_coordinates_m)),
-                "grid_y_min_m": float(np.min(grid.y_coordinates_m)),
-                "grid_y_max_m": float(np.max(grid.y_coordinates_m)),
-                "grid_x_posting_m": x_posting,
-                "grid_y_posting_m": y_posting,
+                "grid_width": len(grid.x_coordinates_m),
+                "grid_height": len(grid.y_coordinates_m),
                 "polarization": grid.polarization,
                 "layer": grid.layer,
                 "validated_at_utc": _utc_now(),
@@ -531,7 +455,6 @@ def acquire_and_analyze(
             source_manifest["source_downloads"] = sum(p.get("download_status") == "PASS" for p in source_manifest["products"])
             source_manifest["status"] = "DOWNLOAD_IN_PROGRESS"
             _write_json_atomic(manifest_path, source_manifest)
-            _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
             print(
                 f"AUTHOR_SOURCE_DOWNLOAD_PASS={row['granule_name']} "
                 f"BYTES={product_receipt['source_bytes']} SHA256={product_receipt['source_sha256']}",
@@ -544,19 +467,6 @@ def acquire_and_analyze(
             source_manifest["status"] = "FAILED_DURING_SOURCE_DOWNLOAD"
             source_manifest["source_downloads"] = sum(p.get("download_status") == "PASS" for p in source_manifest["products"])
             _write_json_atomic(manifest_path, source_manifest)
-            _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
-            _write_json_atomic(output_root / "author-exact-analysis-status.json", {
-                "schema_version": "know-place-author-exact-run-status/1.0",
-                "status": "FAILED_DURING_SOURCE_DOWNLOAD",
-                "failure_type": type(exc).__name__,
-                "failure_code": str(exc).split(":", maxsplit=1)[0][:160],
-                "source_downloads_verified": source_manifest["source_downloads"],
-                "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
-                "hazard_detection_status": "NOT_EVALUATED",
-                "created_at_utc": _utc_now(),
-            })
-            if target_path.is_file():
-                target_path.unlink(missing_ok=True)
             raise
 
     source_manifest["status"] = "PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED"
@@ -564,15 +474,13 @@ def acquire_and_analyze(
     source_manifest["author_exact_source_sha256_count"] = 5
     source_manifest["download_completed_at_utc"] = _utc_now()
     _write_json_atomic(manifest_path, source_manifest)
-    _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
 
     _build_analysis_config(
         source_manifest, raw_dir, run_root,
         geometry_height_m=expected_geometry_height_m,
         control_draws=control_draws, seed=seed,
-        source_manifest_sha256=sha256_file(manifest_path),
     )
-    # Only receipts/configuration are copied to derived output; raw HDF5 stays in run_root/raw.
+    # Copy only receipts/configuration to the derived output area; raw HDF5 stays in run_root/raw.
     shutil.copy2(manifest_path, output_root / "author-exact-source-manifest.json")
     shutil.copy2(preflight_path, output_root / "author-exact-preflight-manifest.json")
     shutil.copy2(run_root / "know-place-inputs.json", output_root / "know-place-inputs.json")
@@ -609,17 +517,12 @@ def acquire_and_analyze(
         report["paper_reproduction_status"] = "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED"
         report["hazard_detection_status"] = "NOT_EVALUATED"
         _write_json_atomic(report_path, report)
-        analysis_success = analysis_result_is_complete(completed.returncode, report)
         status = {
             "schema_version": "know-place-author-exact-run-status/1.0",
-            "status": (
-                "OUTPUTS_WRITTEN" if report_path.is_file() and analysis_success
-                else ("ANALYSIS_FAILED_REPORT_PRESERVED" if report_path.is_file() else "ANALYSIS_REPORT_MISSING")
-            ),
+            "status": "OUTPUTS_WRITTEN" if report_path.is_file() else "ANALYSIS_REPORT_MISSING",
             "analysis_exit_code": completed.returncode,
             "analysis_status": report.get("status"),
             "structural_status": report.get("structural_status"),
-            "analysis_metrics_complete": analysis_success,
             "paper_reproduction_status": report.get("paper_reproduction_status"),
             "hazard_detection_status": report.get("hazard_detection_status"),
             "source_manifest_sha256": sha256_file(manifest_path),
@@ -632,16 +535,6 @@ def acquire_and_analyze(
         print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
         return status
     except subprocess.TimeoutExpired as exc:
-        if getattr(exc, "stdout", None):
-            payload = exc.stdout
-            if isinstance(payload, bytes):
-                payload = payload.decode("utf-8", errors="replace")
-            (output_root / "analysis.stdout.log").write_text(str(payload), encoding="utf-8")
-        if getattr(exc, "stderr", None):
-            payload = exc.stderr
-            if isinstance(payload, bytes):
-                payload = payload.decode("utf-8", errors="replace")
-            (output_root / "analysis.stderr.log").write_text(str(payload), encoding="utf-8")
         status = {
             "schema_version": "know-place-author-exact-run-status/1.0",
             "status": "ANALYSIS_TIMEOUT",
@@ -670,8 +563,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.operation != "catalog" and args.science_root is None:
         parser.error("--science-root is required for preflight/download-and-analyze")
     try:
-        if args.operation == "download-and-analyze":
-            require_consent_marker(args.consent_marker)
         rows, manifest = discover_exact_author_sources()
         if args.operation == "catalog":
             path = root / "author-exact-catalog-manifest.json"

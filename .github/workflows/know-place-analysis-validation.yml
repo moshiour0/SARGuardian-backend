@@ -13,6 +13,7 @@ on:
       - ".github/workflows/know-place-aoi-analysis.yml"
       - ".github/workflows/know-place-dem-source-acquisition.yml"
       - ".github/workflows/know-place-terrain-datum-sensitivity.yml"
+      - ".github/workflows/know-place-author-exact-replay.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   pull_request:
     branches:
@@ -24,6 +25,7 @@ on:
       - ".github/workflows/know-place-analysis-run.yml"
       - ".github/workflows/know-place-analysis-reanalysis.yml"
       - ".github/workflows/know-place-aoi-analysis.yml"
+      - ".github/workflows/know-place-author-exact-replay.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   workflow_dispatch:
 
@@ -53,7 +55,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check numpy pytest h5py scipy pyproj pyyaml rasterio affine
 
       - name: Compile every isolated analysis and datum-sensitivity module
-        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py
+        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py tools/know_place/author_exact_acquisition.py
 
       - name: Parse all six Know Place workflows as YAML
         shell: bash
@@ -69,6 +71,7 @@ jobs:
               Path(".github/workflows/know-place-aoi-analysis.yml"),
               Path(".github/workflows/know-place-dem-source-acquisition.yml"),
               Path(".github/workflows/know-place-terrain-datum-sensitivity.yml"),
+              Path(".github/workflows/know-place-author-exact-replay.yml"),
           ]
           for path in paths:
               with path.open(encoding="utf-8") as stream:
@@ -101,6 +104,7 @@ jobs:
           tools/tests/test_know_place_author_parity.py
           tools/tests/test_know_place_author_fields_verifier.py
           tools/tests/test_know_place_footprint_screen.py tools/tests/test_know_place_footprint_geometry.py tools/tests/test_know_place_terrain_vertical_datum.py
+          tools/tests/test_know_place_author_exact_acquisition.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash
@@ -114,7 +118,7 @@ jobs:
           /tmp/actionlint -version
 
       - name: Run semantic GitHub Actions workflow validation
-        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml
+        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml .github/workflows/know-place-author-exact-replay.yml
 
   live-asf-catalog-contract:
     name: Live ASF identity gates for historical and author-exact granules (no downloads)
@@ -191,5 +195,33 @@ jobs:
         with:
           name: know-place-author-live-asf-catalog-evidence
           path: ${{ runner.temp }}/know-place-author-catalog-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Resolve all five author-exact CMR HTTP data links without downloading payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.author_exact_acquisition --operation catalog --out-root "${{ runner.temp }}/know-place-author-exact-catalog"
+          python - "${{ runner.temp }}/know-place-author-exact-catalog/author-exact-catalog-manifest.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          rows=d.get("products",[])
+          if d.get("status")!="PASS" or len(rows)!=5 or d.get("exact_cmr_confirmed_count")!=5:
+              raise SystemExit("ERROR=AUTHOR_EXACT_CMR_ACCESS_CATALOG_NOT_FIVE")
+          if d.get("source_downloads")!=0 or any(p.get("source_sha256") is not None for p in rows):
+              raise SystemExit("ERROR=CMR_CATALOG_STEP_MUST_NOT_DOWNLOAD_OR_INVENT_SOURCE_HASHES")
+          if any(p.get("release_id")!="P05023" or not p.get("exact_data_url") for p in rows):
+              raise SystemExit("ERROR=AUTHOR_EXACT_P05023_DATA_URL_MISSING")
+          print("AUTHOR_EXACT_CMR_DATA_URLS_CONFIRMED=5")
+          print("SOURCE_DOWNLOADS=0")
+          print("PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED")
+          PY
+
+      - name: Preserve exact-author CMR access evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: know-place-author-exact-live-cmr-access-evidence
+          path: ${{ runner.temp }}/know-place-author-exact-catalog/author-exact-catalog-manifest.json
           if-no-files-found: error
           retention-days: 14
