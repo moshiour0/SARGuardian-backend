@@ -1,5 +1,5 @@
 {
-  "schema_version": "know-place-author-benchmark/1.0",
+  "schema_version": "know-place-author-benchmark/1.1",
   "provenance": {
     "article_title": "NISAR offsets measure pre-failure motion but do not single out the Bhote Koshi avalanche source",
     "author": "Sansar Raj Meena",
@@ -152,13 +152,6 @@
       12,
       24,
       12
-    ],
-    "valid_crown_pixels": [
-      302,
-      299,
-      302,
-      298,
-      202
     ],
     "median_crown_displacement_m": [
       0.99,
@@ -320,6 +313,31 @@
       "scene_R": 0.654,
       "crown_box_pixels": "1398/31703",
       "comparability": "Only the sign of crown-minus-box is comparable with geocoded/referenced NISAR statistics."
+    },
+    "displacement_valid_crown_pixels": [
+      283,
+      294,
+      296,
+      292,
+      195
+    ],
+    "polygon_null_R_valid_crown_pixels": [
+      302,
+      299,
+      302,
+      298,
+      202
+    ],
+    "count_estimand_sources": {
+      "displacement_valid_crown_pixels": {
+        "archive_file": "tables/nisar_pot_series.json",
+        "field": "n"
+      },
+      "polygon_null_R_valid_crown_pixels": {
+        "archive_file": "tables/polygon_null.json",
+        "field": "n_px"
+      },
+      "note": "These are distinct estimands. The former valid_crown_pixels key was ambiguous and has been removed."
     }
   },
   "published_footprint_inventory": {

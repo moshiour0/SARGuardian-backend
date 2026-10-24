@@ -60,7 +60,7 @@ def test_source_zone_matches_published_rounded_measurements() -> None:
 
 def test_benchmark_contains_exact_paper_pair_ids_and_five_interval_statistics() -> None:
     benchmark = _load_benchmark()
-    assert benchmark["schema_version"] == "know-place-author-benchmark/1.0"
+    assert benchmark["schema_version"] == "know-place-author-benchmark/1.1"
     pairs = benchmark["exact_author_granules"]
     assert len(pairs) == 5
     assert all("_P05023_" in item["id"] for item in pairs)
@@ -70,7 +70,14 @@ def test_benchmark_contains_exact_paper_pair_ids_and_five_interval_statistics() 
     assert metrics["columns"] == [
         "20 Jun-2 Jul", "2-14 Jul", "14-26 Jul", "26 Jul-19 Aug", "19-31 Aug"
     ]
-    assert metrics["valid_crown_pixels"] == [302, 299, 302, 298, 202]
+    assert metrics["displacement_valid_crown_pixels"] == [283, 294, 296, 292, 195]
+    assert metrics["polygon_null_R_valid_crown_pixels"] == [302, 299, 302, 298, 202]
+    assert metrics["count_estimand_sources"] == {
+        "displacement_valid_crown_pixels": {"archive_file": "tables/nisar_pot_series.json", "field": "n"},
+        "polygon_null_R_valid_crown_pixels": {"archive_file": "tables/polygon_null.json", "field": "n_px"},
+        "note": "These are distinct estimands. The former valid_crown_pixels key was ambiguous and has been removed.",
+    }
+    assert "valid_crown_pixels" not in metrics
     assert metrics["median_crown_displacement_m"] == [0.99, 0.54, 0.30, 0.96, 0.33]
     assert metrics["median_crown_rate_cm_per_day"] == [8.3, 4.5, 2.5, 4.0, 2.7]
     assert metrics["displacement_null_percentile"] == [94.9, 87.5, 81.0, 94.7, 81.3]
