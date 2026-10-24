@@ -79,8 +79,9 @@ def analysis_result_is_complete(return_code: int, report: dict[str, Any]) -> boo
 
 
 def author_site_series_result_is_complete(return_code: int, report: dict[str, Any]) -> bool:
-    """Require the author-compatible raw-data profile and all 65 archived-table checks."""
+    """Require the 65 base checks and all 15 halo-aware P2 Table S4 checks."""
     comparison = report.get("author_site_series_table_comparison", {})
+    p2 = report.get("author_p2_table_comparison", {})
     return (
         return_code == 0
         and report.get("structural_status") == "PASS"
@@ -91,6 +92,10 @@ def author_site_series_result_is_complete(return_code: int, report: dict[str, An
         and comparison.get("checks_passed") == 65
         and comparison.get("checks_total") == 65
         and comparison.get("mismatch_count") == 0
+        and p2.get("status") == "PASS_AT_ARCHIVE_ROUNDING"
+        and p2.get("checks_passed") == 15
+        and p2.get("checks_total") == 15
+        and p2.get("mismatch_count") == 0
     )
 
 
@@ -874,12 +879,13 @@ def acquire_and_analyze(
             "structural_status": author_site_report.get("structural_status"),
             "method_profile": author_site_report.get("method_profile"),
             "archive_comparison": author_site_report.get("author_site_series_table_comparison"),
+            "p2_archive_comparison": author_site_report.get("author_p2_table_comparison"),
             "exit_code": author_exit_code,
             "complete_and_archive_matched": author_site_success,
         }
         report["exploratory_analysis_complete"] = exploratory_analysis_success
         report["paper_reproduction_status"] = (
-            "PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
+            "PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
             if author_site_success
             else PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
         )
@@ -902,6 +908,9 @@ def acquire_and_analyze(
             "author_site_series_table_comparison_status": author_site_report.get("author_site_series_table_comparison", {}).get("status"),
             "author_site_series_comparisons_passed": author_site_report.get("author_site_series_table_comparison", {}).get("checks_passed"),
             "author_site_series_comparisons_total": author_site_report.get("author_site_series_table_comparison", {}).get("checks_total"),
+            "author_p2_table_comparison_status": author_site_report.get("author_p2_table_comparison", {}).get("status"),
+            "author_p2_table_comparisons_passed": author_site_report.get("author_p2_table_comparison", {}).get("checks_passed"),
+            "author_p2_table_comparisons_total": author_site_report.get("author_p2_table_comparison", {}).get("checks_total"),
             "author_site_series_complete_and_archive_matched": author_site_success,
             "analysis_metrics_complete": analysis_success,
             "paper_reproduction_status": report.get("paper_reproduction_status"),
@@ -916,6 +925,8 @@ def acquire_and_analyze(
         print(f"AUTHOR_SITE_SERIES_STATUS={author_site_report.get('status')}")
         print("AUTHOR_SITE_SERIES_TABLE_PARITY=" + str(author_site_report.get("author_site_series_table_comparison", {}).get("status")))
         print(f"AUTHOR_SITE_SERIES_TABLE_CHECKS={author_site_report.get('author_site_series_table_comparison', {}).get('checks_passed')}/{author_site_report.get('author_site_series_table_comparison', {}).get('checks_total')}")
+        print("AUTHOR_P2_TABLE_PARITY=" + str(author_site_report.get("author_p2_table_comparison", {}).get("status")))
+        print(f"AUTHOR_P2_TABLE_CHECKS={author_site_report.get('author_p2_table_comparison', {}).get('checks_passed')}/{author_site_report.get('author_p2_table_comparison', {}).get('checks_total')}")
         print(f"PAPER_REPRODUCTION_STATUS={report.get('paper_reproduction_status')}")
         print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
         return status
