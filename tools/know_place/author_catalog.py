@@ -12,7 +12,8 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
+from urllib.request import Request, urlopen
 
 from .catalog import (
     EXPECTED_COLLECTION,
@@ -27,10 +28,184 @@ from .goff_io import GoffReadError, parse_granule_identity
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CMR_COLLECTION_CONCEPT_ID = "C2854341702-ASF"
+CMR_SEARCH_URL = "https://cmr.earthdata.nasa.gov/search/granules.json"
+CMR_CONFIRMED_STATUSES = {"EXACT_URL_CONFIRMED", "EXACT_CMR_GRANULE_CONFIRMED"}
 AUTHOR_FALLBACK_CROWN_WKT = "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))"
 AUTHOR_BENCHMARK_PATH = (
     REPO_ROOT / "docs" / "know-place" / "reference" / "author_benchmark_v1.json"
 )
+
+
+def _cmr_entry_exact_identity(entry: dict[str, Any], wanted: str) -> bool:
+    """Require an exact producer-granule name in a scoped CMR response."""
+    for field in ("producer_granule_id", "granule_ur", "title"):
+        value = entry.get(field)
+        if not isinstance(value, str):
+            continue
+        normalized = _normalise_product_name(value)
+        if normalized == wanted:
+            return True
+    return False
+
+
+def _cmr_entry_collection_id(entry: dict[str, Any]) -> str | None:
+    value = entry.get("collection_concept_id")
+    if isinstance(value, str) and value:
+        return value
+    # A few CMR output variants include collection identity under related metadata.
+    collection = entry.get("collection")
+    if isinstance(collection, dict):
+        nested = collection.get("concept_id") or collection.get("collection_concept_id")
+        if isinstance(nested, str) and nested:
+            return nested
+    return None
+
+
+def query_cmr_exact_author_product(
+    target: dict[str, Any],
+    *,
+    timeout_seconds: float = 30.0,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Query NASA CMR for one exact author granule in the pinned ASF collection.
+
+    This checks collection-scoped metadata only. It never downloads a GOFF
+    payload, follows a data link, or treats CMR metadata as source-byte identity.
+    Two documented CMR filters are tried individually so the query doesn't
+    accidentally AND producer ID with a different granule-UR representation.
+    """
+    import urllib.error
+
+    wanted = str(target["granule_name"])
+    query_variants = (
+        ("producer_granule_id[]", "PRODUCER_GRANULE_ID_EXACT"),
+        ("readable_granule_name[]", "READABLE_GRANULE_NAME_EXACT"),
+    )
+    receipts: list[dict[str, Any]] = []
+    seen_entries: dict[str, dict[str, Any]] = {}
+    for parameter, label in query_variants:
+        query = [
+            ("collection_concept_id", CMR_COLLECTION_CONCEPT_ID),
+            (parameter, wanted),
+            ("page_size", "100"),
+        ]
+        url = CMR_SEARCH_URL + "?" + urlencode(query)
+        try:
+            request = Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "SARGuardian-KnowPlace-AuthorCatalogAudit/1.0",
+                },
+            )
+            with urlopen(request, timeout=timeout_seconds) as response:
+                status_code = getattr(response, "status", None)
+                raw = response.read()
+            payload = json.loads(raw.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("CMR_RESPONSE_NOT_OBJECT")
+            feed = payload.get("feed", {})
+            entries = feed.get("entry", []) if isinstance(feed, dict) else []
+            if not isinstance(entries, list):
+                raise ValueError("CMR_ENTRY_LIST_INVALID")
+            receipts.append({
+                "query_kind": label,
+                "query_parameter": parameter,
+                "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+                "http_status": status_code or 200,
+                "result_count": len(entries),
+                "status": "QUERY_COMPLETED",
+            })
+            for entry in entries:
+                if not isinstance(entry, dict) or not _cmr_entry_exact_identity(entry, wanted):
+                    continue
+                collection_id = _cmr_entry_collection_id(entry)
+                if collection_id and collection_id != CMR_COLLECTION_CONCEPT_ID:
+                    continue
+                identity_key = str(entry.get("id") or entry.get("granule_ur") or entry.get("producer_granule_id") or "")
+                if identity_key:
+                    seen_entries[identity_key] = entry
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+            receipts.append({
+                "query_kind": label,
+                "query_parameter": parameter,
+                "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+                "status": "QUERY_FAILED",
+                "exception_type": type(exc).__name__,
+            })
+
+    matches = list(seen_entries.values())
+    if len(matches) == 1:
+        entry = matches[0]
+        identity = parse_granule_identity(wanted + ".h5")
+        collection_id = _cmr_entry_collection_id(entry)
+        # The search itself is collection-scoped. If returned metadata omits the
+        # collection field, the query provenance is still preserved explicitly.
+        metadata = {
+            key: entry.get(key)
+            for key in (
+                "id", "producer_granule_id", "granule_ur", "title",
+                "collection_concept_id", "time_start", "time_end", "updated",
+                "orbit_number", "day_night_flag",
+            )
+            if entry.get(key) is not None
+        }
+        links = entry.get("links")
+        if isinstance(links, list):
+            metadata["links"] = [
+                {
+                    k: link.get(k)
+                    for k in ("rel", "title", "hreflang", "type", "href", "inherited")
+                    if link.get(k) is not None
+                }
+                for link in links
+                if isinstance(link, dict)
+            ]
+        record = {
+            "granule_name": wanted,
+            "interval": target["interval"],
+            "processing": identity.processing,
+            "track": identity.track,
+            "direction": identity.direction,
+            "release_id": identity.release_id,
+            "collection": EXPECTED_COLLECTION,
+            "catalog_maturity": EXPECTED_MATURITY,
+            "catalog_url_host": "cmr.earthdata.nasa.gov",
+            "catalog_identity_status": "EXACT_CMR_GRANULE_CONFIRMED",
+            "catalog_identity_discovery_method": "NASA_CMR_COLLECTION_SCOPED_EXACT_QUERY",
+            "catalog_maturity_evidence": (
+                f"NASA CMR exact granule metadata scoped to collection {CMR_COLLECTION_CONCEPT_ID}"
+            ),
+            "cmr_collection_concept_id": collection_id or CMR_COLLECTION_CONCEPT_ID,
+            "cmr_search_receipts": receipts,
+            "cmr_metadata": metadata,
+            "source_sha256": None,
+            "source_sha256_status": "NOT_DOWNLOADED",
+            "cmr_source_payload_downloaded": False,
+        }
+        return record, {
+            "status": "EXACT_AUTHOR_ID_CONFIRMED",
+            "target_granule_name": wanted,
+            "interval": target["interval"],
+            "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+            "query_receipts": receipts,
+            "exact_author_id_found": True,
+            "metadata_match_count": 1,
+            "source_downloads": 0,
+        }
+    status = "NOT_FOUND" if not matches else "AMBIGUOUS"
+    if all(row.get("status") == "QUERY_FAILED" for row in receipts):
+        status = "QUERY_FAILED"
+    return None, {
+        "status": status,
+        "target_granule_name": wanted,
+        "interval": target["interval"],
+        "collection_concept_id": CMR_COLLECTION_CONCEPT_ID,
+        "query_receipts": receipts,
+        "exact_author_id_found": False,
+        "metadata_match_count": len(matches),
+        "source_downloads": 0,
+    }
 
 
 def load_author_granules(path: str | Path = AUTHOR_BENCHMARK_PATH) -> list[dict[str, Any]]:
