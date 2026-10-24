@@ -186,7 +186,7 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert result["status"] == "PASS"
     assert result["expected_candidate_count"] == result["computed_candidate_count"] == 106
     assert result["matched_centroid_count"] == 106
-    assert result["expected_directional_quality_pass_count"] == 101
+    assert result["expected_quality_pass_count"] == 101
     assert result["computed_quality_pass_count"] == 101
     assert result["mismatch_count"] == 0
     assert result["ranking_order_comparison"]["status"] == "PASS"
@@ -197,7 +197,7 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
 
     validated = compare_validated_zone_table(rows, archive_path)
     assert validated["status"] == "PASS"
-    assert validated["expected_zone_count"] == validated["computed_directional_zone_count"] == 101
+    assert validated["expected_zone_count"] == validated["computed_quality_zone_count"] == 101
     assert validated["matched_centroid_count"] == 101
     assert validated["mismatch_count"] == 0
 
