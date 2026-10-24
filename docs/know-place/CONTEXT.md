@@ -3,7 +3,7 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Latest validated code/test/docs commit:** `dd0c2e2a9650d684eb135947b7c96fd6444ed245` ([184 tests passed in run 40054172444](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054172444))  
+**Latest validated code/test baseline:** `609e5960b6bdfe1c62587da621bb342fc42931a1` ([188 tests passed in run 40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010))  
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -22,16 +22,16 @@
 ### Repository and validation baseline
 
 - Branch exists: feat/know-place-analysis.
-- Validated evidence baseline: `dd0c2e2a9650d684eb135947b7c96fd6444ed245`.
+- Validated code/test baseline before this catalog evidence-doc update: `609e5960b6bdfe1c62587da621bb342fc42931a1`.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validated substantive code/test/docs commit:** `dd0c2e2a9650d684eb135947b7c96fd6444ed245` (validation: [run 40054172444](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054172444)).
-- **Latest isolated validation:** [run 40054172444](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054172444), testing the exact documented commit `dd0c2e2a9650d684eb135947b7c96fd6444ed245`. Result: **184 tests passed in 4.57 s**; all six Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic validation passed; both jobs succeeded.
+- **Latest validated code/test baseline before this evidence-doc update:** `609e5960b6bdfe1c62587da621bb342fc42931a1` (validation: [run 40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010)).
+- **Latest isolated validation:** [run 40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010), testing commit `609e5960b6bdfe1c62587da621bb342fc42931a1`. Result: **188 tests passed in 6.78 s**; all six Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
 - The validated tree includes separate footprint-screen equations, an array-only per-pixel geometry builder, geometry → dE/dN projection → screen integration tests, fail-closed vertical-reference checks, and a public Copernicus GLO-90 terrain-tile acquisition workflow. The acquisition workflow downloaded and verified 16 public tiles in [run 40052506016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40052506016); an independent local replay found their raster values reproduce the archived `terrain/elev_m.tif` to float32 rounding. This does not prove original tile-byte identity or process raw GOFF geometry cubes.
 - The geometry builder audit records a material vertical-reference risk: Copernicus GLO-90 is EGM2008-referenced, while the NISAR radarGrid height axis is ellipsoidal. The original author tile bytes remain absent, but current public-mirror tiles were downloaded and their archived preparation recipe reproduced the archived `terrain/elev_m.tif` to Float32 rounding. A separate official-grid experiment quantifies the crown-area ellipsoidal-minus-EGM2008 offset at median −31.7705 m; no correction is applied to the author path. See `docs/know-place/evidence/EGM2008_VERTICAL_DATUM_SENSITIVITY_20261024.md`.
-- The live ASF job recorded `RAW_PRODUCT_DOWNLOADS=0` and `SOURCE_DOWNLOADS=0`. First exact author pair P05023 is still `NOT_FOUND / UNRESOLVED`; the other four are `COLLECTION_ROUTE_ONLY`; author reproduction remains BLOCKED.
-- Most recent raw-replay run [40054172589](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054172589) succeeded in its consent decision, but the five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run in this follow-up. Terrain and EGM grid workflows record `raw_nisar_goff_downloaded=false`.
+- The live ASF job recorded `RAW_PRODUCT_DOWNLOADS=0` and `SOURCE_DOWNLOADS=0`. First author P05023 remains `NOT_FOUND / UNRESOLVED`; AOI/date search returned five results and the exact-scene wildcard query returned one, both identifying the same X05026 release variant as `SAME_INTERVAL_VARIANT_CANDIDATE_ONLY`. Manifest remains BLOCKED; the other four P05023 products have trusted route-only evidence. See `docs/know-place/evidence/ASF_AUTHOR_P05023_CATALOG_FALLBACK_20261024.md`.
+- Most recent raw-replay run [40054945959](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054945959) succeeded in its consent decision, but the five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run in this follow-up. Terrain and EGM grid workflows record `raw_nisar_goff_downloaded=false`.
 - Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. This current handoff refresh is context-only and does not change code/tests; any future code/test change requires fresh validation.
-- Use the isolated validation workflow at `.github/workflows/know-place-analysis-validation.yml`, AOI analysis workflow at `.github/workflows/know-place-aoi-analysis.yml`, public GLO-90 acquisition workflow at `.github/workflows/know-place-dem-source-acquisition.yml`, and separate datum-sensitivity workflow at `.github/workflows/know-place-terrain-datum-sensitivity.yml`. A pushed change to `tools/tests/test_know_place_*.py` triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download GOFF products.
+- Use `.github/workflows/know-place-analysis-validation.yml`, `.github/workflows/know-place-aoi-analysis.yml`, `.github/workflows/know-place-dem-source-acquisition.yml`, and `.github/workflows/know-place-terrain-datum-sensitivity.yml`. The author-catalog gate in `tools/know_place/author_catalog.py` now performs direct exact-ID, AOI/date, and granule-wildcard searches without downloading payloads. Changes to `tools/tests/test_know_place_*.py` trigger isolated validation.
 - Do not run the separate expensive raw replay job without [run-know-place].
 
 ### Scientific status (must not be relaxed)
@@ -167,6 +167,10 @@ Using those tiles, the archived `code/prep_terrain.py` mosaic → bilinear repro
 - Across all 18,235,530 cells, signed offset median −30.1587 m and range −67.0417 to −24.2041 m. In the published crown rectangle, 323 cells yield median −31.7705 m (range −31.9634 to −31.5728 m).
 - Archived prepared DEM replay still matches current public GLO-90 inputs on the exact 80 m target grid: finite masks identical, 18,235,529 / 18,235,530 float32 cells bitwise equal, maximum difference 0.000244140625 m, RMSE 5.71717e−8 m.
 - The height conversion is experimental and **not** used by the author reproduction path. Original terrain tile byte identity is unknown, raw GOFF geometry is still missing, and `cE/cN/kE/kN` impact is not yet computed. Audit: `docs/know-place/evidence/EGM2008_VERTICAL_DATUM_SENSITIVITY_20261024.md`; machine-readable summary: `docs/know-place/reference/terrain_vertical_datum_sensitivity_20261024.json`.
+
+### Extended author P05023 catalog audit — 2026-10-24
+
+The exact first P05023 granule was checked by direct ID, AOI/date/GOFF/HH query (5 results), and exact-scene release wildcard query (1 result). Both fallback searches returned only the X05026 same-interval variant; neither found P05023. Catalog manifest remains `BLOCKED`, source downloads = 0 and source SHA-256 = unknown. Audit: `docs/know-place/evidence/ASF_AUTHOR_P05023_CATALOG_FALLBACK_20261024.md`; validation run [40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010) passed 188 tests. Exact-source identity remains unresolved.
 
 ## 10. Design blueprint and validation gates
 
