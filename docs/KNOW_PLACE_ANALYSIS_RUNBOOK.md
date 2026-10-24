@@ -123,6 +123,12 @@ The runner first inspects only the five files' grid axes and metadata, checks th
 - Validation: [Run 40015371603](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40015371603) passed 46 tests, parsed all three isolated workflows and passed actionlint. All files remain on `feat/know-place-analysis`; `main` was not changed.
 
 
+## Author footprint-wide candidate screen — separate from the crown site-series
+
+The extracted array kernel lives at `tools/know_place/footprint_screen.py`; its source/method boundary is documented in [AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md](know-place/evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md). The archived wide screen uses per-pixel geometry coefficients; 41×41 local magnitude anomaly; 5×5 residual directional coherence; z >= 4, anomaly >= 0.50 m, residual R >= 0.75; hits in at least two of five fixed pairs; and a four-connected component filter of at least 10 pixels. The new pure kernel is not the full author workflow: it requires already-interpolated geometry coefficient rasters and does not open HDF5, create those coefficient rasters, regenerate the 4230 × 4311 per-pair products/GIS candidate files, or run the later downslope attribution. It returns candidate movement cells and `hazard_detection_status=NOT_EVALUATED`, never a calibrated alarm.
+
+The validation workflow explicitly compiles the module and runs its test file. [Run 40049074686](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40049074686) passed **164 tests**, all four workflow YAML parses and actionlint. The paired raw-replay run [40049074681](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40049074681) skipped the expensive replay because `[run-know-place]` was not supplied. The first author-exact P05023 product remains unresolved; do not substitute the historical X05026 variant.
+
 ## Generic polygon + date-range engine and dashboard
 
 A separate arbitrary-AOI path now lives in `tools/know_place/aoi_request.py`, `series.py`, `aoi_runner.py`, `dashboard.py`, and `uncertainty.py`. It is a different interface from the five-pair paper-reproduction command above.

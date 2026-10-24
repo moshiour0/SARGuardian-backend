@@ -122,6 +122,7 @@ Recommended modules (all isolated within this feature branch):
 - `tools/know_place_analysis.py`: strict CLI, input identity checks, orchestration and machine-readable report.
 - `tools/know_place/goff_io.py`: GOFF HDF5 field discovery, metadata/geolocation sampling, no fuzzy substitution when multiple dataset paths match.
 - `tools/know_place/paper_method.py`: pure, unit-tested quality gates, geometry projection, component correction, magnitude, 5×5 R and deterministic control sampling.
+- `tools/know_place/footprint_screen.py`: separate author-derived footprint-wide movement-candidate screen from archived `code/wide_screen.py` (41 px local magnitude anomaly, 5×5 residual coherence, z/anomaly/R thresholds, >=2 of five prescribed intervals and 4-connected >=10-pixel components). It requires already-interpolated per-pixel geometry coefficient rasters. It does not build geometry from HDF5/DEM, regenerate full-grid/GIS outputs, run the separate downslope attribution or establish hazard detection; see `know-place/evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md`.
 - `tools/know_place/benchmark.py`: strict five-pair inventory, supplement/golden-data parity and tolerance report.
 - `tests/test_know_place_*.py`: small synthetic arrays with analytically known answers and negative tests.
 - `docs/KNOW_PLACE_ANALYSIS_CHECKLIST.md`: gates and completion evidence.
@@ -139,6 +140,10 @@ No edit to the existing streaming/Dynamic AOI workflow, existing scientific engi
 - Same seed + same exact input bytes + same analysis commit must produce byte-stable scalar tables (timestamps may differ in a separately identified run metadata field).
 - A 95th-percentile gate is a paper comparison criterion, not a universally validated early-warning threshold.
 - The output may conclude “measured but not statistically distinctive,” “insufficient data,” or “not reproducible from available inputs.” It must never change those results to PASS to satisfy an expected value.
+
+## Footprint-wide candidate screen — isolated path
+
+The archive's wide_screen.py is not the crown/site-series method. The extracted array kernel preserves the author's screen thresholds and default filter rules and is tested against a test-local transcription of the archived formulas on deterministic synthetic arrays. It deliberately requires per-pixel geometry coefficient rasters from a separately verified radarGrid geometry-cube/DEM interpolation stage. It is not a complete raw-data runner, has not run on the full 4230 × 4311 author grid, and does not implement the subsequent candidate_attributes.py downslope/control analysis. The author source explicitly frames its output as coherent moving surfaces worth inspection; active glaciers dominate candidates. It must not be rephrased as a collapse prediction, early-warning alarm, or validated detector. See `know-place/evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md`.
 
 ## 6. Acceptance gates
 
