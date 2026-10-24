@@ -3,7 +3,8 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Starting commit for the current count-estimand correction:** f258b1033ea114b7e9a72d6e6bb71565a1281430  
+**Current feature head at last validated code/test commit:** a0c41e721a9158d47d6ebb1505451d109ab33a23  
+**Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
 ## 1. Non-negotiable rules
@@ -23,9 +24,11 @@
 - Branch exists: feat/know-place-analysis.
 - Branch head at the start of this correction: f258b1033ea114b7e9a72d6e6bb71565a1281430.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validation of the corrected code/test tree:** [run 40043977505](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977505), testing commit 6e802df389ab38030cfb36fd08a656f736d2dad3. Result: **141 tests passed**, four workflow YAML files parsed, actionlint passed, and both validation jobs succeeded. Live ASF checks downloaded **zero raw products**; the exact first-pair author P05023 ID remains NOT_FOUND, and author-exact reproduction remains BLOCKED.
-- The corresponding raw-replay workflow event was [run 40043977478](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977478); its consent-decision job succeeded and the actual five-pair analysis job was **skipped** because the commit lacked [run-know-place]. No raw GOFF replay was authorized or executed.
-- This context-only refresh follows the tested code/test commit and does not change code/test files. Any subsequent code or test change requires fresh validation.
+- **Latest validated code/test commit:** `a0c41e721a9158d47d6ebb1505451d109ab33a23`.
+- **Latest validation:** [run 40047359607](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40047359607), testing that exact commit. Result: **150 tests passed in 5.09 seconds**; all four Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum passed and semantic workflow validation passed; both jobs succeeded.
+- The live ASF job recorded `RAW_PRODUCT_DOWNLOADS=0` and `SOURCE_DOWNLOADS=0`. First exact author pair P05023 is still `NOT_FOUND / UNRESOLVED`; the other four are `COLLECTION_ROUTE_ONLY`; author reproduction remains BLOCKED.
+- Corresponding raw-replay run [40047359560](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40047359560) succeeded in its consent decision, but the actual five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run.
+- Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. Any future code/test change requires fresh validation.
 - Use the isolated validation workflow at .github/workflows/know-place-analysis-validation.yml and the AOI analysis workflow at .github/workflows/know-place-aoi-analysis.yml. A pushed change to tools/tests/test_know_place_*.py triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download products.
 - Do not run the separate expensive raw replay job without [run-know-place].
 
@@ -109,7 +112,23 @@ Implementation kernels live in tools/know_place/author_parity.py; offline tests 
 
 Always label P1, P2, polygon-null and displacement-null separately.
 
-## 7. Design blueprint and validation gates
+## 7. Event-evaluation leakage, timing and provenance safeguards — updated 2026-10-24
+
+The held-out evaluator is a research scoring contract, not a hazard detector. The event evaluator/threshold selector were hardened and CI-tested in the current code/test tree:
+
+- Registry canonicalization rejects one exact canonical WGS84 AOI ring assigned to multiple site IDs inside the same registry.
+- The held-out evaluator rejects any site ID overlap and any exact canonical AOI-ring overlap between validation and test splits, including reversed polygon winding or rotated starting vertex. It reports disjoint site/geometry split counts.
+- A supplied `first_alarm_time_utc` is only allowed for `ALERT` and must fall within the declared observation window; `NO_ALERT`/`NO_RESULT` cannot claim an alarm timestamp.
+- Threshold policy schema is now `know-place-frozen-threshold-policy/1.1`; validation score and prediction payload schemas are now `know-place-validation-scores/1.1` and `know-place-event-predictions/1.1`.
+- Threshold CLI requires a `know-place-detector-policy/1.0` manifest and hashes the exact file bytes. The model-policy hash is included in the frozen threshold, validation score payload, and held-out prediction payload; mismatched hashes are rejected.
+- Each validation-score and prediction case carries `source_product_sha256s`, which must match the source-product hashes declared by the corresponding registry case. The evaluation report hashes the prediction payload and records `PASS_ALL_CASE_SOURCE_HASHES_MATCH_REGISTRY` after consistency checks.
+- Regression tests exercise model-policy mismatch, source-product hash mismatch, exact geometry leakage, repeated AOI under different site IDs, and contradictory/out-of-window alarm timestamps.
+
+**Limit of these protections:** they validate declared manifests/hashes and cross-file consistency. They do not prove that the claimed implementation actually ran on precisely those source bytes; that needs an independently captured run attestation/receipt tying runtime, code revision, inputs and outputs. Exact geometry matching also does not detect all partial AOI overlaps or nearby spatial leakage. Those must be handled by a spatial buffer/separation audit before independent-site validation is credible.
+
+These changes do not change scientific status: `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
+
+## 8. Design blueprint and validation gates
 
 Read these before implementing further changes:
 1. [Scientific architecture blueprint](../KNOW_PLACE_ANALYSIS_BLUEPRINT.md)
@@ -132,19 +151,19 @@ Promotion gates from the multi-event validation plan:
 
 Current state: archive integrity and exported derived-R verification pass; the correction above resolves count-estimand bookkeeping. Full source input and author-method parity are still **BLOCKED** (below G2), G1 remains partial, G3/G4 are blocked, and hazard detection remains **NOT_EVALUATED**.
 
-## 8. Next actions — continue in this order
+## 9. Next actions — continue in this order
 
 - [x] Inspect blueprint, checklist, runbook, source/validation audits, author archive fixture, author kernel and archive verifier.
 - [x] Recompute displacement-valid and R-valid crown counts independently from all five exported fields and separate the two estimands in machine-readable evidence.
 - [x] Correct both the author-archive diagnostic and benchmark fixture so displacement-valid n and polygon-null R-valid n_px are separate. CI passed in [run 40043977505](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043977505), with 141 tests, four workflow YAML parses and actionlint passing. The ASF job downloaded zero products; the raw-replay job was skipped for lack of explicit consent.
-- [ ] Extend same-estimand comparison of archived per-pair tables and raster statistics; keep P1/P2/polygon-null/displacement-null separate.
+- [x] Extend same-estimand comparison of archived per-pair tables and raster statistics; keep P1/P2/polygon-null/displacement-null separate. See `docs/know-place/evidence/AUTHOR_PROCESSED_FIELD_TABLE_PARITY_20261024.md` (120/120 checks; exported fields only).
 - [ ] Continue integrating the isolated author-parity path, always testing against archived processed fields/tables without silently changing the exploratory runner.
 - [ ] Resolve and SHA-256-pin the exact first-pair P05023 GOFF HDF5 bytes and verify all five author-exact raw inputs; do not substitute X05026.
 - [ ] Only after explicit [run-know-place] authorization and exact input pins, run the gated raw source replay.
 - [ ] Recreate the full-footprint outputs from documented exact sources and author method; archived full-footprint per-pair offset rasters are absent.
-- [ ] Assemble the independent event/non-event registry and held-out evaluation under the pre-registered multi-event plan. The 101-zone post-event inventory is not a prospective holdout.
+- [ ] Assemble an independently labelled event/non-event registry, perform explicit partial-overlap/spatial-buffer auditing, and run held-out evaluation under the pre-registered multi-event plan. The 101-zone post-event inventory is not a prospective holdout. Hash checks validate declared provenance consistency, not proof of actual execution; add trusted run attestation before relying on production evaluation.
 
-## 9. Update protocol for future chats
+## 10. Update protocol for future chats
 
 When continuing from a new chat:
 1. Read this file first, then KNOW_PLACE_ANALYSIS_BLUEPRINT.md, KNOW_PLACE_ANALYSIS_CHECKLIST.md, and the relevant evidence report.
