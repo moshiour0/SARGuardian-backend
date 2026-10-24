@@ -3,7 +3,7 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Latest validated code/test/docs commit:** `2e12b7f999a5e95ee4fb558e73be1c558ff9b545` ([191 tests passed in run 40056415022](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056415022))  
+**Latest validated code/test/docs commit:** 2fddad5fbd3d66fc9ade40da41ce829bfabf7610 (validation run 40058988024: 204 tests passed)
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -22,14 +22,14 @@
 ### Repository and validation baseline
 
 - Branch exists: feat/know-place-analysis.
-- Latest validated baseline: `2e12b7f999a5e95ee4fb558e73be1c558ff9b545`.
+- Latest branch head at this audit refresh: 2fddad5fbd3d66fc9ade40da41ce829bfabf7610.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validated code/test/docs commit:** `2e12b7f999a5e95ee4fb558e73be1c558ff9b545` (validation: [run 40056415022](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056415022)).
-- **Latest isolated validation:** [run 40056415022](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056415022), testing the documented commit `2e12b7f999a5e95ee4fb558e73be1c558ff9b545`. Result: **191 tests passed in 4.69 s**; all six Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
-- The validated tree includes separate footprint-screen equations, an array-only per-pixel geometry builder, geometry → dE/dN projection → screen integration tests, fail-closed vertical-reference checks, and a public Copernicus GLO-90 terrain-tile acquisition workflow. The acquisition workflow downloaded and verified 16 public tiles in [run 40052506016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40052506016); an independent local replay found their raster values reproduce the archived `terrain/elev_m.tif` to float32 rounding. This does not prove original tile-byte identity or process raw GOFF geometry cubes.
+- **Latest validated code/test/docs commit:** 2fddad5fbd3d66fc9ade40da41ce829bfabf7610 (validation: [run 40058988024](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988024)).
+- **Latest isolated validation:** [run 40058988024](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988024), commit 2fddad5fbd3d66fc9ade40da41ce829bfabf7610. Result: **204 tests passed in 4.87 s**; all seven Know Place workflow YAML files parsed; actionlint v1.7.12 checksum and semantic validation passed; both validation jobs succeeded.
+- The validated tree includes separate footprint-screen equations, an array-only per-pixel geometry builder, geometry → dE/dN projection → screen integration tests, fail-closed vertical-reference checks, a public Copernicus GLO-90 terrain-tile acquisition workflow, and a separate exact-author P05023 CMR link/acquisition path. The acquisition workflow downloaded and verified 16 public tiles in [run 40052506016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40052506016); an independent local replay found their raster values reproduce the archived `terrain/elev_m.tif` to float32 rounding. This does not prove original tile-byte identity or process raw GOFF geometry cubes.
 - The geometry builder audit records a material vertical-reference risk: Copernicus GLO-90 is EGM2008-referenced, while the NISAR radarGrid height axis is ellipsoidal. The original author tile bytes remain absent, but current public-mirror tiles were downloaded and their archived preparation recipe reproduced the archived `terrain/elev_m.tif` to Float32 rounding. A separate official-grid experiment quantifies the crown-area ellipsoidal-minus-EGM2008 offset at median −31.7705 m; no correction is applied to the author path. See `docs/know-place/evidence/EGM2008_VERTICAL_DATUM_SENSITIVITY_20261024.md`.
 - Combined ASF + NASA CMR catalog checks recorded `SOURCE_DOWNLOADS=0`. ASF's direct/AOI/wildcard paths missed the first P05023, but collection-scoped CMR confirmed its exact producer ID in `C2854341702-ASF` (granule concept `G4248299988-ASF`; two exact queries each returned HTTP 200 / one result). The other four P05023 IDs have trusted ASF URL evidence. Catalog gate PASS 5/5; source hashes 0/5; raw GOFF bytes remain unverified. See `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md`.
-- Most recent raw-replay run [40056414972](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40056414972) succeeded in its consent decision, but the five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run in this follow-up. Terrain and EGM grid workflows record `raw_nisar_goff_downloaded=false`.
+- Latest legacy raw-replay run [40058988057](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988057) completed its decision gate, but the five-pair analysis job was **skipped**. The newly registered author-exact workflow run [40058988016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988016) also skipped acquisition because the exact manual input `[run-know-place]` was not supplied. Thus raw GOFF payload downloads remain 0; terrain and EGM grid workflows separately record `raw_nisar_goff_downloaded=false`.
 - Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. This current handoff refresh is context-only and does not change code/tests; any future code/test change requires fresh validation.
 - Use `.github/workflows/know-place-analysis-validation.yml`, `.github/workflows/know-place-aoi-analysis.yml`, `.github/workflows/know-place-dem-source-acquisition.yml`, and `.github/workflows/know-place-terrain-datum-sensitivity.yml`. The author-catalog gate in `tools/know_place/author_catalog.py` now performs direct exact-ID, AOI/date, and granule-wildcard searches without downloading payloads. Changes to `tools/tests/test_know_place_*.py` trigger isolated validation.
 - Do not run the separate expensive raw replay job without [run-know-place].
@@ -92,7 +92,7 @@ Machine-readable per-field details are in docs/know-place/reference/author_archi
 
 The supplied Research Square paper and Supplementary Information identify five ascending T098, L-SAR HH, GOFF layer-2 pairs, all with P05023. The authoritative manifest is docs/know-place/reference/author_benchmark_v1.json.
 
-- 2026-06-20 → 2026-07-02: author P05023 ID returned NOT_FOUND in live ASF lookup.
+- 2026-06-20 → 2026-07-02: author P05023 was NOT_FOUND in the earlier ASF-only lookup; collection-scoped CMR later confirmed the producer metadata. Direct raw bytes remain unverified.
 - 2026-07-02 → 2026-07-14: P05023; route found.
 - 2026-07-14 → 2026-07-26: P05023; route found.
 - 2026-07-26 → 2026-08-19: P05023; route found.
@@ -191,6 +191,7 @@ Read these before implementing further changes:
 10. [Author archive golden/reference fixture](reference/author_archive_golden_v1.json)
 11. [Offline regression test](../../tools/tests/test_know_place_author_archive.py)
 12. [Isolated validation workflow](../../.github/workflows/know-place-analysis-validation.yml)
+13. [Exact-author acquisition workflow audit](evidence/AUTHOR_EXACT_ACQUISITION_WORKFLOW_AUDIT_20261024.md)
 
 Promotion gates from the multi-event validation plan:
 - **G0 structural:** schemas, exact identity metadata, hashes, grid checks and synthetic known-answer tests.
@@ -214,7 +215,7 @@ Current state: archive integrity and exported derived-R verification pass; the c
 - [x] Add an array-only per-pixel coefficient builder with synthetic tests and geometry-to-screen integration; horizontal CRS/affine and vertical-reference mismatch guards are explicit. See `docs/know-place/evidence/AUTHOR_FOOTPRINT_GEOMETRY_BUILDER_AUDIT_20261024.md`.
 - [x] Download and SHA-256-pin all 16 current public Copernicus GLO-90 tiles for the terrain bbox and independently recreate the archived `terrain/elev_m.tif` warp. See `docs/know-place/evidence/COPERNICUS_GLO90_SOURCE_TILE_REPLAY_20261024.md` and `docs/know-place/reference/copernicus_glo90_current_manifest_20261024.json`. This is raster-value parity, not original input-file byte parity.
 - [ ] Obtain the author's original 16 terrain-tile hashes/copies or exact delivery version, and resolve/quantify EGM2008-to-ellipsoid height conversion before asserting correct GOFF geometry coefficients. The archived source appears to use EGM2008 elevations directly against `heightAboveEllipsoid` with no visible vertical conversion; no correction has been applied.
-- [ ] Resolve and SHA-256-pin the exact five author-published GOFF HDF5 inputs (the first P05023 remains NOT_FOUND), verify axes/metadata, and test coefficient maps against a full-grid author reference. Do not substitute X05026.
+- [ ] Download and SHA-256-pin the exact five author-published GOFF HDF5 inputs (their direct data links now resolve, but 0/5 payloads are downloaded), verify axes/metadata, and test coefficient maps against a full-grid author reference. Do not substitute X05026.
 - [ ] Recreate the full-footprint outputs from documented exact sources and author method; archived full-footprint per-pair offset rasters are absent. Run raw replay only after exact source pins and explicit `[run-know-place]` authorization.
 - [ ] Assemble an independently labelled event/non-event registry, perform explicit partial-overlap/spatial-buffer auditing, and run held-out evaluation under the pre-registered multi-event plan. The 101-zone post-event inventory is not a prospective holdout. Hash checks validate declared provenance consistency, not proof of actual execution; add trusted run attestation before relying on production evaluation.
 
@@ -227,3 +228,15 @@ When continuing from a new chat:
 4. Keep an evidence ledger: what ran, inputs/hashes, output hashes, tested commit SHA, CI run URL, and any skipped expensive jobs.
 5. Update this file as part of the same branch-only work whenever a scientific decision, blocker, code path, test or validation state changes.
 6. Never mark a checklist item complete unless inspectable evidence supports the exact claim.
+
+
+## 13. Exact-author acquisition workflow and latest CI — 2026-10-24
+
+Current branch head at the start of this update: 2fddad5fbd3d66fc9ade40da41ce829bfabf7610. Main remains unchanged at 2218dfeb73353080d8d94bd733d9e7bd9a848886. The workflow/runner audit is in docs/know-place/evidence/AUTHOR_EXACT_ACQUISITION_WORKFLOW_AUDIT_20261024.md.
+
+- Validation run [40058988024](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988024): 204 tests passed in 4.87 s, seven workflow YAML files parsed, actionlint v1.7.12 checksum and semantic validation passed.
+- Live catalog workflow resolved exactly five author-P05023 direct HDF5 data URLs: AUTHOR_CMR_CATALOG_GATE=PASS, AUTHOR_EXACT_PRODUCTS_CONFIRMED=5/5, AUTHOR_EXACT_CMR_DATA_URLS_CONFIRMED=5. The metadata artifact is know-place-author-exact-live-cmr-access-evidence (SHA-256 digest b81e1d2b1ba4c78a90753ed84fd1ff1da0ff72c886bf46f31ffdd99928a1c4e9); the artifact records accessible link evidence, not source payload hashes.
+- The source payload count is still 0/5 and source SHA-256 count 0/5. Direct URL resolution is not byte acquisition, HDF5 validation, or paper-method parity.
+- The new .github/workflows/know-place-author-exact-replay.yml is manual-dispatch-only for raw work; it requires the exact consent input [run-know-place] and checks Earthdata and Drive credentials before download. The latest dispatch-shaped workflow run had no consent input, so its acquisition job skipped. The legacy X05026 replay also skipped. No raw source was downloaded in this turn.
+- The GitHub connector used for this task can inspect runs and update branch files but has no workflow-dispatch operation. Therefore manual dispatch was not initiated from this session. To execute the raw download, open the exact-author workflow in the Actions tab, choose Run workflow, enter [run-know-place] in consent_marker, and ensure the Earthdata and Google Drive secrets are configured. The workflow will record size/SHA-256, validate HDF5 identity/grid, analyze, retain derived-only outputs in Drive, and only delete temporary raw files after verified Drive receipts.
+- Scientific state remains PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED and HAZARD_DETECTION_STATUS=NOT_EVALUATED. Do not treat this as a hazard detector.
