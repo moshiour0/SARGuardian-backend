@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -35,10 +36,14 @@ def case(case_id, site_id, split, label, *, event_time=None, with_product=True):
             "label_method": "independent published event inventory and manual review",
             "reviewed_independently": True,
         },
-        "observation_window_utc": {
-            "start": "2026-06-20T00:00:00Z",
-            "end": "2026-07-20T00:00:00Z",
-        },
+        "observation_window_utc": (
+            {
+                "start": (datetime.fromisoformat(event_time.replace("Z", "+00:00")) - timedelta(days=30)).isoformat().replace("+00:00", "Z"),
+                "end": (datetime.fromisoformat(event_time.replace("Z", "+00:00")) + timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+            }
+            if label and event_time is not None
+            else {"start": "2026-07-01T00:00:00Z", "end": "2026-07-31T00:00:00Z"}
+        ),
         "event_time_utc": event_time if label else None,
         "monitoring_exposure_aoi_months": 1.0 if with_product else 0.0,
         "source_products": [{
@@ -208,6 +213,27 @@ def test_no_result_with_score_and_prediction_outside_test_split_are_rejected():
     bad_predictions["cases"].append(prediction("VAL-E1", "ALERT", 0.9))
     with pytest.raises(EventValidationError, match="PREDICTION_NOT_HELDOUT_TEST_CASE"):
         evaluate_heldout_events(reg, bad_predictions, threshold_policy(reg), bootstrap_replicates=100)
+
+
+def test_first_alarm_time_must_match_alert_state_and_observation_window():
+    reg = registry()
+    bad = prediction_payload()
+    # T1's monitoring window starts 30 days before its 1 August event: 2 July.
+    bad["cases"][0]["first_alarm_time_utc"] = "2026-07-01T23:59:59Z"
+    with pytest.raises(EventValidationError, match="FIRST_ALARM_TIME_OUTSIDE_OBSERVATION_WINDOW"):
+        evaluate_heldout_events(reg, bad, threshold_policy(reg), bootstrap_replicates=100)
+
+    bad = prediction_payload()
+    # T2 reports NO_ALERT and therefore cannot also claim an alarm timestamp.
+    bad["cases"][1]["first_alarm_time_utc"] = "2026-08-01T00:00:00Z"
+    with pytest.raises(EventValidationError, match="FIRST_ALARM_TIME_REQUIRES_ALERT_STATE"):
+        evaluate_heldout_events(reg, bad, threshold_policy(reg), bootstrap_replicates=100)
+
+    bad = prediction_payload()
+    # NO_RESULT is a coverage failure, never a recorded detector alarm.
+    bad["cases"][2]["first_alarm_time_utc"] = "2026-08-02T00:00:00Z"
+    with pytest.raises(EventValidationError, match="FIRST_ALARM_TIME_REQUIRES_ALERT_STATE"):
+        evaluate_heldout_events(reg, bad, threshold_policy(reg), bootstrap_replicates=100)
 
 
 def test_incomplete_or_threshold_inconsistent_test_predictions_fail_closed():

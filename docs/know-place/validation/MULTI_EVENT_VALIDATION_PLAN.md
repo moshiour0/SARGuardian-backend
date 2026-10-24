@@ -135,6 +135,10 @@ The frozen threshold policy records the model/policy name, score name and units,
 
 From the **held-out test cases only**, the evaluator reports event-level precision, recall, specificity and F1 on evaluable cases, coverage/no-result counts, conservative recall over all labelled events, false alarms per monitored AOI-month, event lead-time/detection-delay summaries, and site-cluster bootstrap intervals. It withholds site-cluster intervals when fewer than five independent sites are present by default. These statistics are meaningful only when the registry labels, split assignments and model outputs were frozen independently of one another.
 
+### Prediction timing contract
+
+A supplied `first_alarm_time_utc` is valid only when the prediction state is `ALERT`, and it must fall within that case's declared `observation_window_utc` (inclusive start/end). `NO_ALERT` and `NO_RESULT` records must not carry an alarm timestamp. This prevents lead-time/detection-delay metrics from being calculated from alarms outside the case's monitored period or from contradictory states. A missing alarm timestamp on an `ALERT` remains permissible but contributes no lead-time/delay value; it must be disclosed as timing unavailable, not inferred.
+
 ### CLI contract
 
 Once a real detector emits per-case scores and a policy/threshold has been selected exclusively on the validation split, save:

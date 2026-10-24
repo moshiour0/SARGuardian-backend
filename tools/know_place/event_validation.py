@@ -542,6 +542,19 @@ def evaluate_heldout_events(
                 raise EventValidationError(f"PREDICTION_WITHOUT_VERIFIED_SOURCE_PRODUCTS:{case_id}")
         first_alarm = raw.get("first_alarm_time_utc")
         first_alarm_utc = _utc_datetime(first_alarm, f"{case_id}_FIRST_ALARM_TIME_INVALID") if first_alarm is not None else None
+        if first_alarm_utc is not None:
+            if state != "ALERT":
+                raise EventValidationError(f"FIRST_ALARM_TIME_REQUIRES_ALERT_STATE:{case_id}")
+            observed_start = _utc_datetime(
+                test_cases[case_id]["observation_window_utc"]["start"],
+                f"{case_id}_OBSERVATION_START_INVALID",
+            )
+            observed_end = _utc_datetime(
+                test_cases[case_id]["observation_window_utc"]["end"],
+                f"{case_id}_OBSERVATION_END_INVALID",
+            )
+            if not observed_start <= first_alarm_utc <= observed_end:
+                raise EventValidationError(f"FIRST_ALARM_TIME_OUTSIDE_OBSERVATION_WINDOW:{case_id}")
         predictions[case_id] = {
             "case_id": case_id, "state": state,
             "score": float(score_value) if score_value is not None else None,
