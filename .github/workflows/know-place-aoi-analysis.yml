@@ -136,7 +136,7 @@ on:
         default: ""
         type: string
       execute_downloads:
-        required: true
+        required: false
         default: false
         type: boolean
 
