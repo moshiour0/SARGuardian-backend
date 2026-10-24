@@ -342,14 +342,11 @@ def test_p2_crown_r_is_cropped_from_contextual_r_raster_not_recomputed_on_crown(
     )
     extent, (r_up,) = author_north_up(x, y, 32645, [full_r])
     box_slice = author_crown_slice(r_up.shape, extent, AUTHOR_WIDE_BOUNDS)
+    crown_slice = author_crown_slice(r_up.shape, extent, AUTHOR_CROWN_BOUNDS)
     box_r = r_up[box_slice]
-    lon = np.linspace(extent[0], extent[1], r_up.shape[1])
-    lat = np.linspace(extent[3], extent[2], r_up.shape[0])
-    r0, r1 = int(box_slice[0].start), int(box_slice[0].stop)
-    c0, c1 = int(box_slice[1].start), int(box_slice[1].stop)
-    box_extent = (float(lon[c0]), float(lon[c1 - 1]), float(lat[r1 - 1]), float(lat[r0]))
-    crown_slice = author_crown_slice(box_r.shape, box_extent, AUTHOR_CROWN_BOUNDS)
-    values = box_r[crown_slice]
-    expected = float(np.median(values[np.isfinite(values)]))
+    crown_r = r_up[crown_slice]
+    expected_crown = float(np.median(crown_r[np.isfinite(crown_r)]))
+    expected_box = float(np.median(box_r[np.isfinite(box_r)]))
     assert result["coherence_computed_before_spatial_cropping"] is True
-    assert result["P2_R_crown"] == pytest.approx(expected, abs=1e-7)
+    assert result["P2_R_crown"] == pytest.approx(expected_crown, abs=1e-7)
+    assert result["P2_R_background"] == pytest.approx(expected_box, abs=1e-7)

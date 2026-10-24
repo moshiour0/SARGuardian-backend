@@ -317,10 +317,11 @@ def author_local_mean_reference_statistics(
     """Compute P2 statistics before spatially cropping coherence.
 
     The author full-footprint kernel computes the local mean, residual vectors,
-    and 5x5 coherence on the contextual field. It then crops the resulting R
-    raster to the reported box and crown. Recomputing R from a crown-only vector
-    crop changes reflected-edge support and is not equivalent. Inputs must
-    already use author-compatible float32 offsets with SNR and magnitude gates.
+    and 5x5 coherence on the contextual field. It then samples the same R raster
+    with the source's endpoint-derived extent for the crown and the background
+    box. Recomputing R from a crown-only vector crop or reprojecting bounds
+    relative to an already-cropped box introduces artificial boundary/crop shifts.
+    Inputs must already use author-compatible float32 offsets and quality gates.
     """
     east, north = _pair(east_m, north_m)
     x = np.asarray(x_coordinates_m, dtype=float)
@@ -347,23 +348,13 @@ def author_local_mean_reference_statistics(
     extent, oriented = author_north_up(x, y, int(epsg), [full_r])
     r_up = np.asarray(oriented[0], dtype=float)
     box_slice = author_crown_slice(r_up.shape, extent, box_bounds_lonlat)
+    crown_slice = author_crown_slice(r_up.shape, extent, crown_bounds_lonlat)
     box_r = np.asarray(r_up[box_slice], dtype=float)
+    crown_r = np.asarray(r_up[crown_slice], dtype=float)
     box_finite = box_r[np.isfinite(box_r)]
+    crown_finite = crown_r[np.isfinite(crown_r)]
     if not box_finite.size:
         raise AuthorParityError("AUTHOR_P2_BOX_HAS_NO_VALID_R")
-
-    # Reconstruct the endpoint-based extent of the selected box, then crop
-    # the already-computed R map rather than recomputing coherence on crown-only vectors.
-    lon = np.linspace(extent[0], extent[1], r_up.shape[1])
-    lat = np.linspace(extent[3], extent[2], r_up.shape[0])
-    r0, r1 = int(box_slice[0].start), int(box_slice[0].stop)
-    c0, c1 = int(box_slice[1].start), int(box_slice[1].stop)
-    if r1 <= r0 or c1 <= c0:
-        raise AuthorParityError("AUTHOR_P2_BOX_CROP_EMPTY")
-    box_extent = (float(lon[c0]), float(lon[c1 - 1]), float(lat[r1 - 1]), float(lat[r0]))
-    crown_slice = author_crown_slice(box_r.shape, box_extent, crown_bounds_lonlat)
-    crown_r = np.asarray(box_r[crown_slice], dtype=float)
-    crown_finite = crown_r[np.isfinite(crown_r)]
     if not crown_finite.size:
         raise AuthorParityError("AUTHOR_P2_CROWN_HAS_NO_VALID_R")
 
@@ -379,10 +370,16 @@ def author_local_mean_reference_statistics(
         "required_halo_pixels_per_side": local_window // 2 + 2,
         "box_shape": [int(box_r.shape[0]), int(box_r.shape[1])],
         "box_slice_in_halo": {
-            "row_start": r0, "row_stop": r1, "col_start": c0, "col_stop": c1
+            "row_start": int(box_slice[0].start), "row_stop": int(box_slice[0].stop),
+            "col_start": int(box_slice[1].start), "col_stop": int(box_slice[1].stop)
+        },
+        "crown_slice_in_halo": {
+            "row_start": int(crown_slice[0].start), "row_stop": int(crown_slice[0].stop),
+            "col_start": int(crown_slice[1].start), "col_stop": int(crown_slice[1].stop)
         },
         "coherence_computed_before_spatial_cropping": True,
     }
+
 
 
 def author_site_series_statistics(
