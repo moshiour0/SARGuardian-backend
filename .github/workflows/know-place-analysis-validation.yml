@@ -108,6 +108,7 @@ jobs:
           tools/tests/test_know_place_author_fields_verifier.py
           tools/tests/test_know_place_footprint_screen.py tools/tests/test_know_place_footprint_geometry.py tools/tests/test_know_place_terrain_vertical_datum.py
           tools/tests/test_know_place_author_exact_acquisition.py
+          tools/tests/test_know_place_multisite_benchmark.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash
