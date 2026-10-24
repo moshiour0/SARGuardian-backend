@@ -146,6 +146,7 @@ def _validate_run_provenance(run_zip: zipfile.ZipFile) -> dict[str, Any]:
         "source_bytes_total": total_bytes,
         "source_products": source_rows,
         "site_series_checks": comparison,
+        "p2_table_comparison": site_report.get("author_p2_table_comparison"),
         "cleanup": {
             "status": cleanup.get("status"),
             "deleted_count": cleanup.get("raw_hdf5_deleted_count"),
@@ -203,6 +204,8 @@ def audit_archives(
                         raise AuditError(f"RUN_ARRAY_MISSING:{interval}:{name}")
                     row = compare_channel(arrays[name], expected[name], tolerance)
                     channels.append({"channel": name, **row})
+                if not np.array_equal(np.isfinite(arrays["east_m"]), np.isfinite(arrays["north_m"])):
+                    raise AuditError(f"RUN_EAST_NORTH_MASK_MISMATCH:{interval}")
             results.append({"interval": interval, "npz": npz_name, "author_geotiff": tif_name,
                             "grid": grid, "channels": channels,
                             "status": "PASS" if all(row["status"] == "PASS" for row in channels) else "FAIL"})
