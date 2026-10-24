@@ -24,7 +24,7 @@ def test_raster_comparison_requires_finite_mask_and_numeric_parity():
     expected = np.array([[0.0, np.nan], [2.0, 3.0]], dtype=np.float32)
     assert _compare_raster_arrays(expected.copy(), expected.copy(), tolerance=0.0)["status"] == "PASS"
     wrong_mask = np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)
-    assert _compare_raster_arrays(wrong_mask, expected, tolerance=0.0)["finite_mask_mismatch_count"] == 2
+    assert _compare_raster_arrays(wrong_mask, expected, tolerance=0.0)["finite_mask_mismatch_count"] == 1
     wrong_value = expected.copy()
     wrong_value[1, 0] += 0.001
     assert _compare_raster_arrays(wrong_value, expected, tolerance=0.0001)["status"] == "FAIL"
