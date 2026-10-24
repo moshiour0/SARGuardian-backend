@@ -269,6 +269,7 @@ jobs:
               and inventory.get("status")=="PASS" and inventory.get("expected_candidate_count")==106
               and inventory.get("computed_candidate_count")==106 and inventory.get("computed_quality_pass_count")==101
               and inventory.get("score_formula_audit",{}).get("status")=="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
+              and inventory.get("ranking_order_comparison",{}).get("status")=="PASS"
               and table7.get("status")=="PASS" and table7.get("expected_zone_count")==101
               and table7.get("computed_directional_zone_count")==101 and table7.get("matched_centroid_count")==101
               and footprint.get("candidate_summary",{}).get("component_count")==106
@@ -471,7 +472,8 @@ jobs:
               or inventory_check.get("expected_candidate_count")!=106
               or inventory_check.get("computed_candidate_count")!=106
               or inventory_check.get("computed_quality_pass_count")!=101
-              or inventory_check.get("score_formula_audit",{}).get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"):
+              or inventory_check.get("score_formula_audit",{}).get("status")!="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
+              or inventory_check.get("ranking_order_comparison",{}).get("status")!="PASS"):
               raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_OR_FINAL_ZONAL_SCORE_PARITY_FAILED")
           if (table7_check.get("status")!="PASS" or table7_check.get("expected_zone_count")!=101
               or table7_check.get("computed_directional_zone_count")!=101 or table7_check.get("matched_centroid_count")!=101):
@@ -528,6 +530,7 @@ jobs:
           print("AUTHOR_CANDIDATE_INVENTORY=106/106")
           print("AUTHOR_QUALITY_ZONES=101/101")
           print("AUTHOR_FINAL_ZONAL_SCORE_FORMULA=PASS")
+          print("AUTHOR_FINAL_SCORE_RANKING_ORDER=PASS")
           print("AUTHOR_TABLE_S7_VALIDATED_ZONES=101/101")
           print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
