@@ -3,7 +3,7 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Latest CI-validated code/test/evidence commit:** 5901c10c2bb38379acd23c0a0e2c01952c4e7d1e (validation run 40059962163: 204 tests passed in 6.56 s)
+**Latest CI-validated code/test/workflow/docs commit:** cc0f2d101c717e80f4abcf2d9ace1479dc1168d2 (validation run 40102959304: 213 tests passed in 3.72 s)
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -19,17 +19,26 @@
 
 ## 2. Current verified state
 
+### Current Run Workflow entry point
+
+- Default-branch `main` remains unchanged (`2218dfeb73353080d8d94bd733d9e7bd9a848886`). A feature-branch copy of `.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` is registered on `feat/know-place-analysis` so the existing Run Workflow UI path can be used without changing main.
+- In Actions, select **SARGuardian AOI WKT E2E (safe branch dispatcher)**, select branch `feat/know-place-analysis`, then choose `author-exact-p05023` for the five-pair author run or `generic-aoi-date` for arbitrary WKT/date measurement.
+- The author profile requires exact manual input `[run-know-place]`. It checks Earthdata/Google Drive secrets before download, obtains exactly five P05023 sources, hashes and validates the HDF5s/grids, runs the analyzer, retains derived-only evidence in Drive, verifies remote receipts, then removes temporary raw files only after durable retention is verified.
+- The generic profile has `execute_downloads=false` by default. That profile is a no-source-download catalog/series dry run. Set it true only with `[run-know-place]` and working Earthdata + Drive credentials.
+- Runbook: `docs/KNOW_PLACE_ANALYSIS_RUNBOOK.md`. Architecture/validation plan: `docs/know-place/REPRODUCIBLE_ENGINE_AND_MULTI_SITE_VALIDATION_20261024.md`. Benchmark registry: `docs/know-place/reference/multi_site_benchmark_v1.json`.
+- Multi-site registry is pre-registered but not scored: Bhote Koshi (author-method reproduction target and hazard-discrimination challenge); Samudra Tapu and Bara Shigri (glacier-flow positives); Hubbard and Malaspina (high-speed/speckle challenges); Budhi Gandaki (GUNW cross-product no-precursor challenge). Four non-Bhote site geometries/product IDs remain pending. Budhi Gandaki is not directly comparable to GOFF until a versioned GUNW adapter exists.
+
 ### Repository and validation baseline
 
 - Branch exists: feat/know-place-analysis.
-- Last fully CI-validated branch head before this context-pointer refresh: 5901c10c2bb38379acd23c0a0e2c01952c4e7d1e.
+- Latest fully CI-validated branch commit: cc0f2d101c717e80f4abcf2d9ace1479dc1168d2.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest CI-validated code/test/evidence commit:** 5901c10c2bb38379acd23c0a0e2c01952c4e7d1e (validation: [run 40059962163](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40059962163)).
-- **Latest isolated validation:** [run 40059962163](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40059962163), commit 5901c10c2bb38379acd23c0a0e2c01952c4e7d1e. Result: **204 tests passed in 6.56 s**; all seven workflow YAML files parsed; actionlint v1.7.12 checksum and semantic workflow validation passed; both validation jobs succeeded.
+- **Latest CI-validated code/test/workflow/docs commit:** cc0f2d101c717e80f4abcf2d9ace1479dc1168d2 (validation: [run 40102959304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40102959304)).
+- **Latest isolated validation:** [run 40102959304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40102959304), commit cc0f2d101c717e80f4abcf2d9ace1479dc1168d2. Result: **213 tests passed in 3.72 s**; all eight workflow YAML files parsed (including the branch dispatcher); actionlint v1.7.12 checksum and semantic workflow validation passed; both validation jobs succeeded.
 - The validated tree includes separate footprint-screen equations, an array-only per-pixel geometry builder, geometry → dE/dN projection → screen integration tests, fail-closed vertical-reference checks, a public Copernicus GLO-90 terrain-tile acquisition workflow, and a separate exact-author P05023 CMR link/acquisition path. The acquisition workflow downloaded and verified 16 public tiles in [run 40052506016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40052506016); an independent local replay found their raster values reproduce the archived `terrain/elev_m.tif` to float32 rounding. This does not prove original tile-byte identity or process raw GOFF geometry cubes.
 - The geometry builder audit records a material vertical-reference risk: Copernicus GLO-90 is EGM2008-referenced, while the NISAR radarGrid height axis is ellipsoidal. The original author tile bytes remain absent, but current public-mirror tiles were downloaded and their archived preparation recipe reproduced the archived `terrain/elev_m.tif` to Float32 rounding. A separate official-grid experiment quantifies the crown-area ellipsoidal-minus-EGM2008 offset at median −31.7705 m; no correction is applied to the author path. See `docs/know-place/evidence/EGM2008_VERTICAL_DATUM_SENSITIVITY_20261024.md`.
 - Combined ASF + NASA CMR catalog checks recorded `SOURCE_DOWNLOADS=0`. ASF's direct/AOI/wildcard paths missed the first P05023, but collection-scoped CMR confirmed its exact producer ID in `C2854341702-ASF` (granule concept `G4248299988-ASF`; two exact queries each returned HTTP 200 / one result). All five exact P05023 IDs have trusted collection-scoped CMR identity and direct HDF5 data URL evidence. Catalog gate PASS 5/5; source hashes 0/5; raw GOFF bytes remain unverified. See `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md`.
-- Latest legacy raw-replay run [40093380207](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40093380207) completed its decision gate, but the five-pair analysis job was **skipped**. The newly registered author-exact workflow run [40058988016](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40058988016) also skipped acquisition because the exact manual input `[run-know-place]` was not supplied. Thus raw GOFF payload downloads remain 0; terrain and EGM grid workflows separately record `raw_nisar_goff_downloaded=false`.
+- Latest legacy raw-replay run [40102852996](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40102852996) completed its gate successfully, but the five-pair analysis job was **skipped**. Raw GOFF payload downloads in this session remain 0. The branch-only Run Workflow launcher and reusable author-exact/AOI children passed validation, but the author-exact workflow has not yet been manually dispatched with `[run-know-place]`.
 - Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. This current handoff refresh is context-only and does not change code/tests; any future code/test change requires fresh validation.
 - Use `.github/workflows/know-place-analysis-validation.yml`, `.github/workflows/know-place-aoi-analysis.yml`, `.github/workflows/know-place-dem-source-acquisition.yml`, and `.github/workflows/know-place-terrain-datum-sensitivity.yml`. The author-catalog gate in `tools/know_place/author_catalog.py` now performs direct exact-ID, AOI/date, and granule-wildcard searches without downloading payloads. Changes to `tools/tests/test_know_place_*.py` trigger isolated validation.
 - Do not run the separate expensive raw replay job without [run-know-place].
