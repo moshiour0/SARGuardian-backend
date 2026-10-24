@@ -16,6 +16,8 @@ import numpy as np
 from pyproj import Transformer
 from scipy.ndimage import uniform_filter
 
+from .footprint_screen import local_nanmean, residual_directional_coherence
+
 
 class AuthorParityError(ValueError):
     """An author-parity input cannot support an unambiguous calculation."""
@@ -311,15 +313,14 @@ def author_local_mean_reference_statistics(
     local_window: int = 41,
     crown_bounds_lonlat: tuple[float, float, float, float] = (85.5245, 28.2847, 85.5400, 28.2970),
     box_bounds_lonlat: tuple[float, float, float, float] = (85.500, 28.265, 85.565, 28.318),
-) -> dict[str, float | bool | int | list[int]]:
-    """Compute P2/local-mean crown and box R from a halo-bearing displacement window.
+) -> dict[str, Any]:
+    """Compute P2 statistics before spatially cropping coherence.
 
-    Input arrays must already apply the author's SNR >= 5 and magnitude <= 10 m
-    rejection. The caller must supply at least (local_window // 2 + 2) pixels of
-    context around the reported box, unless the context reaches the true source
-    raster boundary. This avoids reflecting the local mean at the artificial
-    6-km crop edge. Coherence is computed on the residual field; crown R follows
-    the published crown-cropped estimator and box R uses the full box field.
+    The author full-footprint kernel computes the local mean, residual vectors,
+    and 5x5 coherence on the contextual field. It then crops the resulting R
+    raster to the reported box and crown. Recomputing R from a crown-only vector
+    crop changes reflected-edge support and is not equivalent. Inputs must
+    already use author-compatible float32 offsets with SNR and magnitude gates.
     """
     east, north = _pair(east_m, north_m)
     x = np.asarray(x_coordinates_m, dtype=float)
@@ -331,29 +332,28 @@ def author_local_mean_reference_statistics(
     if not isinstance(local_window, int) or local_window < 3 or local_window % 2 != 1:
         raise AuthorParityError("AUTHOR_P2_LOCAL_WINDOW_INVALID")
 
-    def source_local_mean(values: np.ndarray, window: int) -> np.ndarray:
-        # Exact archived wide_screen.lmean semantics: float32, NaN-aware support,
-        # scipy's default reflected boundary at the limits of the supplied halo.
-        z = np.nan_to_num(values).astype(np.float32)
-        support = np.isfinite(values).astype(np.float32)
-        summed = uniform_filter(z, size=window)
-        fraction = uniform_filter(support, size=window)
-        return np.where(fraction > 0.15, summed / np.maximum(fraction, 1e-6), np.nan)
-
-    residual_east = (east - source_local_mean(east, local_window)).astype(np.float32)
-    residual_north = (north - source_local_mean(north, local_window)).astype(np.float32)
-    full_r = author_coherence_map(residual_east, residual_north, window_size=5)
-    extent, oriented = author_north_up(
-        x, y, int(epsg), [residual_east, residual_north, full_r]
+    # Match wide_screen.py's float32 local-mean and residual operations.
+    east_source = east.astype(np.float32, copy=False)
+    north_source = north.astype(np.float32, copy=False)
+    residual_east = (
+        east_source - local_nanmean(east_source, local_window, 0.15)
+    ).astype(np.float32)
+    residual_north = (
+        north_source - local_nanmean(north_source, local_window, 0.15)
+    ).astype(np.float32)
+    full_r = residual_directional_coherence(
+        residual_east, residual_north, window_size=5, local_support_fraction=0.15
     )
-    east_up, north_up, r_up = oriented
+    extent, oriented = author_north_up(x, y, int(epsg), [full_r])
+    r_up = np.asarray(oriented[0], dtype=float)
     box_slice = author_crown_slice(r_up.shape, extent, box_bounds_lonlat)
     box_r = np.asarray(r_up[box_slice], dtype=float)
     box_finite = box_r[np.isfinite(box_r)]
     if not box_finite.size:
         raise AuthorParityError("AUTHOR_P2_BOX_HAS_NO_VALID_R")
 
-    # Reconstruct the exact endpoint-based extent of the selected box crop.
+    # Reconstruct the endpoint-based extent of the selected box, then crop
+    # the already-computed R map rather than recomputing coherence on crown-only vectors.
     lon = np.linspace(extent[0], extent[1], r_up.shape[1])
     lat = np.linspace(extent[3], extent[2], r_up.shape[0])
     r0, r1 = int(box_slice[0].start), int(box_slice[0].stop)
@@ -361,13 +361,8 @@ def author_local_mean_reference_statistics(
     if r1 <= r0 or c1 <= c0:
         raise AuthorParityError("AUTHOR_P2_BOX_CROP_EMPTY")
     box_extent = (float(lon[c0]), float(lon[c1 - 1]), float(lat[r1 - 1]), float(lat[r0]))
-
-    box_east = np.asarray(east_up[box_slice], dtype=float)
-    box_north = np.asarray(north_up[box_slice], dtype=float)
-    crown_slice = author_crown_slice(box_east.shape, box_extent, crown_bounds_lonlat)
-    crown_r = author_coherence_map(
-        box_east[crown_slice], box_north[crown_slice], window_size=5
-    )
+    crown_slice = author_crown_slice(box_r.shape, box_extent, crown_bounds_lonlat)
+    crown_r = np.asarray(box_r[crown_slice], dtype=float)
     crown_finite = crown_r[np.isfinite(crown_r)]
     if not crown_finite.size:
         raise AuthorParityError("AUTHOR_P2_CROWN_HAS_NO_VALID_R")
@@ -386,7 +381,9 @@ def author_local_mean_reference_statistics(
         "box_slice_in_halo": {
             "row_start": r0, "row_stop": r1, "col_start": c0, "col_stop": c1
         },
+        "coherence_computed_before_spatial_cropping": True,
     }
+
 
 def author_site_series_statistics(
     east_m: Any,

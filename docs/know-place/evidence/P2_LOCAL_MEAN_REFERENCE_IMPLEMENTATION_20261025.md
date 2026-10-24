@@ -1,31 +1,29 @@
-# P2/local-mean reference implementation note — 2026-10-25
+# P2/local-mean reference audit and correction — 2026-10-25
 
-## Current evidence boundary
+## Latest raw-run finding
 
-The last raw acquisition run, [40128950105](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40128950105), predates this implementation. It produced the exact-author site fields and 65 selected archive checks, but **did not compute P2**, so no P2 parity claim is made for that run.
+The explicitly authorized exact-author run 40140476008 (https://github.com/moshiour0/SARGuardian-backend/actions/runs/40140476008) downloaded and verified all five P05023 sources (5/5 SHA-256 and grids) and completed the selected P1/site checks (65/65). The P2/local-mean comparison was 3/15, with 12 mismatches. The run did not execute full-footprint parity because the workflow tied the footprint step to the overall acquisition/site-analysis step outcome. Its run-level result was failure; green substeps for download and Google Drive retention are not scientific success.
 
-The P2 target values are the three Table S4 columns `P2_R_crown`, `P2_R_bg`, and `P2_resolved` for each of five intervals. These yield 15 cells.
+The same run completed derived-only Drive retention and remote receipt verification, then verified source hashes, deleted all five temporary raw HDF5 files, confirmed zero remained, and uploaded/verified a post-delete cleanup receipt. These retention controls must remain intact.
 
-## Implementation now in the isolated branch
+## Root causes identified for correction
 
-- Module: `tools/know_place/author_parity.py`, function `author_local_mean_reference_statistics`.
-- Integration: `tools/know_place/author_raw_site_series.py`, separate P2 computation and three-value comparison for every pair.
-- Required context: 22 pixels per side around the exact 6-km box—20 pixels for the 41 × 41 local mean plus two pixels for the 5 × 5 coherence window, unless the full source raster edge is reached.
-- Source-method operation: apply SNR ≥ 5 and horizontal magnitude ≤ 10 m rejection; compute the 41 × 41 NaN-aware local mean using the archive's float32 and support-fraction (>0.15) behavior; subtract it from east/north displacement; compute 5 × 5 residual directional coherence with >0.5 finite support; then crop the fixed box. The crown R uses the crown-cropped estimator; the background R uses the full box R field.
-- The next final replay gate now requires both the pre-existing 65/65 site/polygon checks and **15/15 P2 Table S4 checks** at published rounding precision. A P2 mismatch cannot be hidden by the previously passing metrics.
+1. P1 site-series statistics use the archived crown-point/height-axis-median geometry approximation. The P2 footprint/local-mean path incorrectly reused that same single geometry sample. The author archive wide-screen method instead projects GOFF AT/SR at each target DEM pixel using per-pixel geometry coefficients interpolated from the radarGrid geometry cubes over height, y and x.
+2. P2 recomputed directional coherence after cropping the projected residual vectors to the crown. The author footprint kernel computes the 5x5 residual-coherence raster on the contextual field and then crops that R raster, so the crown crop must not create a second reflected-edge calculation.
 
-## Automated tests
+## Corrections added to the isolated feature branch
 
-Synthetic tests check finite field output, output bounds, 22-pixel crop interior, invariance to adding a constant vector before local-mean removal, exact Table S4 P2 target comparison, and mismatch rejection. The isolated validation run that included the P2 kernels and tests passed: [run 40131779821](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40131779821). The archive-raster parity utility and its synthetic fixture tests were added in subsequent commits; their latest validation is tracked separately in Actions.
+- P2 uses the pinned Zenodo terrain/elev_m.tif tile aligned to the raw GOFF row/column window. The code checks the DEM SHA-256, full source dimensions, CRS, affine, band type and nodata, plus GOFF pixel-centre alignment.
+- P2 builds source-compatible per-pixel geometry coefficients from the first exact pair and reuses the coefficient tile across the five same-grid pairs, matching the author's cached geometry behavior. Raw AT/SR and projection operations use float32.
+- P2 computes the 41x41 local mean and 5x5 residual coherence on the halo/context first, then crops the precomputed R raster to the box and crown.
+- Raw-download dispatch fails closed before any CMR query unless the pinned DEM is supplied and hash-verified.
+- The independent full-footprint parity step now depends on verified source config/manifest availability and the author archive, not on P1/P2 parity success. A P2 mismatch will no longer suppress the independent raster/inventory/Table S7 audit. The final scientific gate remains strict and still fails on real mismatches.
+- Private Google Drive upload, receipt-copy verification, post-delete cleanup receipt, raw-not-uploaded assertion and source-hash checks remain intact.
 
-These tests validate the code path's mathematical contract; they are **not** a raw-data reproduction of the five P2 numbers. Actual P2 parity remains unverified until a new explicitly authorized author-exact run records all 15 comparisons.
+## Verification boundary
 
-## Remaining independent blockers
+These are implementation corrections and synthetic contract tests, not a new raw-data result. The 3/15 P2 result describes the old code path and is not the status of the corrected implementation. Corrected P2 values, all 15 Table S4 cells, the three footprint aggregate rasters, 106 candidate inventory rows, 101 Table S7 zones, and score/rank order remain unverified until a new explicitly authorized raw run completes.
 
-- The published archive provides only summary values for the three displacement-null columns (`dispnull_crown_m`, `dispnull_null_med_m`, `dispnull_pctile`) and omits the draw-level generator/source script. Their exact parity remains blocked until authoritative method evidence is recovered.
-- The 101-zone footprint inventory was supplied by the author, not independently regenerated by SARGuardian. Full-screen integration still requires the full source footprint, terrain grid identity, per-pixel radar geometry, local anomaly/residual coherence, persistence across at least two of five pairs, connected-component filtering, and directional validation.
-- Even complete numerical Table S4 parity would not itself establish a useful hazard detector. Detection precision/recall, false-alarm rate, lead time, event-wise positive/negative controls and independent geophysical validation remain unevaluated.
+The archived displacement-null summary fields do not include the draw-level null-generation implementation, so those exact values remain independently unresolved. Even numerical parity would not establish detection skill. Event-wise precision/recall, false-alarm rates, lead time and independent geophysical validation are still unevaluated. hazard_detection_status must stay NOT_EVALUATED.
 
-## Retention and authorization
-
-The P2 changes in this branch do not download raw sources on their own. The last completed raw run deleted all five HDF5 files after verified Drive retention. A future test run will need to reacquire the five exact P05023 products (~5.47 GB payload). Do not start that run without a new explicit `[run-know-place]` authorization. Do not merge these changes into `main`.
+No work in this patch changes main. Do not run another approximately 5.47 GB raw replay without a new explicit [run-know-place] authorization.

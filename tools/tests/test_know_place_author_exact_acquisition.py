@@ -338,3 +338,23 @@ def test_download_operation_requires_consent_before_any_catalog_query(tmp_path, 
     assert rc == 2
     assert not called
     assert "EXPLICIT_RAW_DOWNLOAD_CONSENT_MARKER_REQUIRED" in capsys.readouterr().out
+
+
+def test_download_operation_requires_pinned_dem_before_any_cmr_query(tmp_path, monkeypatch, capsys) -> None:
+    called = False
+
+    def forbidden_query():
+        nonlocal called
+        called = True
+        raise AssertionError("CMR must not be queried without the pinned DEM path")
+
+    monkeypatch.setattr(acquisition, "discover_exact_author_sources", forbidden_query)
+    rc = acquisition.main([
+        "--operation", "download-and-analyze",
+        "--out-root", str(tmp_path / "run"),
+        "--science-root", str(tmp_path / "science"),
+        "--consent-marker", "[run-know-place]",
+    ])
+    assert rc == 2
+    assert not called
+    assert "PINNED_AUTHOR_TERRAIN_ROOT_REQUIRED" in capsys.readouterr().out

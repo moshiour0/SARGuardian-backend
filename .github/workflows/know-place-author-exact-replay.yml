@@ -221,11 +221,25 @@ jobs:
           RUN_GEOMETRY_HEIGHT_M: ${{ inputs.geometry_height_m || '5151' }}
           RUN_CONTROL_DRAWS: ${{ inputs.control_draws || '1000' }}
           RUN_SEED: ${{ inputs.seed || '260826' }}
-        run: python -m tools.know_place.author_exact_acquisition --operation download-and-analyze --out-root "$RUN_ROOT" --science-root "$GITHUB_WORKSPACE/science-source" --consent-marker "[run-know-place]" --geometry-height-m "$RUN_GEOMETRY_HEIGHT_M" --control-draws "$RUN_CONTROL_DRAWS" --seed "$RUN_SEED"
+        run: python -m tools.know_place.author_exact_acquisition --operation download-and-analyze --out-root "$RUN_ROOT" --science-root "$GITHUB_WORKSPACE/science-source" --terrain-root "$AUTHOR_TERRAIN_ROOT" --consent-marker "[run-know-place]" --geometry-height-m "$RUN_GEOMETRY_HEIGHT_M" --control-draws "$RUN_CONTROL_DRAWS" --seed "$RUN_SEED"
+
+      - name: Check source inputs exist for independent footprint audit
+        id: footprint_inputs
+        if: always() && steps.credentials.outputs.secrets_ready == 'true' && steps.author_archive.outputs.archive_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUN_ROOT/source-run/know-place-inputs.json" && -s "$RUN_ROOT/source-run/author-exact-source-manifest.json" ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "FOOTPRINT_INPUTS_AVAILABLE=true"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "FOOTPRINT_INPUTS_AVAILABLE=false"
+          fi
 
       - name: Run full-footprint screen and compare archive golden outputs
         id: footprint
-        if: steps.analysis.outcome == 'success'
+        if: always() && steps.credentials.outputs.secrets_ready == 'true' && steps.author_archive.outputs.archive_ready == 'true' && steps.footprint_inputs.outputs.present == 'true'
         continue-on-error: true
         shell: bash
         run: |

@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+import rasterio
+from affine import Affine
+from rasterio.windows import Window
 
 from .analyze import _load_and_validate_inputs, load_config
 from .author_parity import (
@@ -37,6 +40,8 @@ from .author_parity import (
 )
 from .geometry import parse_polygon_wkt
 from .goff_io import GoffReadError, read_geometry_cubes, read_raw_goff
+from .footprint_geometry import AUTHOR_GEOMETRY_SHA256, build_per_pixel_coefficients
+from .footprint_screen import project_per_pixel_offsets
 from .paper_method import PAPER_INTERVALS
 
 AUTHOR_CROWN_BOUNDS = (85.5245, 28.2847, 85.5400, 28.2970)
@@ -47,6 +52,11 @@ AUTHOR_POSTING_M = 80.0
 AUTHOR_NULL_SEED = 20260907
 AUTHOR_NULL_DRAWS = 1200
 PAPER_BLOCKED = "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
+AUTHOR_TERRAIN_ELEVATION_SHA256 = "d593f74142d930fb3f1f4a320950019f318842f933f4da64139ea4e214ecd8a1"
+AUTHOR_TERRAIN_SHAPE = (4230, 4311)
+AUTHOR_TERRAIN_TRANSFORM = Affine(80.0, 0.0, 126720.0, 0.0, -80.0, 3347280.0)
+AUTHOR_DEM_VERTICAL_REFERENCE = "EPSG:9518 WGS 84 + EGM2008 height, Copernicus GLO-90 prepared elevation"
+AUTHOR_GEOMETRY_HEIGHT_REFERENCE = "NISAR radarGrid heightAboveEllipsoid (HAE)"
 
 
 def _json_safe(value: Any) -> Any:
@@ -276,10 +286,163 @@ def process_author_pair_arrays(
     }
 
 
-def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) -> dict[str, Any]:
+def _read_author_p2_terrain_window(
+    terrain_root: str | Path,
+    row_slice: slice,
+    col_slice: slice,
+    raw_halo: Any,
+) -> tuple[np.ndarray, Affine, dict[str, Any]]:
+    """Read the exact pinned DEM tile aligned to a raw GOFF context window."""
+    terrain_path = Path(terrain_root).expanduser().resolve() / "elev_m.tif"
+    if not terrain_path.is_file():
+        raise GoffReadError("AUTHOR_P2_PINNED_TERRAIN_ELEVATION_MISSING")
+    digest = _sha256_file(terrain_path)
+    if digest != AUTHOR_TERRAIN_ELEVATION_SHA256:
+        raise GoffReadError("AUTHOR_P2_PINNED_TERRAIN_SHA256_MISMATCH")
+    if row_slice.start is None or row_slice.stop is None or col_slice.start is None or col_slice.stop is None:
+        raise GoffReadError("AUTHOR_P2_TERRAIN_WINDOW_BOUNDS_MISSING")
+    row_start, row_stop = int(row_slice.start), int(row_slice.stop)
+    col_start, col_stop = int(col_slice.start), int(col_slice.stop)
+    if row_start < 0 or col_start < 0 or row_stop <= row_start or col_stop <= col_start:
+        raise GoffReadError("AUTHOR_P2_TERRAIN_WINDOW_BOUNDS_INVALID")
+    expected_window = {
+        "row_start": row_start, "row_stop": row_stop,
+        "column_start": col_start, "column_stop": col_stop,
+    }
+    if raw_halo.metadata.get("read_window", {}) != expected_window:
+        raise GoffReadError("AUTHOR_P2_RAW_GOFF_WINDOW_IDENTITY_MISMATCH")
+    window = Window(col_start, row_start, col_stop - col_start, row_stop - row_start)
+    with rasterio.open(terrain_path) as src:
+        epsg = src.crs.to_epsg() if src.crs else None
+        if epsg != 32645:
+            raise GoffReadError("AUTHOR_P2_TERRAIN_CRS_MISMATCH")
+        if (src.height, src.width) != AUTHOR_TERRAIN_SHAPE:
+            raise GoffReadError("AUTHOR_P2_TERRAIN_SHAPE_MISMATCH")
+        if src.count != 1 or src.dtypes[0] != "float32":
+            raise GoffReadError("AUTHOR_P2_TERRAIN_BAND_TYPE_MISMATCH")
+        if src.nodata is None or float(src.nodata) != -9999.0:
+            raise GoffReadError("AUTHOR_P2_TERRAIN_NODATA_MISMATCH")
+        if not np.allclose(
+            [src.transform.a, src.transform.b, src.transform.c,
+             src.transform.d, src.transform.e, src.transform.f],
+            [AUTHOR_TERRAIN_TRANSFORM.a, AUTHOR_TERRAIN_TRANSFORM.b, AUTHOR_TERRAIN_TRANSFORM.c,
+             AUTHOR_TERRAIN_TRANSFORM.d, AUTHOR_TERRAIN_TRANSFORM.e, AUTHOR_TERRAIN_TRANSFORM.f],
+            rtol=0.0, atol=1e-9,
+        ):
+            raise GoffReadError("AUTHOR_P2_TERRAIN_AFFINE_MISMATCH")
+        tile_transform = src.window_transform(window)
+        expected_tile_transform = Affine(
+            80.0, 0.0, AUTHOR_TERRAIN_TRANSFORM.c + col_start * 80.0,
+            0.0, -80.0, AUTHOR_TERRAIN_TRANSFORM.f - row_start * 80.0,
+        )
+        if not np.allclose(
+            [tile_transform.a, tile_transform.b, tile_transform.c,
+             tile_transform.d, tile_transform.e, tile_transform.f],
+            [expected_tile_transform.a, expected_tile_transform.b, expected_tile_transform.c,
+             expected_tile_transform.d, expected_tile_transform.e, expected_tile_transform.f],
+            rtol=0.0, atol=1e-9,
+        ):
+            raise GoffReadError("AUTHOR_P2_TERRAIN_WINDOW_AFFINE_MISMATCH")
+        dem = src.read(1, window=window, masked=False).astype(np.float32, copy=False)
+    if dem.shape != raw_halo.along_track_m.shape:
+        raise GoffReadError("AUTHOR_P2_TERRAIN_RAW_WINDOW_SHAPE_MISMATCH")
+    expected_x = AUTHOR_TERRAIN_TRANSFORM.c + (
+        np.arange(col_start, col_stop, dtype=np.float64) + 0.5
+    ) * AUTHOR_TERRAIN_TRANSFORM.a
+    expected_y = AUTHOR_TERRAIN_TRANSFORM.f + (
+        np.arange(row_start, row_stop, dtype=np.float64) + 0.5
+    ) * AUTHOR_TERRAIN_TRANSFORM.e
+    if not np.allclose(raw_halo.x_coordinates_m, expected_x, rtol=0.0, atol=1e-4):
+        raise GoffReadError("AUTHOR_P2_GOFF_X_DOES_NOT_MATCH_PINNED_TERRAIN")
+    if not np.allclose(raw_halo.y_coordinates_m, expected_y, rtol=0.0, atol=1e-4):
+        raise GoffReadError("AUTHOR_P2_GOFF_Y_DOES_NOT_MATCH_PINNED_TERRAIN")
+    evidence = {
+        "sha256": digest,
+        "crs_epsg": 32645,
+        "source_shape": list(AUTHOR_TERRAIN_SHAPE),
+        "window": expected_window,
+        "window_shape": list(dem.shape),
+        "window_transform": {
+            "a": tile_transform.a, "b": tile_transform.b, "c": tile_transform.c,
+            "d": tile_transform.d, "e": tile_transform.e, "f": tile_transform.f,
+        },
+        "nodata": -9999.0,
+        "raw_goff_pixel_centres_match_dem_window": True,
+    }
+    return dem, tile_transform, evidence
+
+
+def project_author_p2_window(
+    *,
+    along_track_m: Any,
+    slant_range_m: Any,
+    snr: Any,
+    geometry_cubes: Any,
+    dem_elevation_m: Any,
+    target_transform: Affine,
+    epsg: int,
+) -> tuple[dict[str, Any], dict[str, np.ndarray], dict[str, Any]]:
+    """Build author per-pixel DEM geometry and project P2 offsets for one tile."""
+    dem = np.asarray(dem_elevation_m, dtype=np.float32)
+    at = np.asarray(along_track_m, dtype=np.float32)
+    sr = np.asarray(slant_range_m, dtype=np.float32)
+    snr_values = np.asarray(snr, dtype=np.float32)
+    if dem.ndim != 2 or at.shape != dem.shape or sr.shape != dem.shape or snr_values.shape != dem.shape:
+        raise GoffReadError("AUTHOR_P2_RAW_DEM_TILE_SHAPE_MISMATCH")
+    geometry = build_per_pixel_coefficients(
+        geometry_cubes.height_m,
+        geometry_cubes.y_m,
+        geometry_cubes.x_m,
+        geometry_cubes.incidence_deg,
+        geometry_cubes.los_x,
+        geometry_cubes.los_y,
+        geometry_cubes.along_track_x,
+        geometry_cubes.along_track_y,
+        dem,
+        target_transform,
+        dem_transform=target_transform,
+        target_epsg=int(epsg),
+        geometry_metadata_epsg=int(geometry_cubes.metadata_epsg),
+        dem_epsg=int(epsg),
+        dem_vertical_reference=AUTHOR_DEM_VERTICAL_REFERENCE,
+        geometry_height_reference=AUTHOR_GEOMETRY_HEIGHT_REFERENCE,
+        # Match archived source behavior exactly; datum mismatch remains
+        # explicit in the report and no vertical correction is applied.
+        allow_vertical_reference_mismatch=True,
+        dem_nodata=-9999.0,
+        block_rows=100,
+    )
+    if geometry.get("status") != "PER_PIXEL_GEOMETRY_COEFFICIENTS_COMPUTED":
+        raise GoffReadError("AUTHOR_P2_PER_PIXEL_GEOMETRY_INCOMPLETE")
+    coefficients = geometry["coefficients"]
+    projection = project_per_pixel_offsets(
+        at, sr, snr_values,
+        coefficients["cE"], coefficients["cN"],
+        coefficients["kE"], coefficients["kN"],
+        minimum_snr=5.0, maximum_magnitude_m=10.0,
+    )
+    evidence = {
+        "geometry_method": "author geometry.py RegularGridInterpolator using each target DEM pixel elevation",
+        "author_geometry_source_sha256": AUTHOR_GEOMETRY_SHA256,
+        "dem_vertical_reference": AUTHOR_DEM_VERTICAL_REFERENCE,
+        "geometry_height_reference": AUTHOR_GEOMETRY_HEIGHT_REFERENCE,
+        "vertical_transformation_applied": False,
+        "vertical_reference_diagnostics": geometry.get("vertical_reference"),
+        "coefficient_diagnostics": geometry.get("diagnostics"),
+        "coefficient_cache_policy": "build from first exact pair and reuse across five same-grid pairs, matching author cached geometry",
+        "projection_geometry_policy": projection.get("geometry_policy"),
+        "quality_gate": "float32 dE/dN; SNR >= 5; horizontal magnitude <= 10 m; invalid pixels masked",
+    }
+    return projection, coefficients, evidence
+
+
+def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path, *, terrain_root: str | Path) -> dict[str, Any]:
     """Read exactly five validated raw author granules and write reproducible site-series evidence."""
     config, config_dir = load_config(config_path)
     _assert_author_bounds(config)
+    terrain_root = Path(terrain_root).expanduser().resolve()
+    if not (terrain_root / "elev_m.tif").is_file():
+        raise GoffReadError("AUTHOR_P2_PINNED_TERRAIN_ELEVATION_MISSING")
     out = Path(output_dir).expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
     products = _load_and_validate_inputs(config, config_dir)
@@ -288,6 +451,11 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
     rng = np.random.default_rng(AUTHOR_NULL_SEED)
     pair_reports: list[dict[str, Any]] = []
     csv_rows: list[dict[str, Any]] = []
+    p2_coefficients: dict[str, np.ndarray] | None = None
+    p2_geometry_evidence: dict[str, Any] | None = None
+    p2_window_signature: dict[str, int] | None = None
+    p2_x_coordinates: np.ndarray | None = None
+    p2_y_coordinates: np.ndarray | None = None
 
     for pair_index, (item, interval) in enumerate(zip(products, PAPER_INTERVALS, strict=True)):
         start, end = interval
@@ -317,9 +485,9 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             polygon_null_rng=rng,
         )
 
-        # P2 must use a real 41x41 context around every reported box cell.
-        # A 20-pixel local-mean radius plus 2 pixels for the 5x5 R window
-        # prevents an artificial reflected boundary at the 6-km crop edge.
+        # P2 uses author per-pixel DEM-derived geometry, not the P1
+        # crown-point median-geometry approximation. The 22-pixel halo supports
+        # the 41x41 local mean and 5x5 residual coherence around the box.
         halo_pixels = 41 // 2 + 2
         halo_rows = slice(
             max(0, int(row_slice.start) - halo_pixels),
@@ -334,22 +502,51 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             expected_track="098", expected_direction="A", expected_processing="PR",
             window_slices=(halo_rows, halo_cols), expected_grid=grid,
         )
-        halo_east, halo_north = author_project_offsets(
-            raw_halo.along_track_m, raw_halo.slant_range_m, result["geometry"]
-        )
-        halo_valid = author_quality_mask(
-            halo_east, halo_north, raw_halo.snr,
-            minimum_snr=5.0, maximum_magnitude_m=10.0,
-        )
-        halo_east = np.where(halo_valid, halo_east, np.nan)
-        halo_north = np.where(halo_valid, halo_north, np.nan)
+        current_window = raw_halo.metadata["read_window"]
+        if p2_coefficients is None:
+            dem, dem_transform, terrain_evidence = _read_author_p2_terrain_window(
+                terrain_root, halo_rows, halo_cols, raw_halo
+            )
+            p2_projection, p2_coefficients, p2_geometry_evidence = project_author_p2_window(
+                along_track_m=raw_halo.along_track_m,
+                slant_range_m=raw_halo.slant_range_m,
+                snr=raw_halo.snr,
+                geometry_cubes=cubes,
+                dem_elevation_m=dem,
+                target_transform=dem_transform,
+                epsg=raw_halo.epsg,
+            )
+            p2_geometry_evidence["terrain"] = terrain_evidence
+            p2_window_signature = {key: int(value) for key, value in current_window.items()}
+            p2_x_coordinates = raw_halo.x_coordinates_m.copy()
+            p2_y_coordinates = raw_halo.y_coordinates_m.copy()
+        else:
+            if (
+                current_window != p2_window_signature
+                or p2_x_coordinates is None or p2_y_coordinates is None
+                or not np.array_equal(raw_halo.x_coordinates_m, p2_x_coordinates)
+                or not np.array_equal(raw_halo.y_coordinates_m, p2_y_coordinates)
+                or any(np.asarray(value).shape != raw_halo.along_track_m.shape
+                       for value in p2_coefficients.values())
+            ):
+                raise GoffReadError("AUTHOR_P2_REUSED_GEOMETRY_GRID_IDENTITY_MISMATCH")
+            p2_projection = project_per_pixel_offsets(
+                np.asarray(raw_halo.along_track_m, dtype=np.float32),
+                np.asarray(raw_halo.slant_range_m, dtype=np.float32),
+                np.asarray(raw_halo.snr, dtype=np.float32),
+                p2_coefficients["cE"], p2_coefficients["cN"],
+                p2_coefficients["kE"], p2_coefficients["kN"],
+                minimum_snr=5.0, maximum_magnitude_m=10.0,
+            )
         p2 = author_local_mean_reference_statistics(
-            halo_east, halo_north,
+            p2_projection["dE_m"], p2_projection["dN_m"],
             raw_halo.x_coordinates_m, raw_halo.y_coordinates_m, raw_halo.epsg,
             local_window=41,
             crown_bounds_lonlat=AUTHOR_CROWN_BOUNDS,
             box_bounds_lonlat=AUTHOR_WIDE_BOUNDS,
         )
+        p2["projection_geometry"] = p2_geometry_evidence
+        p2["projection_quality_gate_counts"] = p2_projection["quality_gate_counts"]
         p2_comparison = compare_p2_pair_to_archive(p2, pair_index, benchmark)
         comparison = compare_pair_to_archive(
             result["site_series"], result["polygon_null"], pair_index, benchmark
@@ -473,13 +670,14 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             "mismatch_count": len(p2_mismatches),
             "mismatches": p2_mismatches,
             "required_halo_pixels_per_side": 22,
-            "method": "local mean of projected dE/dN in 41x41 window, subtract, then 5x5 residual coherence; compute on halo and crop to fixed box",
+            "method": "per-pixel DEM-interpolated author geometry; float32 SNR/magnitude-gated dE/dN; 41x41 local mean; 5x5 residual coherence computed on the halo before cropping the R raster to box and crown",
         },
         "author_profile": {
             "wide_bounds_lonlat": list(AUTHOR_WIDE_BOUNDS),
             "crown_bounds_lonlat": list(AUTHOR_CROWN_BOUNDS),
             "crown_reference_point_lonlat": list(AUTHOR_CROWN_POINT),
-            "geometry_estimator": "median of each geometry component along height at nearest radarGrid XY cell to crown reference point",
+            "geometry_estimator": "P1 site series: median of each geometry component along height at nearest radarGrid XY cell to crown reference point",
+            "P2_geometry_estimator": "author geometry.py per-pixel DEM-interpolated coefficients; coefficient tile cached from first exact pair and reused across the five same-grid pairs",
             "quality_gate": "finite projected dE/dN and SNR >= 5 and horizontal magnitude <= 10 m; correlation is not a gate",
             "bulk_reference": "component medians of valid pixels outside crown; apply only if valid outside-crown count > 200",
             "site_R": "5x5 mean resultant length with reflected edges and strict finite support > 0.5; crown R is recomputed on the crown-cropped field",
@@ -522,9 +720,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--terrain-root", required=True, type=Path)
     args = parser.parse_args(argv)
     try:
-        report = run_author_raw_site_series(args.config, args.out)
+        report = run_author_raw_site_series(args.config, args.out, terrain_root=args.terrain_root)
     except (GoffReadError, AuthorParityError, OSError, ValueError, KeyError) as exc:
         print(json.dumps({
             "status": "AUTHOR_SITE_SERIES_ANALYSIS_FAILED",

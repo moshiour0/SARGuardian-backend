@@ -39,6 +39,7 @@ DEFAULT_CONTROL_DRAWS = 1000
 DEFAULT_CONTROL_SEED = 260826
 DEFAULT_COHERENCE_MINIMUM = 1
 PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS = "BLOCKED_AUTHOR_CROWN_GEOMETRY_AND_METHOD_PARITY_UNVERIFIED"
+PINNED_AUTHOR_TERRAIN_ELEVATION_SHA256 = "d593f74142d930fb3f1f4a320950019f318842f933f4da64139ea4e214ecd8a1"
 TRUSTED_ASF_HOSTS = (
     "asf.alaska.edu",
     ".asf.alaska.edu",
@@ -443,6 +444,7 @@ def acquire_and_analyze(
     science_root: Path,
     run_root: Path,
     output_root: Path,
+    terrain_root: Path | None,
     consent_marker: str | None,
     expected_geometry_height_m: float = CROWN_GEOMETRY_HEIGHT_M,
     control_draws: int = DEFAULT_CONTROL_DRAWS,
@@ -450,6 +452,14 @@ def acquire_and_analyze(
 ) -> dict[str, Any]:
     """Download exactly five author granules one time each, hash/validate, then analyze separately."""
     require_consent_marker(consent_marker)
+    if terrain_root is None:
+        raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ROOT_REQUIRED")
+    terrain_root = Path(terrain_root).expanduser().resolve()
+    terrain_file = terrain_root / "elev_m.tif"
+    if not terrain_file.is_file():
+        raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ELEVATION_MISSING")
+    if sha256_file(terrain_file) != PINNED_AUTHOR_TERRAIN_ELEVATION_SHA256:
+        raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ELEVATION_SHA256_MISMATCH")
     run_root.mkdir(parents=True, exist_ok=True)
     output_root.mkdir(parents=True, exist_ok=True)
     raw_dir = run_root / "raw"
@@ -822,6 +832,7 @@ def acquire_and_analyze(
                     sys.executable, "-m", "tools.know_place.author_raw_site_series",
                     "--config", str(run_root / "know-place-inputs.json"),
                     "--out", str(output_root),
+                    "--terrain-root", str(terrain_root),
                 ],
                 check=False,
                 capture_output=True,
@@ -959,6 +970,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--operation", choices=("catalog", "preflight", "download-and-analyze"), required=True)
     parser.add_argument("--out-root", required=True, type=Path)
     parser.add_argument("--science-root", type=Path)
+    parser.add_argument("--terrain-root", type=Path)
     parser.add_argument("--consent-marker")
     parser.add_argument("--geometry-height-m", type=float, default=CROWN_GEOMETRY_HEIGHT_M)
     parser.add_argument("--control-draws", type=int, default=DEFAULT_CONTROL_DRAWS)
@@ -971,6 +983,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.operation == "download-and-analyze":
             require_consent_marker(args.consent_marker)
+            if args.terrain_root is None:
+                raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ROOT_REQUIRED")
+            terrain_file = args.terrain_root.expanduser().resolve() / "elev_m.tif"
+            if not terrain_file.is_file():
+                raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ELEVATION_MISSING")
+            if sha256_file(terrain_file) != PINNED_AUTHOR_TERRAIN_ELEVATION_SHA256:
+                raise AuthorExactAcquisitionError("PINNED_AUTHOR_TERRAIN_ELEVATION_SHA256_MISMATCH")
         rows, manifest = discover_exact_author_sources()
         if args.operation == "catalog":
             path = root / "author-exact-catalog-manifest.json"
@@ -990,6 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
         require_consent_marker(args.consent_marker)
         status = acquire_and_analyze(
             science_root=args.science_root,
+            terrain_root=args.terrain_root,
             run_root=root / "source-run",
             output_root=root / "derived",
             consent_marker=args.consent_marker,

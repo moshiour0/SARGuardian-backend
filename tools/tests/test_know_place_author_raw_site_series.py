@@ -8,6 +8,8 @@ import numpy as np
 import pytest
 from pyproj import Transformer
 
+from affine import Affine
+
 from tools.know_place.author_raw_site_series import (
     AUTHOR_CROWN_BOUNDS,
     AUTHOR_WIDE_BOUNDS,
@@ -15,8 +17,12 @@ from tools.know_place.author_raw_site_series import (
     compare_pair_to_archive,
     compare_p2_pair_to_archive,
     process_author_pair_arrays,
+    project_author_p2_window,
 )
-from tools.know_place.author_parity import AuthorParityError, author_local_mean_reference_statistics
+from tools.know_place.author_parity import (
+    AuthorParityError, author_crown_slice, author_local_mean_reference_statistics, author_north_up,
+)
+from tools.know_place.footprint_screen import local_nanmean, residual_directional_coherence
 
 
 def _wkt(bounds):
@@ -262,3 +268,88 @@ def test_p2_archive_comparison_covers_all_three_table_s4_columns_and_flags_misma
     assert mismatch["status"] == "MISMATCH"
     assert mismatch["checks_passed"] == 2
     assert mismatch["checks_total"] == 3
+
+
+def test_p2_projection_uses_per_pixel_dem_interpolated_geometry_not_crown_median():
+    x = np.array([140.0, 220.0, 300.0, 380.0])
+    y = np.array([220.0, 300.0, 380.0])
+    heights = np.array([100.0, 500.0, 900.0])
+    shape = (heights.size, y.size, x.size)
+    incidence = np.broadcast_to(
+        np.array([30.0, 35.0, 40.0, 45.0])[None, None, :], shape
+    ).copy()
+    los_x = np.broadcast_to(
+        np.array([0.2, 0.4, 0.6, 0.8])[None, None, :], shape
+    ).copy()
+    los_y = np.sqrt(1.0 - los_x**2)
+    along_x = np.broadcast_to(
+        np.array([0.9, 0.7, 0.5, 0.3])[None, None, :], shape
+    ).copy()
+    along_y = np.broadcast_to(
+        np.array([-0.4, -0.2, 0.2, 0.4])[None, None, :], shape
+    ).copy()
+    cubes = SimpleNamespace(
+        metadata_epsg=32645,
+        height_m=heights,
+        y_m=y,
+        x_m=x,
+        incidence_deg=incidence,
+        los_x=los_x,
+        los_y=los_y,
+        along_track_x=along_x,
+        along_track_y=along_y,
+    )
+    # Pixel centres match the radarGrid samples; the DEM height is inside
+    # the height axis, and all geometry fields vary in x across the tile.
+    transform = Affine(80.0, 0.0, 100.0, 0.0, -80.0, 420.0)
+    dem = np.full((3, 4), 500.0, dtype=np.float32)
+    at = np.full((3, 4), 0.5, dtype=np.float32)
+    sr = np.full((3, 4), 0.2, dtype=np.float32)
+    snr = np.full((3, 4), 10.0, dtype=np.float32)
+
+    projected, coefficients, evidence = project_author_p2_window(
+        along_track_m=at,
+        slant_range_m=sr,
+        snr=snr,
+        geometry_cubes=cubes,
+        dem_elevation_m=dem,
+        target_transform=transform,
+        epsg=32645,
+    )
+    assert evidence["author_geometry_source_sha256"]
+    assert evidence["geometry_method"].startswith("author geometry.py")
+    assert evidence["vertical_transformation_applied"] is False
+    assert coefficients["cE"].shape == at.shape
+    assert projected["quality_gate_counts"]["final_valid_cells"] == at.size
+    assert np.ptp(projected["dE_m"]) > 0.01
+    assert np.ptp(projected["dN_m"]) > 0.01
+
+
+def test_p2_crown_r_is_cropped_from_contextual_r_raster_not_recomputed_on_crown():
+    east, north, x, y = _halo_field_arrays()
+    result = author_local_mean_reference_statistics(
+        east, north, x, y, 32645,
+        local_window=41,
+        crown_bounds_lonlat=AUTHOR_CROWN_BOUNDS,
+        box_bounds_lonlat=AUTHOR_WIDE_BOUNDS,
+    )
+    east32 = east.astype(np.float32)
+    north32 = north.astype(np.float32)
+    residual_east = (east32 - local_nanmean(east32, 41, 0.15)).astype(np.float32)
+    residual_north = (north32 - local_nanmean(north32, 41, 0.15)).astype(np.float32)
+    full_r = residual_directional_coherence(
+        residual_east, residual_north, window_size=5, local_support_fraction=0.15
+    )
+    extent, (r_up,) = author_north_up(x, y, 32645, [full_r])
+    box_slice = author_crown_slice(r_up.shape, extent, AUTHOR_WIDE_BOUNDS)
+    box_r = r_up[box_slice]
+    lon = np.linspace(extent[0], extent[1], r_up.shape[1])
+    lat = np.linspace(extent[3], extent[2], r_up.shape[0])
+    r0, r1 = int(box_slice[0].start), int(box_slice[0].stop)
+    c0, c1 = int(box_slice[1].start), int(box_slice[1].stop)
+    box_extent = (float(lon[c0]), float(lon[c1 - 1]), float(lat[r1 - 1]), float(lat[r0]))
+    crown_slice = author_crown_slice(box_r.shape, box_extent, AUTHOR_CROWN_BOUNDS)
+    values = box_r[crown_slice]
+    expected = float(np.median(values[np.isfinite(values)]))
+    assert result["coherence_computed_before_spatial_cropping"] is True
+    assert result["P2_R_crown"] == pytest.approx(expected, abs=1e-7)
