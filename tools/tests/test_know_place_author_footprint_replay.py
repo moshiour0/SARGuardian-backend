@@ -93,7 +93,9 @@ def test_candidate_component_summary_uses_pixel_area_centroid_and_directional_ga
     assert row["d_downslope"] == pytest.approx(0.0, abs=1e-4)
     assert row["d_range"] == pytest.approx(30.0, abs=1e-4)
     assert row["valid_directional"] is True
+    assert row["score"] == pytest.approx(3 * 0.6 * 0.9, abs=1e-6)
     assert summary["directional_pass_count"] == 1
+    assert summary["quality_pass_count"] == 1
 
 
 def _expected_inventory_csv(rows: list[dict[str, object]]) -> str:
@@ -154,7 +156,7 @@ def _make_candidate_rows(count: int = 106) -> list[dict[str, object]]:
             "n_epochs": 3,
             "anom_m": 0.6,
             "R": 0.8,
-            "score": 1.44,
+            "score": 1.62,
             "disp_az": angle,
             "res_mag_m": 1.0,
             "R_raw": 0.95,
@@ -186,8 +188,8 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert result["expected_directional_quality_pass_count"] == 101
     assert result["computed_directional_pass_count"] == 101
     assert result["mismatch_count"] == 0
-    assert result["score_formula_audit"]["source_code_formula_matches"] == 106
-    assert result["score_formula_audit"]["status"] == "PASS_SOURCE_CODE_SCORE_CONVENTION"
+    assert result["score_formula_audit"]["postprocessed_formula_matches"] == 106
+    assert result["score_formula_audit"]["status"] == "PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
 
     validated = compare_validated_zone_table(rows, archive_path)
     assert validated["status"] == "PASS"
@@ -199,20 +201,21 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     modified[50]["R_res"] = 0.91
     mismatch = compare_candidate_inventory(modified, archive_path, numeric_tolerance=1e-9)
     assert mismatch["status"] == "MISMATCH"
-    assert mismatch["mismatch_count"] == 1
+    assert mismatch["mismatch_count"] == 2
+    assert mismatch["mismatch_count_by_metric"] == {"R_res": 1, "score": 1}
 
-    # Recreate the score convention present in the deposited candidate inventory:
-    # n_epochs * anomaly * zone-aggregated R_res, which differs from
-    # wide_screen.py's n_epochs * anomaly * centroid R formula.
-    archived_residual_rows = [dict(row) for row in rows]
-    for row in archived_residual_rows:
-        row["score"] = float(row["n_epochs"]) * float(row["anom_m"]) * float(row["R_res"])
-    score_archive_path = tmp_path / "author-score-contract.zip"
+    # The original wide_screen.py score is provisional. The archive runs
+    # fix_zonal_attrs.py afterward, which replaces score with n_epochs * anom_m * R_res.
+    # A deposited table that retains the provisional R score must not pass.
+    provisional_rows = [dict(row) for row in rows]
+    for row in provisional_rows:
+        row["score"] = float(row["n_epochs"]) * float(row["anom_m"]) * float(row["R"])
+    score_archive_path = tmp_path / "author-provisional-score.zip"
     with zipfile.ZipFile(score_archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("inventory/candidates_attributed.csv", _expected_inventory_csv(archived_residual_rows))
-        archive.writestr("tables/TableS7_all_validated_zones.csv", _table_s7_csv(archived_residual_rows[:101]))
+        archive.writestr("inventory/candidates_attributed.csv", _expected_inventory_csv(provisional_rows))
+        archive.writestr("tables/TableS7_all_validated_zones.csv", _table_s7_csv(provisional_rows[:101]))
     score_contract = compare_candidate_inventory(rows, score_archive_path, numeric_tolerance=1e-9)
     assert score_contract["status"] == "MISMATCH"
-    assert score_contract["score_formula_audit"]["source_code_formula_matches"] == 0
-    assert score_contract["score_formula_audit"]["alternative_formula_matches"] == 106
-    assert score_contract["score_formula_audit"]["status"] == "ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
+    assert score_contract["mismatch_count_by_metric"] == {"score": 106}
+    assert score_contract["score_formula_audit"]["postprocessed_formula_matches"] == 0
+    assert score_contract["score_formula_audit"]["status"] == "POSTPROCESSED_SCORE_FORMULA_MISMATCH"
