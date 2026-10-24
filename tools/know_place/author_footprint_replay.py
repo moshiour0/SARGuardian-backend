@@ -493,12 +493,30 @@ def compare_candidate_inventory(
     maximum_error: dict[str, float] = {name: 0.0 for name in CANDIDATE_METRIC_COLUMNS}
     expected_quality_pass = 0
     computed_quality_pass = sum(bool(row["valid_directional"]) for row in computed_rows)
+    source_code_score_match_count = 0
+    archived_residual_score_match_count = 0
+    score_formula_rows: list[dict[str, Any]] = []
     for expected in expected_rows:
         key = (round(float(expected["lon"]), 5), round(float(expected["lat"]), 5))
         actual = by_key.pop(key, None)
         if actual is None:
             missing.append({"lon": key[0], "lat": key[1]})
             continue
+        expected_score = float(expected["score"])
+        source_code_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R"])
+        archived_residual_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R_res"])
+        source_score_matches = abs(expected_score - source_code_score) <= numeric_tolerance
+        residual_score_matches = abs(expected_score - archived_residual_score) <= numeric_tolerance
+        source_code_score_match_count += int(source_score_matches)
+        archived_residual_score_match_count += int(residual_score_matches)
+        if not source_score_matches or not residual_score_matches:
+            score_formula_rows.append({
+                "lon": key[0], "lat": key[1], "archive_score": expected_score,
+                "screen_code_score_n_times_anom_times_R": source_code_score,
+                "alternative_score_n_times_anom_times_R_res": archived_residual_score,
+                "source_code_formula_matches_archive": source_score_matches,
+                "residual_aggregate_formula_matches_archive": residual_score_matches,
+            })
         for metric in CANDIDATE_METRIC_COLUMNS:
             if metric in {"n_px", "n_epochs"}:
                 ok = int(float(actual[metric])) == int(float(expected[metric]))
@@ -550,6 +568,22 @@ def compare_candidate_inventory(
         "max_absolute_error_by_metric": maximum_error,
         "numeric_tolerance": numeric_tolerance,
         "compared_columns": [*CANDIDATE_METRIC_COLUMNS, "quality"],
+        "score_formula_audit": {
+            "source_code_formula": "n_epochs * anom_m * R, as assigned in archived code/wide_screen.py",
+            "source_code_formula_matches": source_code_score_match_count,
+            "archive_rows": len(expected_rows),
+            "alternative_formula": "n_epochs * anom_m * R_res, using the zone-aggregated residual coherence",
+            "alternative_formula_matches": archived_residual_score_match_count,
+            "status": (
+                "ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
+                if source_code_score_match_count != len(expected_rows)
+                and archived_residual_score_match_count == len(expected_rows)
+                else "PASS_SOURCE_CODE_SCORE_CONVENTION"
+                if source_code_score_match_count == len(expected_rows)
+                else "SCORE_FORMULA_NOT_RECONCILED"
+            ),
+            "examples": score_formula_rows[:25],
+        },
         "glacier_overlay_not_compared": True,
         "glacier_overlay_note": "The exact RGI 6.0 polygon assets are not part of this author archive; glacier class and nearest-glacier distance are not inferred by this comparison.",
     }
