@@ -182,10 +182,13 @@ jobs:
           print("DEM_TILE_COUNT=16")
           print("RAW_NISAR_GOFF_DOWNLOADS=0")
           PY
-          echo "## Copernicus GLO-90 source acquisition" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Sixteen public tiles were downloaded once each, SHA-256 pinned, and checked for CRS and expected one-degree bounds." >> "$GITHUB_STEP_SUMMARY"
-          echo "- Original author tile byte identity remains unverified; no vertical transformation was applied." >> "$GITHUB_STEP_SUMMARY"
-          echo "- Raw NISAR GOFF downloads: 0." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Copernicus GLO-90 source acquisition"
+            echo
+            echo "- Sixteen public tiles were downloaded once each, SHA-256 pinned, and checked for CRS and expected one-degree bounds."
+            echo "- Original author tile byte identity remains unverified; no vertical transformation was applied."
+            echo "- Raw NISAR GOFF downloads: 0."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verified source tiles and manifest
         uses: actions/upload-artifact@v4
