@@ -361,6 +361,8 @@ jobs:
         shell: bash
         env:
           ANALYSIS_OUTCOME: ${{ steps.analysis.outcome }}
+          FOOTPRINT_OUTCOME: ${{ steps.footprint.outcome }}
+          FINAL_REPORT_OUTCOME: ${{ steps.final_report.outcome }}
           SECRETS_READY: ${{ steps.credentials.outputs.secrets_ready }}
         run: |
           set -euo pipefail
@@ -372,11 +374,19 @@ jobs:
             echo "ERROR=AUTHOR_EXACT_ANALYSIS_STEP_FAILED"
             exit 1
           fi
-          python - "$DERIVED_ROOT/author-exact-analysis-status.json" "$DERIVED_ROOT/know-place-analysis-report.json" "$DERIVED_ROOT/author-raw-site-series-report.json" "$DERIVED_ROOT/author-exact-source-manifest.json" "$DERIVED_ROOT/drive-upload-receipt.json" "$DERIVED_ROOT/drive-receipt-upload.json" "$DERIVED_ROOT/author-exact-raw-cleanup-receipt.json" "$DERIVED_ROOT/drive-cleanup-receipt-upload.json" <<'PY'
+          if [[ "$FOOTPRINT_OUTCOME" != "success" ]]; then
+            echo "ERROR=AUTHOR_FOOTPRINT_SCREEN_STEP_FAILED_OR_SKIPPED"
+            exit 1
+          fi
+          if [[ "$FINAL_REPORT_OUTCOME" != "success" ]]; then
+            echo "ERROR=AUTHOR_COMBINED_REPORT_UPDATE_FAILED_OR_SKIPPED"
+            exit 1
+          fi
+          python - "$DERIVED_ROOT/author-exact-analysis-status.json" "$DERIVED_ROOT/know-place-analysis-report.json" "$DERIVED_ROOT/author-raw-site-series-report.json" "$DERIVED_ROOT/author-exact-source-manifest.json" "$DERIVED_ROOT/drive-upload-receipt.json" "$DERIVED_ROOT/drive-receipt-upload.json" "$DERIVED_ROOT/author-exact-raw-cleanup-receipt.json" "$DERIVED_ROOT/drive-cleanup-receipt-upload.json" "$DERIVED_ROOT/footprint/author-footprint-replay-report.json" <<'PY'
           import hashlib,json,sys
           from pathlib import Path
-          status_path,report_path,author_site_path,source_path,drive1_path,drive2_path,cleanup_path,drive3_path=sys.argv[1:]
-          status,report,author_site,source,drive1,drive2,cleanup,drive3=[json.loads(Path(path).read_text(encoding="utf-8")) for path in (status_path,report_path,author_site_path,source_path,drive1_path,drive2_path,cleanup_path,drive3_path)]
+          status_path,report_path,author_site_path,source_path,drive1_path,drive2_path,cleanup_path,drive3_path,footprint_path=sys.argv[1:]
+          status,report,author_site,source,drive1,drive2,cleanup,drive3,footprint=[json.loads(Path(path).read_text(encoding="utf-8")) for path in (status_path,report_path,author_site_path,source_path,drive1_path,drive2_path,cleanup_path,drive3_path,footprint_path)]
           if status.get("status")!="OUTPUTS_WRITTEN" or status.get("analysis_metrics_complete") is not True:
               raise SystemExit("ERROR=AUTHOR_EXACT_METRICS_NOT_COMPLETE")
           if report.get("structural_status")!="PASS" or report.get("status")!="SCIENTIFIC_METRICS_COMPUTED":
@@ -395,6 +405,20 @@ jobs:
               raise SystemExit("ERROR=AUTHOR_SITE_SERIES_OR_P2_COMPLETENESS_NOT_RECORDED")
           if status.get("author_p2_table_comparison_status")!="PASS_AT_ARCHIVE_ROUNDING" or status.get("author_p2_table_comparisons_passed")!=15 or status.get("author_p2_table_comparisons_total")!=15:
               raise SystemExit("ERROR=AUTHOR_P2_COMPLETENESS_NOT_RECORDED")
+          if footprint.get("status")!="FOOTPRINT_SCREEN_COMPUTED":
+              raise SystemExit("ERROR=AUTHOR_FOOTPRINT_REPORT_NOT_COMPUTED")
+          if footprint.get("footprint_screen_parity_status")!="PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY":
+              raise SystemExit("ERROR=AUTHOR_FOOTPRINT_PARITY_NOT_PASS")
+          raster_check=footprint.get("author_aggregate_raster_comparison",{})
+          inventory_check=footprint.get("author_inventory_comparison",{})
+          if raster_check.get("status")!="PASS" or raster_check.get("raster_count")!=3 or raster_check.get("rasters_passed")!=3:
+              raise SystemExit("ERROR=AUTHOR_FOOTPRINT_AGGREGATE_RASTER_COMPARISON_FAILED")
+          if inventory_check.get("status")!="PASS" or inventory_check.get("expected_zone_count")!=101 or inventory_check.get("computed_directional_zone_count")!=101:
+              raise SystemExit("ERROR=AUTHOR_101_ZONE_INVENTORY_PARITY_FAILED")
+          if footprint.get("candidate_summary",{}).get("component_count")!=106 or footprint.get("candidate_summary",{}).get("directional_pass_count")!=101:
+              raise SystemExit("ERROR=AUTHOR_SCREEN_COMPONENT_COUNTS_MISMATCH")
+          if footprint.get("hazard_detection_status")!="NOT_EVALUATED":
+              raise SystemExit("ERROR=HAZARD_DETECTION_MUST_REMAIN_NOT_EVALUATED")
           products=source.get("products",[])
           if source.get("status")!="PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED" or len(products)!=5:
               raise SystemExit("ERROR=AUTHOR_EXACT_SOURCE_MANIFEST_GATE_FAILED")
@@ -405,8 +429,10 @@ jobs:
           for receipt in (drive1,drive2):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_EXACT_DRIVE_RETENTION_NOT_VERIFIED")
-          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED":
-              raise SystemExit("ERROR=PARTIAL_P1_P2_MATCH_STATUS_NOT_ALIGNED_WITH_SITE_SERIES_PARITY")
+          if report.get("paper_reproduction_status")!="PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED":
+              raise SystemExit("ERROR=COMBINED_PARTIAL_REPRODUCTION_STATUS_NOT_ALIGNED")
+          if report.get("footprint_screen_parity_status")!="PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY":
+              raise SystemExit("ERROR=COMBINED_REPORT_FOOTPRINT_STATUS_NOT_RECORDED")
           if source.get("raw_source_byte_identity")!="FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED":
               raise SystemExit("ERROR=AUTHOR_SOURCE_BYTE_IDENTITY_NOT_VERIFIED")
           if report.get("hazard_detection_status")!="NOT_EVALUATED":
@@ -431,11 +457,14 @@ jobs:
           print("AUTHOR_SITE_SERIES_TABLE_CHECKS=65/65")
           print("AUTHOR_P2_TABLE_PARITY=PASS_AT_ARCHIVE_ROUNDING")
           print("AUTHOR_P2_TABLE_CHECKS=15/15")
+          print("AUTHOR_FOOTPRINT_SCREEN_PARITY=PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY")
+          print("AUTHOR_FOOTPRINT_AGGREGATE_RASTERS=3/3")
+          print("AUTHOR_DIRECTIONAL_ZONE_INVENTORY=101/101")
           print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
           print("RAW_HDF5_FILES_REMAINING=0")
           print("POST_DELETE_CLEANUP_RECEIPT_DRIVE_VERIFICATION=PASS")
-          print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED")
+          print("PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED")
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           print("AUTHOR_EXACT_DRIVE_RETENTION=PASS")
           PY
