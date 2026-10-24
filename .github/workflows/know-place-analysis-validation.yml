@@ -110,7 +110,7 @@ jobs:
           tools/tests/test_know_place_author_exact_acquisition.py
           tools/tests/test_know_place_author_exact_retention.py
           tools/tests/test_know_place_multisite_benchmark.py
-          tools/tests/test_know_place_author_raw_site_series.py tools/tests/test_know_place_author_archive_raster_parity.py tools/tests/test_know_place_author_footprint_replay.py tools/tests/test_know_place_scientific_status.py
+          tools/tests/test_know_place_author_raw_site_series.py tools/tests/test_know_place_author_archive_raster_parity.py tools/tests/test_know_place_author_footprint_replay.py tools/tests/test_know_place_scientific_status.py tools/tests/test_know_place_author_footprint_workflow.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash

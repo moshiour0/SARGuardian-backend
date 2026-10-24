@@ -279,3 +279,11 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [x] Added pure status-assessment logic plus synthetic regression tests for site-series mismatch, P2 mismatch, footprint mismatch, and joint success/failure. The workflow keeps component statuses separate and marks the overall scientific screen complete only when the relevant site/P2 and footprint gates all pass.
 - [x] Integrated the helper into the final-report step and isolated CI file lists. This change requires no raw product downloads.
 - [ ] Run the newly integrated raw-source site + full-footprint analysis only after explicit `[run-know-place]` authorization. Raw source replay remains unrun in this follow-up; paper reproduction is not promoted, and hazard detection remains `NOT_EVALUATED`.
+
+
+## Full-footprint input path wiring fix — 2026-10-25
+
+- [x] Source audit found the footprint step was reading its config and source manifest from the top-level run directory, while `author_exact_acquisition.py` writes the durable copies into `derived/` and the working copies into `source-run/`. The old paths would block the footprint screen after site analysis finished.
+- [x] Changed the footprint step to read `derived/know-place-inputs.json` and `derived/author-exact-source-manifest.json`, the exact paths copied by the acquisition runner before it reports success.
+- [x] Added a regression test that verifies those workflow arguments agree with the acquisition output locations. No HDF5 product was downloaded or processed for this fix.
+- [ ] The corrected path wiring still requires a future explicitly consented manual replay to validate the complete raw-source + footprint run. Do not claim full-footprint parity before that run.
