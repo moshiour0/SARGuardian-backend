@@ -250,3 +250,14 @@
 - [ ] Keep hazard-detection performance unevaluated until independent event-level controls, precision/recall, false-alarm and lead-time analysis exist.
 
 Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
+
+
+## Score-contract integrity follow-up — 2026-10-25
+
+- [x] Inspected the deposited `inventory/candidates_attributed.csv` and the exact archived `code/wide_screen.py` without raw downloads. The archive has 106 candidate rows / 101 `quality=True` rows; the shipped script assigns `score = n_epochs * anom_m * R`, but **0/106** deposited scores match that expression, while **106/106** match `n_epochs * anom_m * R_res`.
+- [x] Evidence: `docs/know-place/evidence/AUTHOR_CANDIDATE_SCORE_CONTRACT_AUDIT_20261025.md`. A zero-download regression test now ensures the full-footprint parity audit reports this contract conflict instead of silently replacing the source-script formula.
+- [x] Corrected the full-footprint comparison target count: compare the full 106-row `inventory/candidates_attributed.csv` including its quality flag, separately compare the 101 directional/quality-passing candidate metrics with `tables/TableS7_all_validated_zones.csv`, and preserve a distinct score-contract diagnostic.
+- [x] CI including the updated candidate-score diagnostic and strict final report path passed in [run 40134175029](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40134175029): both scientific tests and live ASF identity checks succeeded without raw acquisition.
+- [ ] Do not launch another 5.47 GB raw replay merely to obtain a green badge while this upstream code/output score discrepancy is unresolved. A future authorized run will preserve the score-contract mismatch in the report and fail the final scientific gate if the raster/zone evidence matches but the score conflict remains. Verified derived outputs and cleanup receipts must still be retained and checked before raw deletion.
+- [ ] Resolve which scoring convention is authoritative (the archived screen source code or the deposited candidate inventory/output-generation convention) before claiming full candidate-ranking reproduction. Do not silently change the score formula.
+- Hazard detection remains `NOT_EVALUATED`; `main` remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
