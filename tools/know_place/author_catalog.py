@@ -27,6 +27,7 @@ from .goff_io import GoffReadError, parse_granule_identity
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+AUTHOR_FALLBACK_CROWN_WKT = "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))"
 AUTHOR_BENCHMARK_PATH = (
     REPO_ROOT / "docs" / "know-place" / "reference" / "author_benchmark_v1.json"
 )
@@ -135,14 +136,67 @@ def validate_author_catalog_product(
     }
 
 
-def discover_author_products() -> list[dict[str, Any]]:
-    """Query ASF's catalog for the five author IDs. No source payload is downloaded."""
+def _fallback_candidate_record(
+    product: Any, target: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Summarize only trusted catalog URLs whose pair dates and orbit match."""
+    props = _product_properties(product)
+    urls = _product_urls(product, props)
+    target_start, target_end = target["interval"].split("/", maxsplit=1)
+    for url in urls:
+        if not _is_trusted_asf_url(url):
+            continue
+        if f"/{EXPECTED_COLLECTION}/" not in urlparse(url).path:
+            continue
+        name = _normalise_product_name(url)
+        if not name:
+            continue
+        try:
+            identity = parse_granule_identity(name + ".h5")
+        except GoffReadError:
+            continue
+        actual_start = identity.reference_start.date().isoformat()
+        actual_end = identity.secondary_start.date().isoformat()
+        if (actual_start, actual_end) != (target_start, target_end):
+            continue
+        if identity.track != "098" or identity.direction != "A" or identity.processing != "PR":
+            continue
+        reported_maturity = str(props.get("dataMaturity") or props.get("maturity") or "").strip().upper()
+        return {
+            "granule_name": name,
+            "interval": target["interval"],
+            "processing": identity.processing,
+            "track": identity.track,
+            "direction": identity.direction,
+            "release_id": identity.release_id,
+            "collection": EXPECTED_COLLECTION,
+            "catalog_maturity": reported_maturity or "COLLECTION_ROUTE_ONLY",
+            "catalog_url_host": urlparse(url).hostname,
+            "catalog_identity_status": (
+                "EXACT_AUTHOR_ID_FOUND_IN_FALLBACK_QUERY"
+                if name == target["granule_name"]
+                else "SAME_INTERVAL_VARIANT_CANDIDATE_ONLY"
+            ),
+            "source_sha256": None,
+            "source_sha256_status": "NOT_DOWNLOADED",
+        }
+    return None
+
+
+def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run exact-ID lookups, then an AOI/date catalog search for any unresolved pair.
+
+    The fallback is discovery-only. It records same-pair release variants, but
+    never upgrades a different product ID into the author-exact source.
+    No data payload is downloaded.
+    """
     try:
         import asf_search
     except ImportError as exc:
         raise CatalogIdentityError("ASF_SEARCH_DEPENDENCY_MISSING") from exc
 
     verified: list[dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
     for target in load_author_granules():
         wanted = target["granule_name"]
         try:
@@ -152,10 +206,11 @@ def discover_author_products() -> list[dict[str, Any]]:
                 f"ASF_AUTHOR_QUERY_FAILED:{wanted}:exception={type(exc).__name__}"
             ) from None
         try:
-            verified.append(validate_author_catalog_product(target, results))
+            row = validate_author_catalog_product(target, results)
+            row["catalog_identity_discovery_method"] = "DIRECT_GRANULE_LIST_QUERY"
         except CatalogIdentityError as exc:
-            # A missing/ambiguous/conflicting catalog identity is an explicit
-            # scientific gate blocker, not a reason to skip checks on later pairs.
+            # Exact-ID identity stays blocked unless trusted metadata confirms
+            # the exact ID. Continue querying every pair regardless of blockers.
             identity = parse_granule_identity(wanted + ".h5")
             message = str(exc)
             if message.startswith("ASF_AUTHOR_EXACT_GRANULE_NOT_FOUND"):
@@ -164,7 +219,7 @@ def discover_author_products() -> list[dict[str, Any]]:
                 status = "AMBIGUOUS"
             else:
                 status = "REJECTED"
-            verified.append({
+            row = {
                 "granule_name": wanted,
                 "interval": target["interval"],
                 "processing": identity.processing,
@@ -175,15 +230,103 @@ def discover_author_products() -> list[dict[str, Any]]:
                 "catalog_maturity": None,
                 "catalog_url_host": None,
                 "catalog_identity_status": status,
+                "catalog_identity_discovery_method": "DIRECT_GRANULE_LIST_QUERY",
                 "blocking_reason": message,
                 "source_sha256": None,
                 "source_sha256_status": "NOT_DOWNLOADED",
+            }
+            if status == "NOT_FOUND":
+                unresolved.append(target)
+        verified.append(row)
+
+    fallback_reports: list[dict[str, Any]] = []
+    for target in unresolved:
+        start_date, end_date = target["interval"].split("/", maxsplit=1)
+        query = {
+            "dataset": "NISAR",
+            "intersectsWith": AUTHOR_FALLBACK_CROWN_WKT,
+            "start": f"{start_date}T00:00:00Z",
+            "end": f"{end_date}T23:59:59Z",
+            "processingLevel": "GOFF",
+            "mainBandPolarization": "HH",
+            "maxResults": 500,
+        }
+        target_row = next(row for row in verified if row["granule_name"] == target["granule_name"])
+        try:
+            candidates = list(asf_search.search(**query))
+        except Exception as exc:
+            fallback_reports.append({
+                "target_granule_name": target["granule_name"],
+                "interval": target["interval"],
+                "status": "QUERY_FAILED",
+                "query": {key: value for key, value in query.items() if key != "intersectsWith"},
+                "aoi_wkt_sha256": __import__("hashlib").sha256(AUTHOR_FALLBACK_CROWN_WKT.encode("utf-8")).hexdigest(),
+                "exception_type": type(exc).__name__,
+                "result_count": None,
+                "same_interval_candidates": [],
+                "exact_author_id_found": False,
+                "source_downloads": 0,
             })
-    return verified
+            target_row["spatiotemporal_fallback_search_status"] = "QUERY_FAILED"
+            continue
+
+        matching_candidates = []
+        for product in candidates:
+            record = _fallback_candidate_record(product, target)
+            if record is not None:
+                matching_candidates.append(record)
+        exact_candidates = [
+            product for product in candidates
+            if any(
+                _is_trusted_asf_url(url)
+                and _normalise_product_name(url) == target["granule_name"]
+                and f"/{EXPECTED_COLLECTION}/" in urlparse(url).path
+                for url in _product_urls(product, _product_properties(product))
+            )
+        ]
+        exact_found = False
+        if exact_candidates:
+            try:
+                recovered = validate_author_catalog_product(target, exact_candidates)
+            except CatalogIdentityError:
+                target_row["spatiotemporal_fallback_search_status"] = "EXACT_ID_CANDIDATE_REJECTED"
+            else:
+                recovered["catalog_identity_discovery_method"] = "AOI_DATE_FALLBACK_QUERY_AFTER_DIRECT_ID_MISS"
+                recovered["direct_exact_id_query_status"] = "NOT_FOUND"
+                verified[verified.index(target_row)] = recovered
+                target_row = recovered
+                exact_found = True
+        if not exact_found and target_row["catalog_identity_status"] == "NOT_FOUND":
+            target_row["spatiotemporal_fallback_search_status"] = (
+                "RESULT_CAP_REACHED_NO_EXACT_ID" if len(candidates) >= query["maxResults"]
+                else "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
+            )
+            target_row["same_interval_candidates"] = matching_candidates
+        fallback_reports.append({
+            "target_granule_name": target["granule_name"],
+            "interval": target["interval"],
+            "status": (
+                "EXACT_AUTHOR_ID_CONFIRMED"
+                if exact_found
+                else ("RESULT_CAP_REACHED" if len(candidates) >= query["maxResults"] else "COMPLETED")
+            ),
+            "query": {key: value for key, value in query.items() if key != "intersectsWith"},
+            "aoi_wkt_sha256": __import__("hashlib").sha256(AUTHOR_FALLBACK_CROWN_WKT.encode("utf-8")).hexdigest(),
+            "result_count": len(candidates),
+            "same_interval_candidates": matching_candidates,
+            "exact_author_id_found": exact_found,
+            "source_downloads": 0,
+        })
+    return verified, fallback_reports
+
+
+def discover_author_products() -> list[dict[str, Any]]:
+    """Query exact IDs and catalog-only fallback searches; never downloads GOFF."""
+    return _discover_author_products_with_fallback()[0]
 
 
 def write_manifest(out_path: str | Path) -> dict[str, Any]:
-    products = discover_author_products()
+    products, fallback_searches = _discover_author_products_with_fallback()
     blocked = [
         row for row in products
         if row.get("catalog_identity_status") != "EXACT_URL_CONFIRMED"
@@ -202,6 +345,7 @@ def write_manifest(out_path: str | Path) -> dict[str, Any]:
             "identity is unresolved; it is not reinterpreted as a successful match."
         ),
         "products": products,
+        "spatiotemporal_fallback_searches": fallback_searches,
     }
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
