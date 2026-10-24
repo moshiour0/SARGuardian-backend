@@ -2,13 +2,7 @@ name: Know Place Analysis - exact author P05023 replay
 
 # Raw HDF5 access requires an exact explicit [run-know-place] consent marker.
 on:
-  push:
-    branches:
-      - feat/know-place-analysis
-    paths:
-      - "tools/know_place/author_exact_acquisition.py"
-      - "docs/know-place/reference/author_benchmark_v1.json"
-      - ".github/workflows/know-place-author-exact-replay.yml"
+  # Manual dispatch only: avoids accidentally triggering the legacy X05026 replay.
   workflow_dispatch:
     inputs:
       consent_marker:
@@ -57,8 +51,6 @@ jobs:
           set -euo pipefail
           run_author_exact=false
           if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_CONSENT_MARKER" == "[run-know-place]" ]]; then
-            run_author_exact=true
-          elif [[ "$EVENT_NAME" == "push" && "$HEAD_COMMIT_MESSAGE" == *"[run-know-place]"* ]]; then
             run_author_exact=true
           fi
           echo "run_author_exact=$run_author_exact" >> "$GITHUB_OUTPUT"
