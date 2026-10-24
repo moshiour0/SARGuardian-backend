@@ -48,6 +48,8 @@ EXPECTED_POSTING_M = 80.0
 EXPECTED_TRANSFORM = Affine(80.0, 0.0, 126720.0, 0.0, -80.0, 3347280.0)
 GEOMETRY_SOURCE_SHA256 = "0f056c46f2f5f9418dd1735b666edaa5c055514694fcd2c66490e09b6bb63004"
 SCREEN_SOURCE_SHA256 = "60e4238b9a10510f52a4673939a9708bf513d8bae460ba797d2dd27a1357d7c9"
+CANDIDATE_ATTRIBUTES_SOURCE_SHA256 = "dde30645bed46f7b44f6d0469c8224e1b8f630726fd9849f11471880edc6e196"
+FIX_ZONAL_ATTRS_SOURCE_SHA256 = "3614d1f632e35dbcdecab8389f38e50674a087813cbefdaa2b8c027b0ebe18cb"
 PARAMETERS_SOURCE_SHA256 = "85743e828c4d684046acf43bdb0bfbc8b8c194626aacad8fd58e154e925d8e76"
 NODATA = -9999.0
 P2_OR_SITE_PAPER_STATUS = "PARTIAL_AUTHOR_FOOTPRINT_SCREEN_NOT_REPRODUCED"
@@ -165,6 +167,8 @@ def _validate_author_archive(path: Path) -> dict[str, Any]:
                 "inventory/candidates_attributed.csv",
                 "tables/TableS6_screen_params.json",
                 "tables/TableS7_all_validated_zones.csv",
+                "code/candidate_attributes.py",
+                "code/fix_zonal_attrs.py",
             }
             names = set(archive.namelist())
             if bad:
@@ -179,6 +183,9 @@ def _validate_author_archive(path: Path) -> dict[str, Any]:
                 "terrain_elev_sha256_in_archive": _sha256_member(archive, "terrain/elev_m.tif"),
                 "terrain_slope_sha256_in_archive": _sha256_member(archive, "terrain/slope_deg.tif"),
                 "terrain_downslope_sha256_in_archive": _sha256_member(archive, "terrain/downslope_az_deg.tif"),
+                "candidate_attributes_py_sha256": _sha256_member(archive, "code/candidate_attributes.py"),
+                "fix_zonal_attrs_py_sha256": _sha256_member(archive, "code/fix_zonal_attrs.py"),
+                "postprocess_score_formula": "n_epochs(zone max) * anom_m(zone mean rounded to 3 decimals) * R_res(zone mean over flagged observations)",
             }
     except zipfile.BadZipFile as exc:
         raise FootprintReplayError("AUTHOR_ARCHIVE_IS_NOT_A_VALID_ZIP") from exc
@@ -431,12 +438,18 @@ def _candidate_table(
         centre_x = transform.c + (mean_cols[zone_id] + 0.5) * transform.a
         centre_y = transform.f + (mean_rows[zone_id] + 0.5) * transform.e
         lon, lat = to_lonlat.transform(centre_x, centre_y)
-        n_epochs = int(round(float(epoch_count[row_centre, col_centre])))
-        anomaly_m = float(np.nan_to_num(anomaly[row_centre, col_centre]))
+        zone_mask = labels == zone_id
+        zone_epochs = np.asarray(epoch_count[zone_mask], dtype=np.float64)
+        n_epochs = int(np.max(np.nan_to_num(zone_epochs, nan=0.0))) if zone_epochs.size else 0
+        zone_anomaly = np.asarray(anomaly[zone_mask], dtype=np.float64)
+        zone_anomaly = zone_anomaly[np.isfinite(zone_anomaly)]
+        anomaly_rounded = float(np.round(np.mean(zone_anomaly), 3)) if zone_anomaly.size else math.nan
+
+        # R remains the centroid-sampled screen value from wide_screen.py. The
+        # final attributed inventory is then post-processed by fix_zonal_attrs.py:
+        # replace n_epochs/anom_m with zonal max/mean and rebuild score with R_res.
         R = float(np.nan_to_num(coherence[row_centre, col_centre]))
-        anomaly_rounded = round(anomaly_m, 3)
         R_rounded = round(R, 3)
-        score = float(n_epochs * anomaly_rounded * R_rounded)
         def observed(name: str) -> float:
             cnt = float(obs_counts[name][zone_id])
             return float(obs_sums[name][zone_id] / cnt) if cnt > 0 else math.nan
@@ -450,6 +463,11 @@ def _candidate_table(
         gr_az = float(np.degrees(np.arctan2(rg_s[zone_id], rg_c[zone_id])) % 360.0) if (rg_c[zone_id] != 0 or rg_s[zone_id] != 0) else math.nan
         d_down = _angle_difference_degrees(disp_az, down_az) if np.isfinite(disp_az) and np.isfinite(down_az) else math.nan
         d_range = _angle_difference_degrees(disp_az, gr_az) if np.isfinite(disp_az) and np.isfinite(gr_az) else math.nan
+        R_res = observed("R_res")
+        # This is the deposited final score formula in fix_zonal_attrs.py, not
+        # the provisional centroid score written by wide_screen.py.
+        score = float(n_epochs * anomaly_rounded * R_res) if np.isfinite(anomaly_rounded + R_res) else math.nan
+        quality_pass = bool(np.isfinite(R_res) and R_res >= 0.75 and np.isfinite(d_down) and d_down < 45.0)
         rows.append({
             "component_id": zone_id,
             "lon": round(float(lon), 5), "lat": round(float(lat), 5),
@@ -457,11 +475,11 @@ def _candidate_table(
             "n_px": npx, "n_epochs": n_epochs,
             "anom_m": anomaly_rounded, "R": R_rounded, "score": score,
             "disp_az": disp_az, "res_mag_m": res_mag,
-            "R_raw": observed("R_raw"), "R_res": observed("R_res"), "mag_m": observed("mag"),
+            "R_raw": observed("R_raw"), "R_res": R_res, "mag_m": observed("mag"),
             "elev_m": float(elev), "slope_deg": float(slope),
             "downslope_az": down_az, "range_az": gr_az,
             "d_downslope": d_down, "d_range": d_range,
-            "valid_directional": bool(np.isfinite(d_down) and d_down < 45.0),
+            "valid_directional": quality_pass,
             "center_row": row_centre, "center_col": col_centre,
         })
     rows.sort(key=lambda row: row["score"], reverse=True)
@@ -472,6 +490,14 @@ def _candidate_table(
         "directional_validation_max_misfit_deg_strict": 45.0,
         "centroid_policy": "mean of cell centres, equivalent to polygon centroid for union of equal-size grid cells",
         "attribute_weighting": "all finite hit-pixel observations pooled over pairs, matching source candidate_attributes.py",
+        "final_zonal_postprocess": {
+            "source_script": "code/fix_zonal_attrs.py",
+            "source_script_sha256": FIX_ZONAL_ATTRS_SOURCE_SHA256,
+            "n_epochs": "maximum n_epochs_flagged across pixels within the zone",
+            "anom_m": "mean mean_anomaly_m across finite pixels in the zone, rounded to three decimals",
+            "score": "n_epochs * anom_m * R_res",
+            "quality": "R_res >= 0.75 and d_downslope < 45 degrees",
+        },
     }
 
 
@@ -493,7 +519,6 @@ def compare_candidate_inventory(
     maximum_error: dict[str, float] = {name: 0.0 for name in CANDIDATE_METRIC_COLUMNS}
     expected_quality_pass = 0
     computed_quality_pass = sum(bool(row["valid_directional"]) for row in computed_rows)
-    source_code_score_match_count = 0
     archived_residual_score_match_count = 0
     score_formula_rows: list[dict[str, Any]] = []
     for expected in expected_rows:
@@ -503,19 +528,14 @@ def compare_candidate_inventory(
             missing.append({"lon": key[0], "lat": key[1]})
             continue
         expected_score = float(expected["score"])
-        source_code_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R"])
-        archived_residual_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R_res"])
-        source_score_matches = abs(expected_score - source_code_score) <= numeric_tolerance
-        residual_score_matches = abs(expected_score - archived_residual_score) <= numeric_tolerance
-        source_code_score_match_count += int(source_score_matches)
-        archived_residual_score_match_count += int(residual_score_matches)
-        if not source_score_matches or not residual_score_matches:
+        postprocessed_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R_res"])
+        postprocess_score_matches = abs(expected_score - postprocessed_score) <= numeric_tolerance
+        archived_residual_score_match_count += int(postprocess_score_matches)
+        if not postprocess_score_matches:
             score_formula_rows.append({
                 "lon": key[0], "lat": key[1], "archive_score": expected_score,
-                "screen_code_score_n_times_anom_times_R": source_code_score,
-                "alternative_score_n_times_anom_times_R_res": archived_residual_score,
-                "source_code_formula_matches_archive": source_score_matches,
-                "residual_aggregate_formula_matches_archive": residual_score_matches,
+                "computed_final_score_n_epochs_times_zonal_anom_times_R_res": postprocessed_score,
+                "postprocessed_formula_matches_archive": postprocess_score_matches,
             })
         for metric in CANDIDATE_METRIC_COLUMNS:
             if metric in {"n_px", "n_epochs"}:
@@ -574,18 +594,15 @@ def compare_candidate_inventory(
         "numeric_tolerance": numeric_tolerance,
         "compared_columns": [*CANDIDATE_METRIC_COLUMNS, "quality"],
         "score_formula_audit": {
-            "source_code_formula": "n_epochs * anom_m * R, as assigned in archived code/wide_screen.py",
-            "source_code_formula_matches": source_code_score_match_count,
+            "provisional_screen_formula": "centroid-sampled n_epochs * anom_m * R in code/wide_screen.py; intentionally provisional",
+            "final_inventory_formula": "zone-max n_epochs * zone-mean anom_m (rounded to 3 decimals) * zone-mean R_res, as implemented by code/fix_zonal_attrs.py",
+            "postprocess_script_sha256": FIX_ZONAL_ATTRS_SOURCE_SHA256,
             "archive_rows": len(expected_rows),
-            "alternative_formula": "n_epochs * anom_m * R_res, using the zone-aggregated residual coherence",
-            "alternative_formula_matches": archived_residual_score_match_count,
+            "postprocessed_formula_matches": archived_residual_score_match_count,
             "status": (
-                "ARCHIVE_SCORE_CONVENTION_DIFFERS_FROM_ARCHIVED_SCREEN_SCRIPT"
-                if source_code_score_match_count != len(expected_rows)
-                and archived_residual_score_match_count == len(expected_rows)
-                else "PASS_SOURCE_CODE_SCORE_CONVENTION"
-                if source_code_score_match_count == len(expected_rows)
-                else "SCORE_FORMULA_NOT_RECONCILED"
+                "PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
+                if archived_residual_score_match_count == len(expected_rows)
+                else "POSTPROCESSED_SCORE_FORMULA_MISMATCH"
             ),
             "examples": score_formula_rows[:25],
         },
