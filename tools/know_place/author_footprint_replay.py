@@ -990,7 +990,10 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR=" + failure["error_code"])
         print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
         return 1
-    return 0 if report["footprint_screen_parity_status"] == "PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY" else 2
+    # Output-comparison mismatches are preserved as a completed scientific
+    # result so the enclosing workflow can package/upload the audit and verify
+    # raw cleanup before its final gate reports the precise parity blocker.
+    return 0 if report.get("status") == "FOOTPRINT_SCREEN_COMPUTED" and report.get("structural_status") == "PASS" else 1
 
 
 if __name__ == "__main__":
