@@ -181,9 +181,9 @@ jobs:
           TERRAIN_ROOT="$RUN_ROOT/author-archive-terrain"
           echo "AUTHOR_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "AUTHOR_TERRAIN_ROOT=$TERRAIN_ROOT" >> "$GITHUB_ENV"
-          curl --fail --location --silent --show-error --retry 2 --retry-delay 2 \\
-            --connect-timeout 30 --max-time 900 \\
-            "https://zenodo.org/records/22730419/files/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip?download=1" \\
+          curl --fail --location --silent --show-error --retry 2 --retry-delay 2 \
+            --connect-timeout 30 --max-time 900 \
+            "https://zenodo.org/records/22730419/files/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip?download=1" \
             --output "$ARCHIVE"
           echo "002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3  $ARCHIVE" | sha256sum --check -
           python - "$ARCHIVE" "$TERRAIN_ROOT" <<'PY'
@@ -230,11 +230,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m tools.know_place.author_footprint_replay \\
-            --config "$RUN_ROOT/know-place-inputs.json" \\
-            --source-manifest "$RUN_ROOT/author-exact-source-manifest.json" \\
-            --terrain-root "$AUTHOR_TERRAIN_ROOT" \\
-            --author-archive "$AUTHOR_ARCHIVE" \\
+          python -m tools.know_place.author_footprint_replay \
+            --config "$RUN_ROOT/know-place-inputs.json" \
+            --source-manifest "$RUN_ROOT/author-exact-source-manifest.json" \
+            --terrain-root "$AUTHOR_TERRAIN_ROOT" \
+            --author-archive "$AUTHOR_ARCHIVE" \
             --out "$DERIVED_ROOT/footprint"
 
       - name: Remove temporary public author archive and terrain after retaining the report
