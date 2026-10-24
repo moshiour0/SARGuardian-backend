@@ -3,7 +3,7 @@
 **Last reviewed:** 2026-10-24  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Current feature head at last validated code/test/workflow commit:** 5740407c3a477b24453c7c9728aef380869ca3f3  
+**Current feature head at last validated code/test/workflow commit:** 407828dcab3585810eadada4dd777b12008b5d1d  
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -24,11 +24,11 @@
 - Branch exists: feat/know-place-analysis.
 - Branch head at the start of this correction: f258b1033ea114b7e9a72d6e6bb71565a1281430.
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
-- **Latest validated code/test/workflow commit:** `5740407c3a477b24453c7c9728aef380869ca3f3`.
-- **Latest isolated validation:** [run 40049074686](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40049074686), testing that exact commit. Result: **164 tests passed in 4.66 seconds**; all four Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
-- Important CI audit: an earlier green run at commit `1808e46b0dddbc10ff6e905f6a9e567e73b1265b` reported 153 tests because the workflow used an explicit test-file list and omitted the new footprint-screen test file. Fixed `.github/workflows/know-place-analysis-validation.yml` to compile `tools/know_place/footprint_screen.py` and run `tools/tests/test_know_place_footprint_screen.py`; run 40049074686 now includes it and reports 164 passing tests.
+- **Latest validated code/test/workflow commit:** `407828dcab3585810eadada4dd777b12008b5d1d`.
+- **Latest isolated validation:** [run 40050020868](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020868), testing that exact commit. Result: **176 tests passed in 4.68 seconds**; all four Know Place workflows parsed as YAML; pinned actionlint v1.7.12 checksum and semantic workflow validation passed; both jobs succeeded.
+- The suite includes the separate footprint-screen equations, an array-only per-pixel geometry builder, a geometry → dE/dN projection → screen integration test, and fail-closed vertical-reference checks. It does not use actual raw GOFF or the original DEM tiles.
 - The live ASF job recorded `RAW_PRODUCT_DOWNLOADS=0` and `SOURCE_DOWNLOADS=0`. First exact author pair P05023 is still `NOT_FOUND / UNRESOLVED`; the other four are `COLLECTION_ROUTE_ONLY`; author reproduction remains BLOCKED.
-- Corresponding raw-replay run [40049074681](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40049074681) succeeded in its consent decision, but the actual five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run.
+- Corresponding raw-replay run [40050020872](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020872) succeeded in its consent decision, but the actual five-pair analysis job was **skipped** because no `[run-know-place]` marker was supplied. No raw GOFF replay was run.
 - Main was rechecked and remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. The branch remains separate. Any future code/test change requires fresh validation.
 - Use the isolated validation workflow at .github/workflows/know-place-analysis-validation.yml and the AOI analysis workflow at .github/workflows/know-place-aoi-analysis.yml. A pushed change to tools/tests/test_know_place_*.py triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download products.
 - Do not run the separate expensive raw replay job without [run-know-place].
@@ -134,7 +134,7 @@ These changes do not change scientific status: `PAPER_REPRODUCTION_STATUS=BLOCKE
 Added `tools/know_place/footprint_screen.py` and `tools/tests/test_know_place_footprint_screen.py`, adapted with attribution from the Zenodo archive's `code/wide_screen.py` (SHA-256 `60e4238b9a10510f52a4673939a9708bf513d8bae460ba797d2dd27a1357d7c9`) and `tables/TableS6_screen_params.json` (SHA-256 `85743e828c4d684046acf43bdb0bfbc8b8c194626aacad8fd58e154e925d8e76`). Full notes: `docs/know-place/evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md`.
 
 The pure-array kernel keeps this estimator separate from the crown/site-series path and includes:
-- Per-pixel AT/SR formula dE = AT*cE + SR*kE; dN = AT*cN + SR*kN. All four coefficient inputs must be 2-D rasters matching the raw offset shape; scalar broadcasting is rejected. Geometry-cube interpolation/DEM construction is not implemented in this kernel.
+- Per-pixel AT/SR formula dE = AT*cE + SR*kE; dN = AT*cN + SR*kN. The footprint screen requires verified per-pixel coefficients; a separate array-only builder in `tools/know_place/footprint_geometry.py` interpolates supplied geometry cubes/DEM to produce them. It does not read/hash HDF5 or DEM files and has not been run on the exact author raw inputs.
 - SNR >= 5 and projected magnitude <= 10 m gate; float32 local mean with reflected default edges and support fraction strictly > 0.15.
 - 41-pixel local magnitude anomaly; scale is local mean absolute anomaly with 0.05 m floor; 5x5 residual-vector coherence requires finite direction support > 0.5.
 - Same-pair screen requires z >= 4, anomaly >= 0.50 m and residual R >= 0.75. Candidate cell must flag in >=2 of five exact author intervals. Candidate connected components use scipy.ndimage.label default four-connectivity and minimum 10 cells.
@@ -142,7 +142,19 @@ The pure-array kernel keeps this estimator separate from the crown/site-series p
 
 CI [run 40049074686](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40049074686) passed 164 tests including the newly explicitly wired footprint test. This establishes synthetic equation/policy checks only; it does not execute the original script, process exact author GOFF products, verify the 4230 x 4311 grid, create geometry coefficients, recreate author GIS outputs or validate detection skill. The archive's three screening rasters do not replace the missing five raw GOFF HDF5 inputs/full-footprint per-pair offset rasters. The first author P05023 input remains NOT_FOUND; do not substitute X05026. Active glaciers dominate the author screen's own candidates; it is a movement screen, not a failure prediction.
 
-## 9. Design blueprint and validation gates
+## 9. Author per-pixel geometry builder and vertical-reference risk — updated 2026-10-24
+
+Added `tools/know_place/footprint_geometry.py` as an array-only implementation of the archived `code/geometry.py` interpolation recipe. It uses supplied radarGrid height/y/x axes and five geometry cubes, supplied warped DEM elevations, linear `RegularGridInterpolator((height, y, x), ..., bounds_error=False, fill_value=None)`, source-method median fill for DEM nodata/nonfinite cells, height-axis clipping, and coefficient equations `cE=alongTrackUnitVectorX`, `cN=alongTrackUnitVectorY`, `kE=-(losX/hypot(losX,losY))/sin(incidence)`, analogous `kN`. It reports XY extrapolation and nonfinite coefficients.
+
+Horizontal CRS and exact affine-grid agreement are checked. Vertical references must now be explicitly declared; differing reference strings are rejected by default. An explicit source-reproduction override can preserve the author code's direct-use behavior, but report fields state that no vertical transformation was applied and the output is not datum-corrected.
+
+Verified archived DEM facts: `terrain/elev_m.tif` SHA-256 `d593f74142d930fb3f1f4a320950019f318842f933f4da64139ea4e214ecd8a1`, MD5 `a5451bac63051bdf36ed2bde6acca7cc`, 59,400,495 bytes, 4,311 × 4,230 Float32 cells, EPSG:32645, 80 m transform, all 18,235,530 cells finite, values 77.5–8,146.092 m, median 4,674.589 m. All three archived footprint screen rasters share the same 4,311 × 4,230 horizontal grid. These profile checks do not establish datum compatibility.
+
+**Unresolved datum caveat:** Copernicus GLO-90 specifies an EGM2008 geoid vertical reference, while NISAR's radarGrid `heightAboveEllipsoid` axis is ellipsoidal. The archived `prep_terrain.py` shows a horizontal reprojection and the archived `geometry.py` uses `elev_m.tif` directly in interpolation; neither shows an EGM2008-to-ellipsoid transformation. Without the original 16 terrain tiles and their source metadata we cannot determine whether they were transformed upstream. No geoid shift has been applied or quantified. See [geometry builder audit](evidence/AUTHOR_FOOTPRINT_GEOMETRY_BUILDER_AUDIT_20261024.md) and its official links to the [Copernicus DEM specification](https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM) and [NISAR modified DEM documentation](https://nisar-docs.asf.alaska.edu/nisar-dem/). A corrected-datum sensitivity must be separate/versioned; do not silently change the source-reproduction path.
+
+Validation run [40050020868](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020868) passed 176 tests, four workflow YAML parses and actionlint. Raw replay [40050020872](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40050020872) skipped the five-pair analysis for lack of `[run-know-place]`.
+
+## 10. Design blueprint and validation gates
 
 Read these before implementing further changes:
 1. [Scientific architecture blueprint](../KNOW_PLACE_ANALYSIS_BLUEPRINT.md)
@@ -152,9 +164,11 @@ Read these before implementing further changes:
 5. [Author-supplement retrieval audit](evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md)
 6. [Raw replay and R-policy audit](evidence/RAW_REPLAY_40006999011_R_POLICY_AUDIT.md)
 7. [Zenodo author archive audit](evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md)
-8. [Author archive golden/reference fixture](reference/author_archive_golden_v1.json)
-9. [Offline regression test](../../tools/tests/test_know_place_author_archive.py)
-10. [Isolated validation workflow](../../.github/workflows/know-place-analysis-validation.yml)
+8. [Footprint-wide screen-kernel audit](evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md)
+9. [Footprint geometry builder and vertical-datum audit](evidence/AUTHOR_FOOTPRINT_GEOMETRY_BUILDER_AUDIT_20261024.md)
+10. [Author archive golden/reference fixture](reference/author_archive_golden_v1.json)
+11. [Offline regression test](../../tools/tests/test_know_place_author_archive.py)
+12. [Isolated validation workflow](../../.github/workflows/know-place-analysis-validation.yml)
 
 Promotion gates from the multi-event validation plan:
 - **G0 structural:** schemas, exact identity metadata, hashes, grid checks and synthetic known-answer tests.
@@ -165,7 +179,7 @@ Promotion gates from the multi-event validation plan:
 
 Current state: archive integrity and exported derived-R verification pass; the correction above resolves count-estimand bookkeeping. Full source input and author-method parity are still **BLOCKED** (below G2), G1 remains partial, G3/G4 are blocked, and hazard detection remains **NOT_EVALUATED**.
 
-## 10. Next actions — continue in this order
+## 11. Next actions — continue in this order
 
 - [x] Inspect blueprint, checklist, runbook, source/validation audits, author archive fixture, author kernel and archive verifier.
 - [x] Recompute displacement-valid and R-valid crown counts independently from all five exported fields and separate the two estimands in machine-readable evidence.
@@ -175,11 +189,12 @@ Current state: archive integrity and exported derived-R verification pass; the c
 - [ ] Resolve and SHA-256-pin the exact first-pair P05023 GOFF HDF5 bytes and verify all five author-exact raw inputs; do not substitute X05026.
 - [ ] Only after explicit [run-know-place] authorization and exact input pins, run the gated raw source replay.
 - [x] Extract and test the author footprint-wide candidate-screen equations in a separate module; synthetic kernel tests included in CI. See `docs/know-place/evidence/AUTHOR_FOOTPRINT_SCREEN_KERNEL_AUDIT_20261024.md`.
-- [ ] Construct and independently verify per-pixel geometry coefficient rasters from the exact radarGrid geometry cube and Copernicus DEM/HAE path.
+- [x] Add an array-only per-pixel coefficient builder with synthetic tests and geometry-to-screen integration; horizontal CRS/affine and vertical-reference mismatch guards are explicit. See `docs/know-place/evidence/AUTHOR_FOOTPRINT_GEOMETRY_BUILDER_AUDIT_20261024.md`.
+- [ ] Acquire/hash the exact GOFF HDF5 sources and original DEM tiles, verify coordinate axes and metadata, and test coefficient maps against a full-grid author reference. The archived source appears to use Copernicus GLO-90 EGM2008 elevations directly against `heightAboveEllipsoid` without a visible vertical transformation; treat this as an unresolved scientific risk, not a solved issue.
 - [ ] Recreate the full-footprint outputs from documented exact sources and author method; archived full-footprint per-pair offset rasters are absent. Run raw replay only after exact source pins and explicit `[run-know-place]` authorization.
 - [ ] Assemble an independently labelled event/non-event registry, perform explicit partial-overlap/spatial-buffer auditing, and run held-out evaluation under the pre-registered multi-event plan. The 101-zone post-event inventory is not a prospective holdout. Hash checks validate declared provenance consistency, not proof of actual execution; add trusted run attestation before relying on production evaluation.
 
-## 11. Update protocol for future chats
+## 12. Update protocol for future chats
 
 When continuing from a new chat:
 1. Read this file first, then KNOW_PLACE_ANALYSIS_BLUEPRINT.md, KNOW_PLACE_ANALYSIS_CHECKLIST.md, and the relevant evidence report.
