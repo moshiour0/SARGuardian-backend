@@ -146,6 +146,13 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     assert result["test_only"] is True
     assert result["total_heldout_cases"] == 6
     assert result["independent_heldout_sites"] == 6
+    assert result["validation_site_independence"] == {
+        "status": "PASS_DISJOINT_SITE_SPLITS",
+        "validation_site_count": 2,
+        "test_site_count": 6,
+        "overlapping_site_ids": [],
+        "policy": "No site_id may occur in both validation and held-out test registries; repeated observations from one site must remain in one split.",
+    }
     assert result["availability"] == {
         "evaluable_cases": 4,
         "no_result_cases": 2,
@@ -198,6 +205,20 @@ def test_threshold_policy_and_registry_hashes_are_verified():
             prediction_payload(),
             threshold_policy(reg),
             validation_registry_payload=validation_registry(wrong_reg),
+            bootstrap_replicates=100,
+        )
+
+
+def test_heldout_evaluation_rejects_site_overlap_between_validation_and_test():
+    reg = registry()
+    # A different case_id does not make an overlapping physical site independent.
+    overlapping = copy.deepcopy(reg)
+    next(case_row for case_row in overlapping["cases"] if case_row["case_id"] == "T1")["site_id"] = "VAL-SITE"
+    with pytest.raises(EventValidationError, match="VALIDATION_TEST_SITE_OVERLAP:VAL-SITE"):
+        evaluate_heldout_events(
+            overlapping,
+            prediction_payload(),
+            threshold_policy(reg),
             bootstrap_replicates=100,
         )
 

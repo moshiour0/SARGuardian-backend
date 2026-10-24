@@ -478,6 +478,13 @@ def evaluate_heldout_events(
     ):
         raise EventValidationError("VALIDATION_REGISTRY_MUST_CONTAIN_VALIDATION_CASES_ONLY")
     validation_registry = validate_event_registry(validation_registry_payload)
+    validation_site_ids = {case["site_id"] for case in validation_registry["cases"]}
+    test_site_ids = {case["site_id"] for case in registry["cases"]}
+    overlapping_site_ids = sorted(validation_site_ids & test_site_ids)
+    if overlapping_site_ids:
+        raise EventValidationError(
+            "VALIDATION_TEST_SITE_OVERLAP:" + ",".join(overlapping_site_ids)
+        )
     if not isinstance(threshold_policy, dict) or threshold_policy.get("schema_version") != THRESHOLD_SCHEMA:
         raise EventValidationError("THRESHOLD_POLICY_SCHEMA_UNSUPPORTED")
     if threshold_policy.get("threshold_selection_split") != "validation":
@@ -614,6 +621,13 @@ def evaluate_heldout_events(
         "test_only": True,
         "total_heldout_cases": len(rows),
         "independent_heldout_sites": len({row["site_id"] for row in rows}),
+        "validation_site_independence": {
+            "status": "PASS_DISJOINT_SITE_SPLITS",
+            "validation_site_count": len(validation_site_ids),
+            "test_site_count": len(test_site_ids),
+            "overlapping_site_ids": [],
+            "policy": "No site_id may occur in both validation and held-out test registries; repeated observations from one site must remain in one split.",
+        },
         "availability": {
             "evaluable_cases": len(available),
             "no_result_cases": len(rows) - len(available),

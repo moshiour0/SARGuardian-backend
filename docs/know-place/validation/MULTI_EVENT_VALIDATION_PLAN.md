@@ -74,6 +74,9 @@ These candidates form a *case registry plan*, not a claim that the present branc
 
 ## 4. Train/validation/test separation
 
+**Independent-site split requirement:** validation and held-out test registries must have disjoint `site_id` sets. Multiple windows or event cases from one physical site must stay in the same split; changing the case ID is not independence. The evaluator rejects any cross-split site overlap before computing test metrics, preventing threshold calibration on one site's observations from being described as an independent test on that same site.
+
+
 - **Development set:** Bhote Koshi reproduction and synthetic known-answer fixtures. Parameters may be debugged here, but benchmark values must not be used to tune hazard thresholds and then reported as held-out accuracy.
 - **Validation set:** independently sourced events and matched non-event AOIs; used for one-time policy selection of thresholds, temporal persistence and quality gates.
 - **Held-out test set:** spatially separate events/sites and later acquisition intervals not used to choose thresholds. Freeze a test-registry manifest (with a SHA-256) before final scoring.
