@@ -125,3 +125,22 @@
 - **Status contract:** paper reproduction remains BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED; hazard detection remains NOT_EVALUATED; no merge/change to main.
 
 - [x] Latest full code/test validation before this evidence-pointer refresh: [run 40092715120](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40092715120), commit `e0268bf891329cae4698da0bef8611606da69a4e`: **204 tests passed in 4.55 s**, seven workflow YAML files parsed, actionlint v1.7.12 checksum and semantic checks passed. The live CMR artifact ZIP (ID `12559850649`) was independently downloaded and integrity/hash checked (SHA-256 `e2d62d5b955e76083c90b64ace06f7e69109da628f7a5f37f62f15d37519377f`); exact P05023 IDs/URLs are 5/5, payload downloads 0/5.
+
+## Milestone 7 — Run Workflow launcher and independent multi-site protocol (2026-10-24)
+
+- [x] Add a feature-branch copy of `.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` so the existing default-branch Run Workflow entry point can be opened on branch `feat/know-place-analysis` without changing `main`.
+- [x] Add two explicit profiles: `author-exact-p05023` (five exact author products) and `generic-aoi-date` (arbitrary WKT + inclusive date window).
+- [x] Make both child workflows reusable and pass all request inputs through typed `workflow_call` contracts.
+- [x] Require the exact `[run-know-place]` consent input at the dispatcher before either raw-download path; repeat the guard in each child workflow. Generic catalog-only dry runs default to no raw downloads.
+- [x] Preflight Earthdata and Drive secrets before download. Preserve derived bundle and receipts in Drive, verify remote receipts before deleting raw temporary HDF5.
+- [x] Expose analysis mode metadata, optional constant HAE sensitivity input and 5x5 coherence-neighbour sensitivity in the generic AOI workflow. These are request parameters, not proof of independent validation or operational readiness.
+- [x] Register a six-site benchmark inventory in `docs/know-place/reference/multi_site_benchmark_v1.json`: Bhote Koshi author-method target; four IIRS/ITS_LIVE glacier-flow measurement controls; and Budhi Gandaki as a separate GUNW no-precursor challenge. Exact AOIs, data IDs and source-byte hashes for the independent sites remain pending.
+- [x] Document the run instructions, source/measurement/hazard status separation, per-pixel DEM/vertical-datum requirements, blind test protocol and site-specific limitations in `docs/know-place/REPRODUCIBLE_ENGINE_AND_MULTI_SITE_VALIDATION_20261024.md`.
+- [x] Add offline multi-site registry integrity tests. They assert that pending site inputs cannot be marked as scored detections, the five Bhote Koshi P05023 intervals match the author fixture, and GUNW is not scored as GOFF.
+- [ ] Complete isolated CI on the latest commit and confirm all workflow-call/dispatcher inputs pass actionlint and the benchmark registry test suite.
+- [ ] Use Actions → `SARGuardian AOI WKT E2E (safe branch dispatcher)` → branch `feat/know-place-analysis` → `author-exact-p05023`; enter `[run-know-place]` and dispatch. The workflow has not downloaded the five raw source products yet.
+- [ ] Review each downloaded HDF5's byte count/SHA-256, HDF5 identity and grid; then review five-pair metrics, source-grid/mask checks, output bundle and verified Drive receipt.
+- [ ] Only after the Bhote Koshi run, freeze AOI/source identities for Samudra Tapu and Bara Shigri; then validate Hubbard/Malaspina and the distinct Budhi Gandaki GUNW case. Do not tune using the final holdout.
+- [ ] Do not claim paper parity, movement-detector validation or hazard detection until each distinct gate has its own evidence.
+
+**Status rule:** The Run Workflow launch path and multi-site protocol are implemented; exact author raw payloads and source hashes are still 0/5. Generic AOI runs are exploratory displacement measurements. `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. The feature branch is isolated; no merge/change to `main`.
