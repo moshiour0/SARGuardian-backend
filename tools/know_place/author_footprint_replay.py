@@ -507,7 +507,7 @@ def _candidate_table(
 def compare_candidate_inventory(
     computed_rows: list[dict[str, Any]], archive_path: Path, *, numeric_tolerance: float = 1e-4
 ) -> dict[str, Any]:
-    """Compare all 106 screen candidates and their source-archived directional quality flag."""
+    """Compare all 106 screen candidates and their source-archived final quality flag."""
     with zipfile.ZipFile(archive_path) as archive:
         text = archive.read("inventory/candidates_attributed.csv").decode("utf-8")
     expected_rows = list(csv.DictReader(text.splitlines()))
@@ -627,7 +627,7 @@ def compare_candidate_inventory(
         "expected_candidate_count": len(expected_rows),
         "computed_candidate_count": len(computed_rows),
         "matched_centroid_count": len(expected_rows) - len(missing),
-        "expected_directional_quality_pass_count": expected_quality_pass,
+        "expected_quality_pass_count": expected_quality_pass,
         "computed_quality_pass_count": computed_quality_pass,
         "missing_expected": missing,
         "extra_computed": extra,
@@ -658,7 +658,7 @@ def compare_candidate_inventory(
 def compare_validated_zone_table(
     computed_rows: list[dict[str, Any]], archive_path: Path
 ) -> dict[str, Any]:
-    """Compare the 101 downslope-qualified candidates with Table S7 at displayed precision."""
+    """Compare the 101 final quality-passing candidates with Table S7 at displayed precision."""
     with zipfile.ZipFile(archive_path) as archive:
         text = archive.read("tables/TableS7_all_validated_zones.csv").decode("utf-8")
     expected_rows = list(csv.DictReader(text.splitlines()))
@@ -697,7 +697,7 @@ def compare_validated_zone_table(
     return {
         "status": "PASS" if passed else "MISMATCH",
         "expected_zone_count": len(expected_rows),
-        "computed_directional_zone_count": len(computed),
+        "computed_quality_zone_count": len(computed),
         "matched_centroid_count": len(expected_rows) - len(missing),
         "missing_expected": missing,
         "extra_computed": extra,
