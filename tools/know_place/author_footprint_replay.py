@@ -477,13 +477,12 @@ def _candidate_table(
 def compare_candidate_inventory(
     computed_rows: list[dict[str, Any]], archive_path: Path, *, numeric_tolerance: float = 1e-4
 ) -> dict[str, Any]:
-    """Compare directional-pass candidate features with the archived 101-zone CSV."""
+    """Compare all 106 screen candidates and their source-archived directional quality flag."""
     with zipfile.ZipFile(archive_path) as archive:
         text = archive.read("inventory/candidates_attributed.csv").decode("utf-8")
     expected_rows = list(csv.DictReader(text.splitlines()))
-    computed = [row for row in computed_rows if row["valid_directional"]]
     by_key: dict[tuple[float, float], dict[str, Any]] = {}
-    for row in computed:
+    for row in computed_rows:
         key = (round(float(row["lon"]), 5), round(float(row["lat"]), 5))
         if key in by_key:
             raise FootprintReplayError("DUPLICATE_COMPUTED_CANDIDATE_CENTROID")
@@ -491,6 +490,8 @@ def compare_candidate_inventory(
     mismatches: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     maximum_error: dict[str, float] = {name: 0.0 for name in CANDIDATE_METRIC_COLUMNS}
+    expected_quality_pass = 0
+    computed_quality_pass = sum(bool(row["valid_directional"]) for row in computed_rows)
     for expected in expected_rows:
         key = (round(float(expected["lon"]), 5), round(float(expected["lat"]), 5))
         actual = by_key.pop(key, None)
@@ -498,7 +499,7 @@ def compare_candidate_inventory(
             missing.append({"lon": key[0], "lat": key[1]})
             continue
         for metric in CANDIDATE_METRIC_COLUMNS:
-            if metric == "n_px" or metric == "n_epochs":
+            if metric in {"n_px", "n_epochs"}:
                 ok = int(float(actual[metric])) == int(float(expected[metric]))
                 delta = abs(float(actual[metric]) - float(expected[metric]))
             else:
@@ -512,6 +513,84 @@ def compare_candidate_inventory(
                     "expected": float(expected[metric]), "actual": float(actual[metric]),
                     "absolute_difference": float(delta),
                 })
+        quality_raw = str(expected.get("quality", "")).strip().casefold()
+        if quality_raw not in {"true", "false"}:
+            mismatches.append({
+                "lon": key[0], "lat": key[1], "metric": "quality",
+                "expected": expected.get("quality"), "actual": bool(actual["valid_directional"]),
+                "reason": "ARCHIVE_QUALITY_FLAG_INVALID",
+            })
+        else:
+            expected_quality = quality_raw == "true"
+            expected_quality_pass += int(expected_quality)
+            if expected_quality != bool(actual["valid_directional"]):
+                mismatches.append({
+                    "lon": key[0], "lat": key[1], "metric": "quality",
+                    "expected": expected_quality, "actual": bool(actual["valid_directional"]),
+                    "reason": "DIRECTIONAL_QUALITY_FLAG_MISMATCH",
+                })
+    extra = [{"lon": key[0], "lat": key[1]} for key in sorted(by_key)]
+    passed = (
+        not missing and not extra and not mismatches
+        and len(expected_rows) == 106 and len(computed_rows) == 106
+        and expected_quality_pass == 101 and computed_quality_pass == 101
+    )
+    return {
+        "status": "PASS" if passed else "MISMATCH",
+        "expected_candidate_count": len(expected_rows),
+        "computed_candidate_count": len(computed_rows),
+        "matched_centroid_count": len(expected_rows) - len(missing),
+        "expected_directional_quality_pass_count": expected_quality_pass,
+        "computed_directional_pass_count": computed_quality_pass,
+        "missing_expected": missing,
+        "extra_computed": extra,
+        "mismatch_count": len(mismatches),
+        "mismatches": mismatches[:200],
+        "max_absolute_error_by_metric": maximum_error,
+        "numeric_tolerance": numeric_tolerance,
+        "compared_columns": [*CANDIDATE_METRIC_COLUMNS, "quality"],
+        "glacier_overlay_not_compared": True,
+        "glacier_overlay_note": "The exact RGI 6.0 polygon assets are not part of this author archive; glacier class and nearest-glacier distance are not inferred by this comparison.",
+    }
+
+
+def compare_validated_zone_table(
+    computed_rows: list[dict[str, Any]], archive_path: Path
+) -> dict[str, Any]:
+    """Compare the 101 downslope-qualified candidates with Table S7 at displayed precision."""
+    with zipfile.ZipFile(archive_path) as archive:
+        text = archive.read("tables/TableS7_all_validated_zones.csv").decode("utf-8")
+    expected_rows = list(csv.DictReader(text.splitlines()))
+    computed = [row for row in computed_rows if bool(row["valid_directional"])]
+    by_key: dict[tuple[float, float], dict[str, Any]] = {}
+    for row in computed:
+        key = (round(float(row["lon"]), 5), round(float(row["lat"]), 5))
+        if key in by_key:
+            raise FootprintReplayError("DUPLICATE_VALIDATED_ZONE_CENTROID")
+        by_key[key] = row
+
+    precision = {
+        "lon": 5, "lat": 5, "area_km2": 4, "n_epochs": None,
+        "res_mag_m": 2, "disp_az": 1, "downslope_az": 1,
+        "d_downslope": 1, "R_res": 3, "elev_m": 0, "slope_deg": 1,
+    }
+    mismatches: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for expected in expected_rows:
+        key = (round(float(expected["lon"]), 5), round(float(expected["lat"]), 5))
+        actual = by_key.pop(key, None)
+        if actual is None:
+            missing.append({"lon": key[0], "lat": key[1]})
+            continue
+        for field, decimals in precision.items():
+            target = float(expected[field])
+            value = float(actual[field])
+            ok = int(value) == int(target) if decimals is None else round(value, decimals) == round(target, decimals)
+            if not ok:
+                mismatches.append({
+                    "lon": key[0], "lat": key[1], "metric": field,
+                    "expected": target, "actual": value, "comparison_decimals": decimals,
+                })
     extra = [{"lon": key[0], "lat": key[1]} for key in sorted(by_key)]
     passed = not missing and not extra and not mismatches and len(expected_rows) == 101 and len(computed) == 101
     return {
@@ -523,13 +602,11 @@ def compare_candidate_inventory(
         "extra_computed": extra,
         "mismatch_count": len(mismatches),
         "mismatches": mismatches[:200],
-        "max_absolute_error_by_metric": maximum_error,
-        "numeric_tolerance": numeric_tolerance,
-        "compared_columns": list(CANDIDATE_METRIC_COLUMNS),
-        "glacier_overlay_not_compared": True,
-        "glacier_overlay_note": "The exact RGI 6.0 polygon assets are not part of this author archive; only the supplied attributed inventory is used as a comparison target. This calculation does not infer glacier class.",
+        "compared_columns": list(precision),
+        "excluded_columns": ["glacier", "RGIId", "d_glac_m"],
+        "excluded_columns_note": "These fields require the exact RGI 6.0 polygon source assets, which are not contained in the author archive; no glacier overlay is inferred.",
+        "comparison_policy": "numeric values are compared at the displayed precision in Table S7",
     }
-
 
 def run_author_footprint_replay(
     *,
@@ -738,7 +815,8 @@ def run_author_footprint_replay(
         writer.writerows(directional_rows)
 
     raster_comparison = compare_footprint_outputs_to_author_archive(out, archive_path, tolerance=1e-5)
-    inventory_comparison = compare_candidate_inventory(directional_rows, archive_path)
+    inventory_comparison = compare_candidate_inventory(candidate_rows, archive_path)
+    validated_zone_comparison = compare_validated_zone_table(candidate_rows, archive_path)
     coefficient_hashes = {
         name: _hash_array(values) for name, values in coefficient_result["coefficients"].items()
     }
@@ -751,7 +829,7 @@ def run_author_footprint_replay(
     )
     footprint_status = (
         "PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY"
-        if raster_comparison["status"] == "PASS" and inventory_comparison["status"] == "PASS" and exact_screen_count_pass
+        if raster_comparison["status"] == "PASS" and inventory_comparison["status"] == "PASS" and validated_zone_comparison["status"] == "PASS" and exact_screen_count_pass
         else "MISMATCH_AUTHOR_FOOTPRINT_PARITY"
     )
     report = {
@@ -805,6 +883,7 @@ def run_author_footprint_replay(
         },
         "author_aggregate_raster_comparison": raster_comparison,
         "author_inventory_comparison": inventory_comparison,
+        "author_validated_zone_table_comparison": validated_zone_comparison,
         "footprint_screen_parity_status": footprint_status,
         "paper_reproduction_status": (
             "PARTIAL_AUTHOR_FOOTPRINT_SCREEN_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
@@ -826,9 +905,12 @@ def run_author_footprint_replay(
     print("AUTHOR_FOOTPRINT_SCREEN_STATUS=" + footprint_status)
     print("FOOTPRINT_PAIR_COUNT=5")
     print("AUTHOR_AGGREGATE_RASTERS=" + raster_comparison["status"])
-    print("AUTHOR_101_ZONE_INVENTORY=" + inventory_comparison["status"])
+    print("AUTHOR_106_CANDIDATE_INVENTORY=" + inventory_comparison["status"])
+    print("AUTHOR_101_VALIDATED_ZONE_TABLE=" + validated_zone_comparison["status"])
     print(f"CANDIDATE_ZONES_PRE_DIRECTION={len(candidate_rows)}")
     print(f"CANDIDATE_ZONES_DIRECTIONAL_PASS={len(directional_rows)}")
+    print("AUTHOR_INVENTORY_COUNT=" + str(inventory_comparison["computed_candidate_count"]))
+    print("AUTHOR_VALIDATED_ZONE_COUNT=" + str(validated_zone_comparison["computed_directional_zone_count"]))
     print("PAPER_REPRODUCTION_STATUS=" + report["paper_reproduction_status"])
     print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
     print("REPORT=" + str(report_path))
