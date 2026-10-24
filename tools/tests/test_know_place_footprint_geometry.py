@@ -123,8 +123,8 @@ def test_geometry_block_size_does_not_change_results():
 
 def test_geometry_records_nonfinite_coefficients_without_hiding_them():
     grid = list(source_grid())
-    grid[1] = np.zeros_like(grid[1])
-    grid[2] = np.zeros_like(grid[2])
+    grid[4] = np.zeros_like(grid[4])
+    grid[5] = np.zeros_like(grid[5])
     result = build(grid=tuple(grid))
     assert result['diagnostics']['nonfinite_coefficient_pixels_per_field']['kE'] == 9
     assert result['diagnostics']['nonfinite_coefficient_pixels_per_field']['kN'] == 9
