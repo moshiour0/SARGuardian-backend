@@ -860,7 +860,7 @@ def run_author_footprint_replay(
         "component_id", "lon", "lat", "area_km2", "n_px", "n_epochs", "anom_m", "R",
         "score", "disp_az", "res_mag_m", "R_raw", "R_res", "mag_m", "elev_m",
         "slope_deg", "downslope_az", "range_az", "d_downslope", "d_range",
-        "valid_directional", "center_row", "center_col",
+        "valid_directional", "quality", "center_row", "center_col",
     ]
     with candidate_csv.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=candidate_fields)
@@ -869,10 +869,15 @@ def run_author_footprint_replay(
     directional_rows = [row for row in candidate_rows if row["valid_directional"]]
     directional_csv = out / "candidate_directional_zones.csv"
     with directional_csv.open("w", newline="", encoding="utf-8") as stream:
-        fields = candidate_fields
-        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer = csv.DictWriter(stream, fieldnames=candidate_fields)
         writer.writeheader()
         writer.writerows(directional_rows)
+    quality_rows = [row for row in candidate_rows if row["quality"]]
+    quality_csv = out / "candidate_quality_zones.csv"
+    with quality_csv.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=candidate_fields)
+        writer.writeheader()
+        writer.writerows(quality_rows)
 
     raster_comparison = compare_footprint_outputs_to_author_archive(out, archive_path, tolerance=1e-5)
     inventory_comparison = compare_candidate_inventory(candidate_rows, archive_path)
@@ -882,7 +887,8 @@ def run_author_footprint_replay(
     }
     exact_screen_count_pass = (
         candidate_summary["component_count"] == 106
-        and candidate_summary["directional_pass_count"] == 101
+        and candidate_summary["quality_pass_count"] == 101
+        and inventory_comparison.get("computed_quality_pass_count") == 101
         and persistence["counts"]["cells_persistent"] >= sum(
             row["n_px"] for row in candidate_rows
         )
@@ -939,7 +945,10 @@ def run_author_footprint_replay(
         "candidate_summary": candidate_summary,
         "candidate_csv": {
             "screen_zones": candidate_csv.name, "screen_zone_count": len(candidate_rows),
-            "directional_zones": directional_csv.name, "directional_zone_count": len(directional_rows),
+            "directional_zones": directional_csv.name,
+            "directional_zone_count": len(directional_rows),
+            "quality_zones": quality_csv.name,
+            "quality_zone_count": len(quality_rows),
         },
         "author_aggregate_raster_comparison": raster_comparison,
         "author_inventory_comparison": inventory_comparison,
