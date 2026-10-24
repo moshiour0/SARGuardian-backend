@@ -21,7 +21,9 @@ The `fix_zonal_attrs.py` header explicitly says that it must run after `candidat
 
 ## Correct interpretation of the score arithmetic
 
-The earlier 0/106 vs 106/106 arithmetic was not a valid end-to-end source/output inconsistency test because it evaluated the *final* zonal values against the *provisional* centroid score formula. That apparent conflict is explained by the pinned downstream script above; it should not be used as evidence that the archive contradicts itself.
+The earlier 0/106 vs 106/106 arithmetic was not a valid end-to-end source/output inconsistency test because it evaluated the *final* zonal values against the *provisional* centroid score formula. That apparent conflict is explained by the pinned downstream script above; it is not evidence that the archive contradicts itself.
+
+I independently recalculated the final arithmetic directly from the hash-verified CSV bytes: **106/106** final scores equal `n_epochs * anom_m * R_res` at full stored numeric precision (absolute difference within 1e-8 for the comparison), and **106/106** `quality` flags match `R_res >= 0.75 and d_downslope < 45`. There are 106 candidate rows, 101 `quality=True` rows, and 101 rows in Table S7. This checks the deposited CSV's internal arithmetic; it does not by itself prove the raw-GOFF screen regenerates those values.
 
 The authoritative final-chain formula to reproduce is:
 
