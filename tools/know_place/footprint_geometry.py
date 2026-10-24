@@ -81,7 +81,9 @@ def build_per_pixel_coefficients(
     dem_elevation_m: Any,
     target_transform: Any,
     *,
-    target_epsg: int = REQUIRED_TARGET_EPSG,
+    target_epsg: int,
+    geometry_metadata_epsg: int,
+    dem_epsg: int,
     dem_nodata: float = -9999.0,
     block_rows: int = 400,
 ) -> dict[str, Any]:
@@ -99,8 +101,19 @@ def build_per_pixel_coefficients(
     Diagnostics disclose extrapolated target pixels, filled elevations and
     clipped elevations instead of silently hiding these operations.
     """
-    if isinstance(target_epsg, bool) or not isinstance(target_epsg, int) or target_epsg != REQUIRED_TARGET_EPSG:
+    for name, value in (
+        ("target_epsg", target_epsg),
+        ("geometry_metadata_epsg", geometry_metadata_epsg),
+        ("dem_epsg", dem_epsg),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise FootprintGeometryError(f"{name.upper()}_MUST_BE_INTEGER")
+    if target_epsg != REQUIRED_TARGET_EPSG:
         raise FootprintGeometryError("TARGET_EPSG_MUST_MATCH_AUTHOR_32645_GRID")
+    if geometry_metadata_epsg != target_epsg:
+        raise FootprintGeometryError("GEOMETRY_METADATA_CRS_MISMATCH")
+    if dem_epsg != target_epsg:
+        raise FootprintGeometryError("DEM_CRS_MISMATCH")
     if isinstance(block_rows, bool) or not isinstance(block_rows, int) or block_rows < 1:
         raise FootprintGeometryError("BLOCK_ROWS_MUST_BE_POSITIVE_INTEGER")
     if isinstance(dem_nodata, bool) or not isinstance(dem_nodata, (int, float)) or not np.isfinite(float(dem_nodata)):
@@ -189,6 +202,8 @@ def build_per_pixel_coefficients(
         "status": "PER_PIXEL_GEOMETRY_COEFFICIENTS_COMPUTED",
         "author_geometry_source_sha256": AUTHOR_GEOMETRY_SHA256,
         "target_epsg": target_epsg,
+        "geometry_metadata_epsg": geometry_metadata_epsg,
+        "dem_epsg": dem_epsg,
         "target_shape": [height, width],
         "target_transform": {"a": a, "c": c, "e": e, "f": f},
         "source_radar_grid_shape": list(source_shape),

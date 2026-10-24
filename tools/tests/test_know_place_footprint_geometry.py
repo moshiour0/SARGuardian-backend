@@ -37,6 +37,9 @@ def build(grid=None, dem=None, transform=None, **kwargs):
     grid = source_grid() if grid is None else grid
     dem = dem_fixture() if dem is None else dem
     transform = Affine(5.0, 0.0, 10.0, 0.0, -1.0, 2.5) if transform is None else transform
+    kwargs.setdefault("target_epsg", 32645)
+    kwargs.setdefault("geometry_metadata_epsg", 32645)
+    kwargs.setdefault("dem_epsg", 32645)
     return build_per_pixel_coefficients(*grid, dem, transform, **kwargs)
 
 
@@ -106,6 +109,10 @@ def test_geometry_rejects_shape_epsg_rotation_and_empty_dem():
         build(grid=tuple(grid))
     with pytest.raises(FootprintGeometryError, match='TARGET_EPSG_MUST_MATCH_AUTHOR_32645_GRID'):
         build(target_epsg=4326)
+    with pytest.raises(FootprintGeometryError, match='GEOMETRY_METADATA_CRS_MISMATCH'):
+        build(geometry_metadata_epsg=4326)
+    with pytest.raises(FootprintGeometryError, match='DEM_CRS_MISMATCH'):
+        build(dem_epsg=4326)
     with pytest.raises(FootprintGeometryError, match='TARGET_TRANSFORM_ROTATION_OR_SHEAR_UNSUPPORTED'):
         build(transform=Affine(5.0, 0.1, 10.0, 0.0, -1.0, 2.5))
     with pytest.raises(FootprintGeometryError, match='DEM_HAS_NO_FINITE_NON_NODATA_ELEVATIONS'):
