@@ -71,7 +71,7 @@
     "operational_warning": "NOT_IMPLEMENTED"
   },
   "next_gates": [
-    "Implement P2 local-mean reference statistics with a 22-pixel halo around the 6-km analysis box; validate synthetically first.",
+    "P2 halo-aware local-mean implementation and synthetic tests were added after this run; the 15 published Table S4 P2 comparisons remain unverified until a new explicitly authorized raw replay.",
     "Displacement-null parity remains blocked until exact draw-level algorithm/source evidence is available; do not infer the null implementation.",
     "Integrate per-pixel geometry on the full native footprint and recreate per-pair screen rasters, persistence, components and candidate ranking.",
     "Verify native source-grid crown-mask parity and original terrain input provenance."
