@@ -1,49 +1,61 @@
-# Author candidate-score contract audit — 2026-10-25
+# Author candidate-score processing-chain audit — 2026-10-25
 
-## Finding
+## Correction to the initial interpretation
 
-A direct, zero-download audit of the supplied Zenodo archive found an internal difference between the archived screen script and its deposited attributed candidate inventory. This issue should be resolved before a new expensive raw-data replay is used to claim complete full-footprint reproduction.
+The initial audit compared the deposited final candidate `score` column against the provisional expression in `code/wide_screen.py` and called the difference a possible source/output conflict. That interpretation was incomplete and is superseded by this note.
+
+The Zenodo archive includes a later explicit post-processing step, `code/fix_zonal_attrs.py`. This step intentionally replaces the provisional centroid-derived `n_epochs`, `anom_m`, and `score` after `candidate_attributes.py` has added residual-coherence and terrain attributes. The final inventory is therefore expected to differ from the *provisional* score formula in `wide_screen.py`.
 
 Source archive: `bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip`, SHA-256 `002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3`.
 
-| Evidence | SHA-256 | Contents |
+## Exact script chain and pinned identities
+
+| Archive member | SHA-256 | Role |
 |---|---|---|
-| `code/wide_screen.py` | `60e4238b9a10510f52a4673939a9708bf513d8bae460ba797d2dd27a1357d7c9` | Original candidate score assignment at line 198: `score = n_epochs × anom_m × R`. |
-| `inventory/candidates_attributed.csv` | `519b527fbbbde7ab8a78365e5f5ee39e66837fd5ea942b8196d4368c1e1e3f9d` | 106 candidate rows, including score, centroid coherence `R`, zone-aggregated `R_res`, and `quality`. |
+| `code/wide_screen.py` | `60e4238b9a10510f52a4673939a9708bf513d8bae460ba797d2dd27a1357d7c9` | Produces components and provisional centroid-sampled `n_epochs`, `anom_m`, `R`; initial score is `n_epochs * anom_m * R`. |
+| `code/candidate_attributes.py` | `dde30645bed46f7b44f6d0469c8224e1b8f630726fd9849f11471880edc6e196` | Adds per-zone pooled hit-pixel motion vectors, raw and residual coherence (`R_raw`, `R_res`), terrain directions, `d_downslope`, glacier fields and diagnostics. Does not finalize the score formula. |
+| `code/fix_zonal_attrs.py` | `3614d1f632e35dbcdecab8389f38e50674a087813cbefdaa2b8c027b0ebe18cb` | Re-rasterizes current candidate polygons; replaces `n_epochs` with the maximum epoch count within each zone, replaces `anom_m` with mean finite zonal anomaly rounded to 3 decimals, computes final `score = n_epochs * anom_m * R_res`, computes `quality = (R_res >= 0.75) & (d_downslope < 45)`, then re-sorts by final score. |
+| `inventory/candidates_attributed.csv` | `519b527fbbbde7ab8a78365e5f5ee39e66837fd5ea942b8196d4368c1e1e3f9d` | Deposited final attributed inventory after the zonal post-processing chain. |
 
-## Arithmetic result on all 106 archived rows
+The `fix_zonal_attrs.py` header explicitly says that it must run after `candidate_attributes.py`, verifies that the attributed and screen candidate counts still match, and explains why centroid sampling can yield impossible `n_epochs < 2` values on concave zones.
 
-I recomputed both candidate-score expressions from each deposited CSV row, with no raw GOFF processing:
+## Correct interpretation of the score arithmetic
 
-| Expression | Exact matches to the archived `score` column |
-|---|---:|
-| `n_epochs × anom_m × R` — expression in archived `wide_screen.py` | **0 / 106** |
-| `n_epochs × anom_m × R_res` — uses the row's zone-aggregated residual coherence | **106 / 106** |
+The earlier 0/106 vs 106/106 arithmetic was not a valid end-to-end source/output inconsistency test because it evaluated the *final* zonal values against the *provisional* centroid score formula. That apparent conflict is explained by the pinned downstream script above; it should not be used as evidence that the archive contradicts itself.
 
-For example, the first inventory row stores `n_epochs=5`, `anom_m=4.51`, `R=0.992`, `R_res=0.9323059800598357`, and `score=21.023499850349292`. The stored score equals the second expression, not the first.
+The authoritative final-chain formula to reproduce is:
 
-The `candidate_attributes.py` archived copy assigns the per-zone `R_res` and other attributes, but does not overwrite `score` in the inspected source. Therefore, the deposited output and the inspected screen script are not score-contract-identical. The current full-footprint runner keeps the screen-script formula and compares the score field strictly, so it should report a mismatch rather than silently adopting the output-derived formula.
+`n_epochs = max(n_epochs_flagged inside the candidate polygon)`
 
-## 106 candidates versus 101 validated zones
+`anom_m = round(mean(finite mean_anomaly_m inside the candidate polygon), 3)`
 
-The archive has **106** rows in `inventory/candidates_attributed.csv`. The `quality` flag is true for **101** and false for five zones. The archived `screen_diagnostics.py` defines quality as `R_res >= 0.75 and d_downslope < 45°`. Separately, `tables/TableS7_all_validated_zones.csv` contains the 101 validated rows. The full-footprint comparator has been corrected to compare these as two distinct targets:
-- all 106 candidate rows, including the archived quality flag;
-- the 101 directional/quality-passing rows against Table S7 at its displayed numeric precision.
+`score = n_epochs * anom_m * R_res`
 
-The exact RGI 6.0 polygons are not packaged in this archive, so the comparator does not independently reproduce `glacier`, `RGIId`, or nearest-glacier distance fields.
+`quality = (R_res >= 0.75) and (d_downslope < 45 degrees)`
 
-## How the code now treats the finding
+Here `R_res` is populated by `candidate_attributes.py` from pooled finite residual-coherence observations on hit pixels over the five intervals. The screen-stage `R` is a different, provisional centroid-sampled value and remains an independent inventory column; it is not the factor in the final score.
 
-`tools/know_place/author_footprint_replay.py` now:
-1. compares all 106 candidate records, not only the 101 quality-true rows;
-2. compares the resulting 101 quality-passing features against Table S7;
-3. emits a `score_formula_audit` distinguishing the screen-script score expression from the alternative expression that matches the deposited inventory;
-4. fails the strict full-footprint parity gate if any candidate score or other compared attribute is inconsistent with the author-deposited inventory.
+The end-to-end runner in `tools/know_place/author_footprint_replay.py` now reproduces this chain: it retains provisional centroid `R`, calculates zone-max `n_epochs` and zone-mean `anom_m`, builds final score from pooled zonal `R_res`, and keeps the pure directional-alignment flag separate from the combined author `quality` flag.
 
-The final replay gate will also require all three aggregate screen rasters to match. This is intentional: green status must not hide a reproducibility conflict in the candidate score/ranking.
+## 106 candidates versus 101 quality-passing zones
 
-## Validation boundary and decision
+The archive contains **106** candidate rows. The final `quality` expression is true for **101** rows, and `tables/TableS7_all_validated_zones.csv` contains those 101 validated zones. The runner compares these as separate targets:
+- all 106 rows and final attributes in `inventory/candidates_attributed.csv`, including the final score and author quality flag;
+- the 101 `quality=True` features against Table S7 at displayed numeric precision.
 
-The arithmetic above is directly reproducible from the supplied archive and does not consume raw NISAR payloads. The updated source runner and CI tests are being validated on `feat/know-place-analysis`; **no new full-footprint raw replay has been launched**. A full replay can produce valuable rasters and per-pair evidence, but under the current strict score check it may correctly end with an explicit candidate-score mismatch.
+A pure downslope-direction match is not itself identical to the final author quality flag, because the latter also requires `R_res >= 0.75`. The runner and workflow keep those counts separately named.
 
-Until the score convention is resolved against a source-authoritative specification, do not silently substitute `R_res` for `R`, do not claim full footprint candidate-score parity, and do not change `main`. Hazard detection remains `NOT_EVALUATED`.
+The exact RGI 6.0 polygon assets are not packaged in this archive. The current comparator does not independently reproduce `glacier`, `RGIId`, or nearest-glacier distance.
+
+## Validation boundary
+
+The code-chain correction is based on direct inspection of the verified author archive and does not require raw GOFF downloads. The updated runner/tests and strict workflow gate are being validated on `feat/know-place-analysis`; **no new full-footprint raw replay has been launched in this follow-up**.
+
+A score-formula unit test is not itself numerical source replay. Full-footprint parity remains unverified until an explicitly authorized run independently generates:
+- all three archived full-footprint rasters (cell-by-cell);
+- all 106 final candidate rows and their final attributes/score/quality;
+- all 101 Table S7 quality-passing rows at the published precision.
+
+Even if these screen outputs match, the archive's displacement-null draw-level generator remains unavailable in the supplied package, so the three displacement-null Table S4 cells per interval must remain unverified unless the missing author source evidence is found. Hazard detection precision, recall, false-alarm rate, lead time and operational warning skill remain `NOT_EVALUATED`.
+
+No change to `main` is authorized or intended. All work remains isolated on `feat/know-place-analysis`.
