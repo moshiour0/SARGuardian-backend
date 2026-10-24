@@ -46,6 +46,8 @@ def build(grid=None, dem=None, transform=None, **kwargs):
     kwargs.setdefault("target_epsg", 32645)
     kwargs.setdefault("geometry_metadata_epsg", 32645)
     kwargs.setdefault("dem_epsg", 32645)
+    kwargs.setdefault("dem_vertical_reference", "WGS84 ellipsoid HAE")
+    kwargs.setdefault("geometry_height_reference", "WGS84 ellipsoid HAE")
     return build_per_pixel_coefficients(*grid, dem, transform, **kwargs)
 
 
@@ -106,6 +108,31 @@ def test_geometry_rejects_nonmonotonic_or_wrongly_ordered_axes():
     bad_height = (original[0][::-1], original[1], original[2], *(field[::-1, :, :] for field in original[3:]))
     with pytest.raises(FootprintGeometryError, match='HEIGHT_AXIS_MUST_BE_ASCENDING'):
         build(grid=bad_height)
+
+
+def test_geometry_rejects_unresolved_vertical_datum_mismatch_by_default():
+    with pytest.raises(
+        FootprintGeometryError,
+        match="VERTICAL_DATUM_MISMATCH_REQUIRES_EXPLICIT_SOURCE_REPRODUCTION_OVERRIDE",
+    ):
+        build(
+            dem_vertical_reference="Copernicus GLO-90 EGM2008 geoid",
+            geometry_height_reference="NISAR heightAboveEllipsoid WGS84",
+        )
+
+
+def test_geometry_exposes_source_method_vertical_mismatch_only_with_explicit_override():
+    result = build(
+        dem_vertical_reference="Copernicus GLO-90 EGM2008 geoid",
+        geometry_height_reference="NISAR heightAboveEllipsoid WGS84",
+        allow_vertical_reference_mismatch=True,
+    )
+    reference = result["vertical_reference"]
+    assert reference["declared_reference_strings_match"] is False
+    assert reference["status"] == "MISMATCH_PASSED_THROUGH_FOR_EXPLICIT_SOURCE_REPRODUCTION"
+    assert reference["explicit_mismatch_override"] is True
+    assert reference["vertical_transformation_applied"] is False
+    assert "no vertical datum transformation" in reference["warning"]
 
 
 def test_geometry_rejects_shape_epsg_rotation_and_empty_dem():

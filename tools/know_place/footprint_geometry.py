@@ -85,6 +85,9 @@ def build_per_pixel_coefficients(
     target_epsg: int,
     geometry_metadata_epsg: int,
     dem_epsg: int,
+    dem_vertical_reference: str,
+    geometry_height_reference: str,
+    allow_vertical_reference_mismatch: bool = False,
     dem_nodata: float = -9999.0,
     block_rows: int = 400,
 ) -> dict[str, Any]:
@@ -115,6 +118,17 @@ def build_per_pixel_coefficients(
         raise FootprintGeometryError("GEOMETRY_METADATA_CRS_MISMATCH")
     if dem_epsg != target_epsg:
         raise FootprintGeometryError("DEM_CRS_MISMATCH")
+    if not isinstance(dem_vertical_reference, str) or not dem_vertical_reference.strip():
+        raise FootprintGeometryError("DEM_VERTICAL_REFERENCE_REQUIRED")
+    if not isinstance(geometry_height_reference, str) or not geometry_height_reference.strip():
+        raise FootprintGeometryError("GEOMETRY_HEIGHT_REFERENCE_REQUIRED")
+    if not isinstance(allow_vertical_reference_mismatch, bool):
+        raise FootprintGeometryError("ALLOW_VERTICAL_REFERENCE_MISMATCH_MUST_BE_BOOLEAN")
+    dem_vertical = dem_vertical_reference.strip()
+    geometry_vertical = geometry_height_reference.strip()
+    vertical_refs_match = dem_vertical.casefold() == geometry_vertical.casefold()
+    if not vertical_refs_match and not allow_vertical_reference_mismatch:
+        raise FootprintGeometryError("VERTICAL_DATUM_MISMATCH_REQUIRES_EXPLICIT_SOURCE_REPRODUCTION_OVERRIDE")
     if isinstance(block_rows, bool) or not isinstance(block_rows, int) or block_rows < 1:
         raise FootprintGeometryError("BLOCK_ROWS_MUST_BE_POSITIVE_INTEGER")
     if isinstance(dem_nodata, bool) or not isinstance(dem_nodata, (int, float)) or not np.isfinite(float(dem_nodata)):
@@ -210,6 +224,22 @@ def build_per_pixel_coefficients(
         "target_epsg": target_epsg,
         "geometry_metadata_epsg": geometry_metadata_epsg,
         "dem_epsg": dem_epsg,
+        "vertical_reference": {
+            "dem_vertical_reference_declared": dem_vertical,
+            "geometry_height_reference_declared": geometry_vertical,
+            "declared_reference_strings_match": vertical_refs_match,
+            "status": (
+                "DECLARED_REFERENCE_STRINGS_MATCH"
+                if vertical_refs_match
+                else "MISMATCH_PASSED_THROUGH_FOR_EXPLICIT_SOURCE_REPRODUCTION"
+            ),
+            "explicit_mismatch_override": allow_vertical_reference_mismatch,
+            "vertical_transformation_applied": False,
+            "warning": (
+                None if vertical_refs_match else
+                "The DEM elevation values are used directly against the geometry height axis with no vertical datum transformation, to expose source-method behavior only; do not treat as datum-corrected geometry."
+            ),
+        },
         "target_shape": [height, width],
         "target_transform": {"a": a, "c": c, "e": e, "f": f},
         "dem_transform": {"a": dem_a, "c": dem_c, "e": dem_e, "f": dem_f},
@@ -234,7 +264,7 @@ def build_per_pixel_coefficients(
         },
         "limitations": [
             "This function interpolates supplied arrays; it does not open or hash the HDF5 product or DEM source file.",
-            "The DEM vertical datum/query and source coordinate unit metadata must be verified by the caller.",
+            "Vertical references must be declared explicitly. If they differ, the builder fails unless a clearly labeled source-method reproduction override is supplied; no vertical transformation is implemented here.",
             "Per-pixel coefficient construction is not full author-screen reproduction until exact raw inputs, target grid and resulting coefficient maps are independently compared.",
         ],
         "hazard_detection_status": "NOT_EVALUATED",
