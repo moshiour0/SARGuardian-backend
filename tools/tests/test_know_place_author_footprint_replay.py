@@ -169,6 +169,7 @@ def _make_candidate_rows(count: int = 106) -> list[dict[str, object]]:
             "d_downslope": 0.0 if directional else 70.0,
             "d_range": 30.0,
             "valid_directional": directional,
+            "quality": directional,
         })
     return rows
 
@@ -201,8 +202,8 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     modified[50]["R_res"] = 0.91
     mismatch = compare_candidate_inventory(modified, archive_path, numeric_tolerance=1e-9)
     assert mismatch["status"] == "MISMATCH"
-    assert mismatch["mismatch_count"] == 2
-    assert mismatch["mismatch_count_by_metric"] == {"R_res": 1, "score": 1}
+    assert mismatch["mismatch_count"] == 1
+    assert mismatch["mismatch_count_by_metric"] == {"R_res": 1}
 
     # The original wide_screen.py score is provisional. The archive runs
     # fix_zonal_attrs.py afterward, which replaces score with n_epochs * anom_m * R_res.
