@@ -274,3 +274,8 @@ Latest legacy raw-replay run [40060195873](https://github.com/moshiour0/SARGuard
 - I rechecked the active GitHub connector capabilities: it supports reading runs/artifacts and branch-file updates, but exposes no workflow-dispatch API. I cannot truthfully claim to have clicked **Run workflow** or launched the raw job from this session. The remaining operational step is to open the branch-specific dispatcher in Actions, select branch `feat/know-place-analysis`, choose `author-exact-p05023`, enter the exact marker `[run-know-place]`, and ensure Earthdata and Google Drive secrets are configured. This marker is required before raw HDF5 acquisition.
 - Scientific status remains `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED` and `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. Do not substitute `X05026` for author `P05023`; do not merge to main.
 - Main was rechecked at `2218dfeb73353080d8d94bd733d9e7bd9a848886`; it remains untouched. Working branch head before this context-only update: `85bbda3294f2305e6e5a706bde003a5360d49931`.
+
+
+## 17. Dispatcher consent failure and fix — 2026-10-24
+
+Failed run [40107037642](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40107037642) stopped in the first consent gate. Log evidence is CONSENT_MARKER=run-know-place; the required exact value is [run-know-place]. Both raw-processing jobs were skipped; source downloads, analysis and Drive upload were not started. This was a consent-input mismatch, not a data/science failure. The dispatcher now states the exact correction in the log and step summary; a regression test keeps the bracket requirement strict. Full audit: docs/know-place/evidence/DISPATCHER_CONSENT_MISMATCH_20261024.md. Main remains unchanged.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import copy
 
 import pytest
@@ -148,3 +149,15 @@ def test_generic_mode_preserves_large_motion_by_default_but_paper_policy_is_expl
     paper_policy = validate_aoi_request(payload)
     assert paper_policy.magnitude_policy == "reject_above_threshold"
     assert paper_policy.to_dict()["quality_policy"]["gross_outlier_policy"] == "reject_above_threshold_not_clip"
+
+
+def test_dispatcher_consent_failure_explains_exact_marker_and_remains_strict():
+    repository_root = Path(__file__).resolve().parents[2]
+    workflow_path = repository_root / ".github" / "workflows" / "sarguardian-aoi-wkt-dispatcher.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert '"$CONSENT_MARKER" != "[run-know-place]"' in workflow
+    assert "ACTION_REQUIRED=Re-run with consent_marker exactly [run-know-place], including both square brackets." in workflow
+    assert "run-know-place by itself does not authorize source downloads." in workflow
+    assert "No raw source, analysis or Drive operation was performed." in workflow
+    assert '"$CONSENT_MARKER" == "run-know-place"' not in workflow

@@ -149,6 +149,14 @@ jobs:
           fi
           if [[ "$raw_requested" == "true" && "$CONSENT_MARKER" != "[run-know-place]" ]]; then
             echo "ERROR=EXPLICIT_RAW_DOWNLOAD_CONSENT_MARKER_REQUIRED"
+            echo "ACTION_REQUIRED=Re-run with consent_marker exactly [run-know-place], including both square brackets."
+            {
+              echo "## Raw-source consent check failed"
+              echo
+              echo "The selected profile requires the exact consent value [run-know-place]."
+              echo "Include both square brackets; run-know-place by itself does not authorize source downloads."
+              echo "No raw source, analysis or Drive operation was performed."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "No raw source, analysis or Drive operation has started."
             exit 1
           fi

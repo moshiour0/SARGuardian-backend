@@ -152,3 +152,11 @@
 - [x] Independently inspected the manifest: exact author P05023 CMR identities 5/5 and direct HDF5 URLs 5/5; source payload downloads remain 0/5 and source SHA-256 hashes 0/5.
 - [ ] Execute the branch Run Workflow dispatcher with profile `author-exact-p05023`, explicit consent `[run-know-place]`, and configured Earthdata + Google Drive secrets. The available GitHub connection does not expose a workflow-dispatch action, so this step has not been launched from the assistant session.
 - [ ] Review raw HDF5 hashes/grid validation, scientific output metrics, and verified Drive-retention receipts after the run. Do not mark paper reproduction or hazard detection complete merely because acquisition succeeds.
+
+
+## Follow-up — dispatcher consent mismatch (2026-10-24)
+
+- [x] Audited failed dispatcher run [40107037642](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40107037642). Actual input was run-know-place, but raw-source consent requires exact [run-know-place] including both square brackets. The consent job failed before any raw download, processing, or Drive upload; the measurement and exact-author analysis jobs were skipped.
+- [x] Improved the gate error and GitHub step summary to state the exact required value; added an automated regression test that rejects the unbracketed near-match.
+- [ ] Re-dispatch the branch workflow with profile author-exact-p05023, exact consent input [run-know-place], and valid Earthdata + Drive secrets. Do not start raw acquisition until the exact input is supplied.
+- [ ] After an authorized run, verify five source HDF5 byte counts/SHA-256 hashes, grid/identity checks, scientific outputs and both Drive-retention receipts. Do not mark paper reproduction or hazard detection complete merely because acquisition works.
