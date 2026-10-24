@@ -596,23 +596,20 @@ def acquire_and_analyze(
                 time.sleep(delay)
                 worker_phase += 1
 
-            import h5py
-            if not h5py.is_hdf5(target_path):
-                raise AuthorExactAcquisitionError("DOWNLOADED_SOURCE_IS_NOT_VALID_HDF5")
             actual_bytes = target_path.stat().st_size
             if actual_bytes != expected_bytes or downloaded != expected_bytes:
                 raise AuthorExactAcquisitionError("DOWNLOADED_SOURCE_BYTE_COUNT_MISMATCH")
 
-            # A complete authenticated transfer has its own durable byte/hash receipt.
-            # Do this before scientific grid checks so validation failure isn't reported
-            # as though the payload was never downloaded.
+            # Hash a complete byte-count-matched transfer before content/science checks.
+            # This preserves evidence even if HDF5 or GOFF-grid validation subsequently fails.
             product_receipt.update({
-                "download_status": "BYTES_VERIFIED_GRID_PENDING",
+                "download_status": "BYTES_VERIFIED_CONTENT_PENDING",
                 "source_bytes": actual_bytes,
                 "source_sha256": sha256_file(target_path),
-                "hdf5_container_valid": True,
+                "hdf5_container_valid": None,
                 "byte_count_validation": "PASS",
-                "grid_validation_status": "PENDING",
+                "content_validation_status": "PENDING",
+                "grid_validation_status": "NOT_RUN",
                 "download_attempt_history": product_receipt.get("attempt_history", []),
             })
             source_manifest.update(source_receipt_counts(source_manifest["products"]))
@@ -624,6 +621,17 @@ def acquire_and_analyze(
                 f"BYTES={actual_bytes} SHA256={product_receipt['source_sha256']}",
                 flush=True,
             )
+
+            import h5py
+            if not h5py.is_hdf5(target_path):
+                product_receipt["hdf5_container_valid"] = False
+                product_receipt["content_validation_status"] = "FAIL_HDF5_CONTAINER"
+                raise AuthorExactAcquisitionError("DOWNLOADED_SOURCE_IS_NOT_VALID_HDF5")
+            product_receipt["hdf5_container_valid"] = True
+            product_receipt["content_validation_status"] = "PASS"
+            source_manifest.update(source_receipt_counts(source_manifest["products"]))
+            _write_json_atomic(manifest_path, source_manifest)
+            _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
 
             grid = inspect_goff_grid(
                 target_path, polarization="HH", layer=2,
@@ -690,14 +698,17 @@ def acquire_and_analyze(
         except Exception as exc:
             counts = source_receipt_counts(source_manifest["products"])
             has_hash = bool(product_receipt.get("source_sha256"))
-            product_receipt["download_status"] = (
-                "BYTES_VERIFIED_GRID_VALIDATION_FAILED" if has_hash else "FAIL"
-            )
+            if has_hash and product_receipt.get("content_validation_status") == "FAIL_HDF5_CONTAINER":
+                product_receipt["download_status"] = "BYTES_VERIFIED_HDF5_INVALID"
+            elif has_hash:
+                product_receipt["download_status"] = "BYTES_VERIFIED_GRID_VALIDATION_FAILED"
+            else:
+                product_receipt["download_status"] = "FAIL"
             product_receipt["failure_type"] = type(exc).__name__
             product_receipt["failure_code"] = str(exc).split(":", maxsplit=1)[0][:160]
             source_manifest.update(counts)
             source_manifest["raw_source_byte_identity"] = (
-                "SOURCE_BYTES_HASHED_BUT_GRID_VALIDATION_FAILED"
+                "SOURCE_BYTES_HASHED_BUT_CONTENT_OR_GRID_VALIDATION_FAILED"
                 if has_hash
                 else ("PARTIAL_SOURCE_BYTES_HASHED" if counts["source_downloads"] else "UNVERIFIED")
             )
