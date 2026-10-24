@@ -22,8 +22,9 @@
 
 - Branch exists: feat/know-place-analysis.
 - Branch head at the start of this correction: f258b1033ea114b7e9a72d6e6bb71565a1281430.
-- Last confirmed pre-correction validation: [GitHub Actions run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with **141 tests passed**, four workflow YAML files parsed, actionlint passed, and catalog identity checks passed. Raw replay was skipped because the explicit consent marker was not provided.
-- The count-estimand correction below was independently recomputed from the actual supplied archive ZIP. A fresh validation is required after the regression-test change; do not cite the older 141-test run as validation of this correction.
+- Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
+- **Latest validation of the corrected code/test tree:** [run 40043784979](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043784979), testing commit e3c180eb470944b3bec54e7a4f6c4d266283da17. Result: **141 tests passed**, four workflow YAML files parsed, actionlint passed, both workflow jobs succeeded. Live ASF identity code ran with **zero raw downloads**; the exact first-pair author P05023 ID remains NOT_FOUND, and the separate author-exact reproduction gate remains BLOCKED.
+- This context-only refresh follows the tested commit and does not change code/test files. Any subsequent code or test change requires fresh validation.
 - Use the isolated validation workflow at .github/workflows/know-place-analysis-validation.yml and the AOI analysis workflow at .github/workflows/know-place-aoi-analysis.yml. A pushed change to tools/tests/test_know_place_*.py triggers isolated validation. The validation workflow's live ASF job is catalog-only and must not download products.
 - Do not run the separate expensive raw replay job without [run-know-place].
 
@@ -134,7 +135,7 @@ Current state: archive integrity and exported derived-R verification pass; the c
 
 - [x] Inspect blueprint, checklist, runbook, source/validation audits, author archive fixture, author kernel and archive verifier.
 - [x] Recompute displacement-valid and R-valid crown counts independently from all five exported fields and separate the two estimands in machine-readable evidence.
-- [ ] Commit the count-estimand fixture/test/report corrections only to feat/know-place-analysis; wait for and inspect CI evidence.
+- [x] Commit the count-estimand fixture/test/report corrections only to feat/know-place-analysis; CI passed in [run 40043784979](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40043784979), with 141 tests, four workflow YAML parses and actionlint passing. The ASF job downloaded zero products.
 - [ ] Extend same-estimand comparison of archived per-pair tables and raster statistics; keep P1/P2/polygon-null/displacement-null separate.
 - [ ] Continue integrating the isolated author-parity path, always testing against archived processed fields/tables without silently changing the exploratory runner.
 - [ ] Resolve and SHA-256-pin the exact first-pair P05023 GOFF HDF5 bytes and verify all five author-exact raw inputs; do not substitute X05026.
