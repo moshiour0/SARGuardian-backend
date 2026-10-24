@@ -1,7 +1,7 @@
 name: Know Place Analysis - exact author P05023 replay
 
 # Push events register the isolated workflow but never authorize raw work.
-# Only workflow_dispatch with the exact consent input can enable downloads.
+# Manual dispatch and reusable calls require the exact [run-know-place] marker.
 on:
   push:
     branches:
@@ -32,6 +32,24 @@ on:
         required: true
         default: "260826"
         type: string
+  workflow_call:
+    inputs:
+      consent_marker:
+        description: "Must be exactly [run-know-place] before any raw HDF5 download"
+        required: false
+        type: string
+      geometry_height_m:
+        required: false
+        default: "5151"
+        type: string
+      control_draws:
+        required: false
+        default: "1000"
+        type: string
+      seed:
+        required: false
+        default: "260826"
+        type: string
 
 permissions:
   contents: read
@@ -52,11 +70,11 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          MANUAL_CONSENT_MARKER: ${{ github.event.inputs.consent_marker || '' }}
+          MANUAL_CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
         run: |
           set -euo pipefail
           run_author_exact=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_CONSENT_MARKER" == "[run-know-place]" ]]; then
+          if [[ ( "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "workflow_call" ) && "$MANUAL_CONSENT_MARKER" == "[run-know-place]" ]]; then
             run_author_exact=true
           fi
           echo "run_author_exact=$run_author_exact" >> "$GITHUB_OUTPUT"
@@ -141,9 +159,9 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          RUN_GEOMETRY_HEIGHT_M: ${{ github.event.inputs.geometry_height_m || '5151' }}
-          RUN_CONTROL_DRAWS: ${{ github.event.inputs.control_draws || '1000' }}
-          RUN_SEED: ${{ github.event.inputs.seed || '260826' }}
+          RUN_GEOMETRY_HEIGHT_M: ${{ inputs.geometry_height_m || '5151' }}
+          RUN_CONTROL_DRAWS: ${{ inputs.control_draws || '1000' }}
+          RUN_SEED: ${{ inputs.seed || '260826' }}
         run: python -m tools.know_place.author_exact_acquisition --operation download-and-analyze --out-root "$RUN_ROOT" --science-root "$GITHUB_WORKSPACE/science-source" --consent-marker "[run-know-place]" --geometry-height-m "$RUN_GEOMETRY_HEIGHT_M" --control-draws "$RUN_CONTROL_DRAWS" --seed "$RUN_SEED"
 
       - name: Write failure receipt if acquisition stops before derived evidence
