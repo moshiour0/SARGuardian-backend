@@ -164,6 +164,7 @@ def _validate_author_archive(path: Path) -> dict[str, Any]:
                 "rasters/n_epochs_flagged.tif",
                 "inventory/candidates_attributed.csv",
                 "tables/TableS6_screen_params.json",
+                "tables/TableS7_all_validated_zones.csv",
             }
             names = set(archive.namelist())
             if bad:
