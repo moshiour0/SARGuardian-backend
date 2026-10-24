@@ -271,7 +271,7 @@ jobs:
               and inventory.get("score_formula_audit",{}).get("status")=="PASS_POSTPROCESSED_AUTHOR_SCORE_CONVENTION"
               and inventory.get("ranking_order_comparison",{}).get("status")=="PASS"
               and table7.get("status")=="PASS" and table7.get("expected_zone_count")==101
-              and table7.get("computed_directional_zone_count")==101 and table7.get("matched_centroid_count")==101
+              and table7.get("computed_quality_zone_count")==101 and table7.get("matched_centroid_count")==101
               and footprint.get("candidate_summary",{}).get("component_count")==106
               and footprint.get("candidate_summary",{}).get("quality_pass_count")==101
           )
@@ -476,7 +476,7 @@ jobs:
               or inventory_check.get("ranking_order_comparison",{}).get("status")!="PASS"):
               raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_OR_FINAL_ZONAL_SCORE_PARITY_FAILED")
           if (table7_check.get("status")!="PASS" or table7_check.get("expected_zone_count")!=101
-              or table7_check.get("computed_directional_zone_count")!=101 or table7_check.get("matched_centroid_count")!=101):
+              or table7_check.get("computed_quality_zone_count")!=101 or table7_check.get("matched_centroid_count")!=101):
               raise SystemExit("ERROR=AUTHOR_TABLE_S7_101_VALIDATED_ZONE_PARITY_FAILED")
           if (footprint.get("candidate_summary",{}).get("component_count")!=106
               or footprint.get("candidate_summary",{}).get("quality_pass_count")!=101):
