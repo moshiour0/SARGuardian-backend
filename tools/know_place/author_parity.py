@@ -300,6 +300,94 @@ def author_crown_slice(
     return slice(r0, r1), slice(c0, c1)
 
 
+
+def author_local_mean_reference_statistics(
+    east_m: Any,
+    north_m: Any,
+    x_coordinates_m: Any,
+    y_coordinates_m: Any,
+    epsg: int,
+    *,
+    local_window: int = 41,
+    crown_bounds_lonlat: tuple[float, float, float, float] = (85.5245, 28.2847, 85.5400, 28.2970),
+    box_bounds_lonlat: tuple[float, float, float, float] = (85.500, 28.265, 85.565, 28.318),
+) -> dict[str, float | bool | int | list[int]]:
+    """Compute P2/local-mean crown and box R from a halo-bearing displacement window.
+
+    Input arrays must already apply the author's SNR >= 5 and magnitude <= 10 m
+    rejection. The caller must supply at least (local_window // 2 + 2) pixels of
+    context around the reported box, unless the context reaches the true source
+    raster boundary. This avoids reflecting the local mean at the artificial
+    6-km crop edge. Coherence is computed on the residual field; crown R follows
+    the published crown-cropped estimator and box R uses the full box field.
+    """
+    east, north = _pair(east_m, north_m)
+    x = np.asarray(x_coordinates_m, dtype=float)
+    y = np.asarray(y_coordinates_m, dtype=float)
+    if x.ndim != 1 or y.ndim != 1 or east.shape != (y.size, x.size):
+        raise AuthorParityError("AUTHOR_P2_AXIS_SHAPE_MISMATCH")
+    if int(epsg) <= 0:
+        raise AuthorParityError("AUTHOR_P2_EPSG_INVALID")
+    if not isinstance(local_window, int) or local_window < 3 or local_window % 2 != 1:
+        raise AuthorParityError("AUTHOR_P2_LOCAL_WINDOW_INVALID")
+
+    def source_local_mean(values: np.ndarray, window: int) -> np.ndarray:
+        # Exact archived wide_screen.lmean semantics: float32, NaN-aware support,
+        # scipy's default reflected boundary at the limits of the supplied halo.
+        z = np.nan_to_num(values).astype(np.float32)
+        support = np.isfinite(values).astype(np.float32)
+        summed = uniform_filter(z, size=window)
+        fraction = uniform_filter(support, size=window)
+        return np.where(fraction > 0.15, summed / np.maximum(fraction, 1e-6), np.nan)
+
+    residual_east = (east - source_local_mean(east, local_window)).astype(np.float32)
+    residual_north = (north - source_local_mean(north, local_window)).astype(np.float32)
+    full_r = author_coherence_map(residual_east, residual_north, window_size=5)
+    extent, oriented = author_north_up(
+        x, y, int(epsg), [residual_east, residual_north, full_r]
+    )
+    east_up, north_up, r_up = oriented
+    box_slice = author_crown_slice(r_up.shape, extent, box_bounds_lonlat)
+    box_r = np.asarray(r_up[box_slice], dtype=float)
+    box_finite = box_r[np.isfinite(box_r)]
+    if not box_finite.size:
+        raise AuthorParityError("AUTHOR_P2_BOX_HAS_NO_VALID_R")
+
+    # Reconstruct the exact endpoint-based extent of the selected box crop.
+    lon = np.linspace(extent[0], extent[1], r_up.shape[1])
+    lat = np.linspace(extent[3], extent[2], r_up.shape[0])
+    r0, r1 = int(box_slice[0].start), int(box_slice[0].stop)
+    c0, c1 = int(box_slice[1].start), int(box_slice[1].stop)
+    if r1 <= r0 or c1 <= c0:
+        raise AuthorParityError("AUTHOR_P2_BOX_CROP_EMPTY")
+    box_extent = (float(lon[c0]), float(lon[c1 - 1]), float(lat[r1 - 1]), float(lat[r0]))
+
+    box_east = np.asarray(east_up[box_slice], dtype=float)
+    box_north = np.asarray(north_up[box_slice], dtype=float)
+    crown_slice = author_crown_slice(box_east.shape, box_extent, crown_bounds_lonlat)
+    crown_r = author_coherence_map(
+        box_east[crown_slice], box_north[crown_slice], window_size=5
+    )
+    crown_finite = crown_r[np.isfinite(crown_r)]
+    if not crown_finite.size:
+        raise AuthorParityError("AUTHOR_P2_CROWN_HAS_NO_VALID_R")
+
+    crown_median = float(np.median(crown_finite))
+    box_median = float(np.median(box_finite))
+    return {
+        "P2_R_crown": crown_median,
+        "P2_R_background": box_median,
+        "P2_resolved": bool(crown_median > box_median),
+        "P2_crown_valid_R_cells": int(crown_finite.size),
+        "P2_box_valid_R_cells": int(box_finite.size),
+        "local_mean_window_pixels": local_window,
+        "required_halo_pixels_per_side": local_window // 2 + 2,
+        "box_shape": [int(box_r.shape[0]), int(box_r.shape[1])],
+        "box_slice_in_halo": {
+            "row_start": r0, "row_stop": r1, "col_start": c0, "col_stop": c1
+        },
+    }
+
 def author_site_series_statistics(
     east_m: Any,
     north_m: Any,
