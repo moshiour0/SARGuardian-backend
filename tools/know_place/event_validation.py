@@ -90,6 +90,7 @@ def validate_event_registry(payload: dict[str, Any]) -> dict[str, Any]:
 
     normalized_cases: list[dict[str, Any]] = []
     case_ids: set[str] = set()
+    geometry_site_ids: dict[str, str] = {}
     for index, raw in enumerate(raw_cases):
         prefix = f"CASE_{index}"
         if not isinstance(raw, dict):
@@ -118,6 +119,13 @@ def validate_event_registry(payload: dict[str, Any]) -> dict[str, Any]:
         except GoffReadError as exc:
             raise EventValidationError(f"{case_id}_AOI_GEOMETRY_INVALID:{exc}") from exc
         geometry_sha = _canonical_sha256({"aoi_wkt": aoi_wkt})
+        geometry_identity = _canonical_geometry_identity(aoi_wkt)
+        previous_site_id = geometry_site_ids.get(geometry_identity)
+        if previous_site_id is not None and previous_site_id != site_id:
+            raise EventValidationError(
+                f"{case_id}_AOI_GEOMETRY_ASSIGNED_TO_MULTIPLE_SITE_IDS"
+            )
+        geometry_site_ids[geometry_identity] = site_id
         declared_geometry_sha = raw.get("aoi_geometry_sha256")
         if declared_geometry_sha is not None and declared_geometry_sha != geometry_sha:
             raise EventValidationError(f"{case_id}_AOI_GEOMETRY_CHECKSUM_MISMATCH")

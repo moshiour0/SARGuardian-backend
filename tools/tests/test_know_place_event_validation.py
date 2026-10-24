@@ -298,6 +298,17 @@ def test_incomplete_or_threshold_inconsistent_test_predictions_fail_closed():
         evaluate_heldout_events(reg, inconsistent, threshold_policy(reg), bootstrap_replicates=100)
 
 
+def test_one_registry_cannot_count_same_aoi_geometry_as_two_independent_sites():
+    reg = registry()
+    test_only = heldout_registry(reg)
+    case_one = next(row for row in test_only["cases"] if row["case_id"] == "T1")
+    case_two = next(row for row in test_only["cases"] if row["case_id"] == "T2")
+    assert case_one["site_id"] != case_two["site_id"]
+    case_two["aoi_wkt"] = case_one["aoi_wkt"]
+    with pytest.raises(EventValidationError, match="T2_AOI_GEOMETRY_ASSIGNED_TO_MULTIPLE_SITE_IDS"):
+        validate_event_registry(test_only)
+
+
 def test_registry_rejects_unreviewed_labels_geometry_conflicts_and_duplicate_ids():
     reg = registry()
     reg["cases"][0]["independent_label_evidence"]["reviewed_independently"] = False
