@@ -111,6 +111,7 @@ def _author_table_parity(
     payloads: dict[str, bytes],
     read_member: Any,
     required: bool,
+    n_draw: int = 1200,
 ) -> dict[str, Any]:
     """Compare five processed fields with corresponding archived author tables.
 
@@ -201,7 +202,7 @@ def _author_table_parity(
                 )
 
         series_calc = author_site_series_statistics(east, north, extent, days)
-        polygon_calc = author_polygon_null_statistics(east, north, extent, rng=rng, n_draw=1200)
+        polygon_calc = author_polygon_null_statistics(east, north, extent, rng=rng, n_draw=n_draw)
         series_ref = site_rows[index]
         polygon_ref = polygon_rows[index]
         displacement_ref = displacement_rows[index]
@@ -288,7 +289,7 @@ def _author_table_parity(
                 "rounded_one_decimal_values": "rounded values must match the precision stored by the author tables",
                 "counts_and_accepted_draws": "exact integer equality",
             },
-            "random_policy": "One shared numpy.default_rng(20260907) sequence, 1200 candidate centres per pair (or all available finite-R centres if fewer), matching the archived polygon-null script.",
+            "random_policy": f"One shared numpy.default_rng(20260907) sequence, {n_draw} candidate centres per pair (or all available finite-R centres if fewer), matching the archived polygon-null script.",
             "spatial_policy": "Crown crop uses author endpoint-linear searchsorted rules on exported GeoTIFF bounds. This does not prove pixelwise parity on the original GOFF source grid.",
         },
         "pair_results": pair_results,
