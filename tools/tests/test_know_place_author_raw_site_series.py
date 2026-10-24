@@ -13,9 +13,10 @@ from tools.know_place.author_raw_site_series import (
     AUTHOR_WIDE_BOUNDS,
     _assert_author_bounds,
     compare_pair_to_archive,
+    compare_p2_pair_to_archive,
     process_author_pair_arrays,
 )
-from tools.know_place.author_parity import AuthorParityError
+from tools.know_place.author_parity import AuthorParityError, author_local_mean_reference_statistics
 
 
 def _wkt(bounds):
@@ -181,3 +182,83 @@ def test_archive_comparison_flags_a_real_mismatch():
     assert comparison["status"] == "MISMATCH"
     assert comparison["checks_passed"] == 12
     assert comparison["checks_total"] == 13
+
+
+def _halo_field_arrays():
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32645", always_xy=True)
+    corners = [
+        transformer.transform(AUTHOR_WIDE_BOUNDS[0], AUTHOR_WIDE_BOUNDS[1]),
+        transformer.transform(AUTHOR_WIDE_BOUNDS[0], AUTHOR_WIDE_BOUNDS[3]),
+        transformer.transform(AUTHOR_WIDE_BOUNDS[2], AUTHOR_WIDE_BOUNDS[1]),
+        transformer.transform(AUTHOR_WIDE_BOUNDS[2], AUTHOR_WIDE_BOUNDS[3]),
+    ]
+    xmin = min(point[0] for point in corners)
+    xmax = max(point[0] for point in corners)
+    ymin = min(point[1] for point in corners)
+    ymax = max(point[1] for point in corners)
+    x = np.linspace(xmin - 2500.0, xmax + 2500.0, 131)
+    y = np.linspace(ymax + 2500.0, ymin - 2500.0, 131)
+    xx, yy = np.meshgrid(x, y)
+    east = 0.8 + 0.16 * np.sin((xx - xmin) / 700.0) + 0.05 * np.cos((yy - ymin) / 510.0)
+    north = 0.3 + 0.11 * np.cos((xx - xmin) / 580.0) + 0.08 * np.sin((yy - ymin) / 830.0)
+    east = east.astype(float)
+    north = north.astype(float)
+    east[::23, ::19] = np.nan
+    north[::23, ::19] = np.nan
+    return east, north, x, y
+
+
+def test_p2_local_mean_reference_uses_halo_and_is_translation_invariant():
+    east, north, x, y = _halo_field_arrays()
+    result = author_local_mean_reference_statistics(
+        east, north, x, y, 32645,
+        local_window=41,
+        crown_bounds_lonlat=AUTHOR_CROWN_BOUNDS,
+        box_bounds_lonlat=AUTHOR_WIDE_BOUNDS,
+    )
+    translated = author_local_mean_reference_statistics(
+        east + 3.25, north - 1.75, x, y, 32645,
+        local_window=41,
+        crown_bounds_lonlat=AUTHOR_CROWN_BOUNDS,
+        box_bounds_lonlat=AUTHOR_WIDE_BOUNDS,
+    )
+
+    assert result["required_halo_pixels_per_side"] == 22
+    assert result["box_slice_in_halo"]["row_start"] >= 22
+    assert result["box_slice_in_halo"]["col_start"] >= 22
+    assert result["box_slice_in_halo"]["row_stop"] <= east.shape[0] - 22
+    assert result["box_slice_in_halo"]["col_stop"] <= east.shape[1] - 22
+    assert 0.0 <= result["P2_R_crown"] <= 1.0
+    assert 0.0 <= result["P2_R_background"] <= 1.0
+    assert result["P2_resolved"] is (result["P2_R_crown"] > result["P2_R_background"])
+    assert translated["P2_R_crown"] == pytest.approx(result["P2_R_crown"], abs=2e-5)
+    assert translated["P2_R_background"] == pytest.approx(result["P2_R_background"], abs=2e-5)
+    assert translated["P2_resolved"] is result["P2_resolved"]
+
+
+def test_p2_archive_comparison_covers_all_three_table_s4_columns_and_flags_mismatch():
+    fixture_path = (
+        Path(__file__).resolve().parents[2]
+        / "docs" / "know-place" / "reference" / "author_benchmark_v1.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    expected = fixture["published_site_series"]
+    for index in range(5):
+        p2 = {
+            "P2_R_crown": expected["local_mean_reference_crown_R"][index],
+            "P2_R_background": expected["local_mean_reference_background_R"][index],
+            "P2_resolved": (
+                expected["local_mean_reference_crown_R"][index]
+                > expected["local_mean_reference_background_R"][index]
+            ),
+        }
+        comparison = compare_p2_pair_to_archive(p2, index, fixture)
+        assert comparison["status"] == "PASS_AT_ARCHIVE_ROUNDING"
+        assert comparison["checks_passed"] == comparison["checks_total"] == 3
+
+    bad = dict(p2)
+    bad["P2_R_crown"] = float(bad["P2_R_crown"]) + 0.02
+    mismatch = compare_p2_pair_to_archive(bad, 4, fixture)
+    assert mismatch["status"] == "MISMATCH"
+    assert mismatch["checks_passed"] == 2
+    assert mismatch["checks_total"] == 3
