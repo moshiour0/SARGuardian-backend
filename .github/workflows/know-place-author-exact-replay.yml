@@ -262,8 +262,14 @@ jobs:
               raise SystemExit("ERROR=FOOTPRINT_PARITY_NOT_PASS_FOR_COMBINED_STATUS")
           if footprint.get("author_aggregate_raster_comparison",{}).get("rasters_passed")!=3:
               raise SystemExit("ERROR=FOOTPRINT_RASTER_PARITY_INCOMPLETE")
-          if footprint.get("author_inventory_comparison",{}).get("computed_directional_zone_count")!=101:
-              raise SystemExit("ERROR=FOOTPRINT_INVENTORY_PARITY_INCOMPLETE")
+          inventory=footprint.get("author_inventory_comparison",{})
+          table7=footprint.get("author_validated_zone_table_comparison",{})
+          if (inventory.get("status")!="PASS" or inventory.get("expected_candidate_count")!=106
+              or inventory.get("computed_candidate_count")!=106 or inventory.get("computed_directional_pass_count")!=101):
+              raise SystemExit("ERROR=FOOTPRINT_106_CANDIDATE_INVENTORY_PARITY_INCOMPLETE")
+          if (table7.get("status")!="PASS" or table7.get("expected_zone_count")!=101
+              or table7.get("computed_directional_zone_count")!=101 or table7.get("matched_centroid_count")!=101):
+              raise SystemExit("ERROR=FOOTPRINT_TABLE_S7_101_VALIDATED_ZONES_PARITY_INCOMPLETE")
           state="PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED"
           report["footprint_screen_parity_status"]=expected
           report["author_footprint_inventory_comparison"]=footprint["author_inventory_comparison"]
@@ -449,8 +455,13 @@ jobs:
           inventory_check=footprint.get("author_inventory_comparison",{})
           if raster_check.get("status")!="PASS" or raster_check.get("raster_count")!=3 or raster_check.get("rasters_passed")!=3:
               raise SystemExit("ERROR=AUTHOR_FOOTPRINT_AGGREGATE_RASTER_COMPARISON_FAILED")
-          if inventory_check.get("status")!="PASS" or inventory_check.get("expected_zone_count")!=101 or inventory_check.get("computed_directional_zone_count")!=101:
-              raise SystemExit("ERROR=AUTHOR_101_ZONE_INVENTORY_PARITY_FAILED")
+          if (inventory_check.get("status")!="PASS" or inventory_check.get("expected_candidate_count")!=106
+              or inventory_check.get("computed_candidate_count")!=106 or inventory_check.get("computed_directional_pass_count")!=101):
+              raise SystemExit("ERROR=AUTHOR_106_CANDIDATE_INVENTORY_PARITY_FAILED")
+          table7_check=footprint.get("author_validated_zone_table_comparison",{})
+          if (table7_check.get("status")!="PASS" or table7_check.get("expected_zone_count")!=101
+              or table7_check.get("computed_directional_zone_count")!=101 or table7_check.get("matched_centroid_count")!=101):
+              raise SystemExit("ERROR=AUTHOR_TABLE_S7_101_VALIDATED_ZONE_PARITY_FAILED")
           if footprint.get("candidate_summary",{}).get("component_count")!=106 or footprint.get("candidate_summary",{}).get("directional_pass_count")!=101:
               raise SystemExit("ERROR=AUTHOR_SCREEN_COMPONENT_COUNTS_MISMATCH")
           if footprint.get("hazard_detection_status")!="NOT_EVALUATED":
@@ -495,7 +506,8 @@ jobs:
           print("AUTHOR_P2_TABLE_CHECKS=15/15")
           print("AUTHOR_FOOTPRINT_SCREEN_PARITY=PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY")
           print("AUTHOR_FOOTPRINT_AGGREGATE_RASTERS=3/3")
-          print("AUTHOR_DIRECTIONAL_ZONE_INVENTORY=101/101")
+          print("AUTHOR_CANDIDATE_INVENTORY=106/106")
+          print("AUTHOR_TABLE_S7_VALIDATED_ZONES=101/101")
           print("AUTHOR_SOURCE_BYTE_IDENTITY=FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED")
           print("RAW_HDF5_DELETED_AFTER_VERIFIED_DERIVED_RETENTION=5")
           print("RAW_HDF5_FILES_REMAINING=0")
