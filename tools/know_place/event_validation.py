@@ -688,6 +688,20 @@ def evaluate_heldout_events(
         else:
             detection_delays_hours.append(-hours)
 
+    positive_event_alerts = [row for row in positive_rows if row["state"] == "ALERT"]
+    positive_alerts_with_time = [row for row in positive_event_alerts if row["first_alarm_time_utc"] is not None]
+    positive_alerts_without_time = len(positive_event_alerts) - len(positive_alerts_with_time)
+    timing_coverage = {
+        "status": "COMPLETE_FOR_POSITIVE_EVENT_ALERTS" if positive_alerts_without_time == 0 else "PARTIAL_MISSING_ALARM_TIMESTAMPS",
+        "positive_event_cases": len(positive_rows),
+        "positive_event_alert_cases": len(positive_event_alerts),
+        "positive_event_alerts_with_first_alarm_time": len(positive_alerts_with_time),
+        "positive_event_alerts_without_first_alarm_time": positive_alerts_without_time,
+        "lead_time_values_reported": len(lead_times_hours),
+        "post_event_detection_delay_values_reported": len(detection_delays_hours),
+        "policy": "Missing first-alarm times are reported as unavailable; they are not imputed and do not erase the ALERT state from event-level recall.",
+    }
+
     ci = _cluster_bootstrap_intervals(
         available,
         replicates=bootstrap_replicates,
@@ -727,6 +741,7 @@ def evaluate_heldout_events(
         "conservative_recall_all_labelled_events": conservative_recall,
         "false_alarms_per_aoi_month": false_alarms_per_month,
         "evaluable_non_event_exposure_aoi_months": exposure_months,
+        "alarm_time_coverage": timing_coverage,
         "lead_time_hours_before_event": {
             "count": len(lead_times_hours),
             "median": float(np.median(lead_times_hours)) if lead_times_hours else None,

@@ -140,7 +140,7 @@ From the **held-out test cases only**, the evaluator reports event-level precisi
 
 ### Prediction timing contract
 
-A supplied `first_alarm_time_utc` is valid only when the prediction state is `ALERT`, and it must fall within that case's declared `observation_window_utc` (inclusive start/end). `NO_ALERT` and `NO_RESULT` records must not carry an alarm timestamp. This prevents lead-time/detection-delay metrics from being calculated from alarms outside the case's monitored period or from contradictory states. A missing alarm timestamp on an `ALERT` remains permissible but contributes no lead-time/delay value; it must be disclosed as timing unavailable, not inferred.
+A supplied `first_alarm_time_utc` is valid only when the prediction state is `ALERT`, and it must fall within that case's declared `observation_window_utc` (inclusive start/end). `NO_ALERT` and `NO_RESULT` records must not carry an alarm timestamp. This prevents lead-time/detection-delay metrics from being calculated from alarms outside the case's monitored period or from contradictory states. A missing alarm timestamp on an `ALERT` remains permissible but contributes no lead-time/delay value; it must be disclosed as timing unavailable, not inferred. The evaluator reports `alarm_time_coverage` with positive-event alert counts, alerts lacking timestamps, and the resulting COMPLETE/PARTIAL timing status so this missingness cannot be hidden behind a lead-time median computed on only the timed subset.
 
 ### CLI contract
 

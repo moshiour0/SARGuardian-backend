@@ -198,6 +198,16 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     assert result["conservative_recall_all_labelled_events"] == pytest.approx(1 / 3)
     assert result["false_alarms_per_aoi_month"] == pytest.approx(1 / 2)
     assert result["lead_time_hours_before_event"]["median"] == pytest.approx(48.0)
+    assert result["alarm_time_coverage"] == {
+        "status": "COMPLETE_FOR_POSITIVE_EVENT_ALERTS",
+        "positive_event_cases": 3,
+        "positive_event_alert_cases": 1,
+        "positive_event_alerts_with_first_alarm_time": 1,
+        "positive_event_alerts_without_first_alarm_time": 0,
+        "lead_time_values_reported": 1,
+        "post_event_detection_delay_values_reported": 0,
+        "policy": "Missing first-alarm times are reported as unavailable; they are not imputed and do not erase the ALERT state from event-level recall.",
+    }
     assert result["uncertainty"]["status"] == "COMPUTED_SITE_CLUSTER_BOOTSTRAP"
     assert result["uncertainty"]["independent_sites"] == 4
 
@@ -284,6 +294,26 @@ def test_no_result_with_score_and_prediction_outside_test_split_are_rejected():
     bad_predictions["cases"].append(prediction("VAL-E1", "ALERT", 0.9))
     with pytest.raises(EventValidationError, match="PREDICTION_NOT_HELDOUT_TEST_CASE"):
         evaluate_heldout_events(reg, bad_predictions, threshold_policy(reg), bootstrap_replicates=100)
+
+
+def test_missing_event_alarm_timestamp_is_reported_as_partial_timing_not_imputed():
+    reg = registry()
+    predictions = prediction_payload()
+    t1 = next(row for row in predictions["cases"] if row["case_id"] == "T1")
+    t1.pop("first_alarm_time_utc")
+    result = evaluate_heldout_events(
+        reg,
+        predictions,
+        threshold_policy(reg),
+        bootstrap_replicates=100,
+        minimum_independent_sites_for_ci=4,
+    )
+    coverage = result["alarm_time_coverage"]
+    assert coverage["status"] == "PARTIAL_MISSING_ALARM_TIMESTAMPS"
+    assert coverage["positive_event_alerts_without_first_alarm_time"] == 1
+    assert coverage["lead_time_values_reported"] == 0
+    assert result["lead_time_hours_before_event"]["median"] is None
+    assert result["conservative_recall_all_labelled_events"] == pytest.approx(1 / 3)
 
 
 def test_first_alarm_time_must_match_alert_state_and_observation_window():
