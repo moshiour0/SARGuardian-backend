@@ -17,6 +17,7 @@ from tools.know_place.author_footprint_replay import (
     _candidate_table,
     _compare_raster_arrays,
     compare_candidate_inventory,
+    compare_validated_zone_table,
 )
 
 
@@ -97,17 +98,53 @@ def test_candidate_component_summary_uses_pixel_area_centroid_and_directional_ga
 
 def _expected_inventory_csv(rows: list[dict[str, object]]) -> str:
     stream = io.StringIO()
-    columns = ["lon", "lat", *CANDIDATE_METRIC_COLUMNS]
+    columns = ["lon", "lat", *CANDIDATE_METRIC_COLUMNS, "quality"]
     writer = csv.DictWriter(stream, fieldnames=columns)
     writer.writeheader()
     for row in rows:
-        writer.writerow({column: row[column] for column in columns})
+        record = {column: row[column] for column in CANDIDATE_METRIC_COLUMNS}
+        record["lon"] = row["lon"]
+        record["lat"] = row["lat"]
+        record["quality"] = bool(row["valid_directional"])
+        writer.writerow(record)
     return stream.getvalue()
 
 
-def test_archived_candidate_inventory_comparison_checks_all_101_rows(tmp_path):
+def _table_s7_csv(rows: list[dict[str, object]]) -> str:
+    stream = io.StringIO()
+    columns = [
+        "zone_id", "lon", "lat", "area_km2", "n_epochs", "res_mag_m",
+        "disp_az", "downslope_az", "d_downslope", "R_res", "elev_m", "slope_deg",
+        "d_glac_m", "glacier", "RGIId",
+    ]
+    writer = csv.DictWriter(stream, fieldnames=columns)
+    writer.writeheader()
+    for i, row in enumerate(rows, 1):
+        writer.writerow({
+            "zone_id": i,
+            "lon": f"{float(row['lon']):.5f}",
+            "lat": f"{float(row['lat']):.5f}",
+            "area_km2": f"{float(row['area_km2']):.4f}",
+            "n_epochs": int(row["n_epochs"]),
+            "res_mag_m": f"{float(row['res_mag_m']):.2f}",
+            "disp_az": f"{float(row['disp_az']):.1f}",
+            "downslope_az": f"{float(row['downslope_az']):.1f}",
+            "d_downslope": f"{float(row['d_downslope']):.1f}",
+            "R_res": f"{float(row['R_res']):.3f}",
+            "elev_m": f"{float(row['elev_m']):.0f}",
+            "slope_deg": f"{float(row['slope_deg']):.1f}",
+            "d_glac_m": "0",
+            "glacier": "True",
+            "RGIId": "RGI60-test",
+        })
+    return stream.getvalue()
+
+
+def _make_candidate_rows(count: int = 106) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for i in range(101):
+    for i in range(count):
+        directional = i < 101
+        angle = 280.0 if directional else 350.0
         rows.append({
             "component_id": i + 1,
             "lon": round(80.0 + i * 0.003, 5),
@@ -118,7 +155,7 @@ def test_archived_candidate_inventory_comparison_checks_all_101_rows(tmp_path):
             "anom_m": 0.6,
             "R": 0.8,
             "score": 1.44,
-            "disp_az": 280.0,
+            "disp_az": angle,
             "res_mag_m": 1.0,
             "R_raw": 0.95,
             "R_res": 0.9,
@@ -127,20 +164,34 @@ def test_archived_candidate_inventory_comparison_checks_all_101_rows(tmp_path):
             "slope_deg": 20.0,
             "downslope_az": 280.0,
             "range_az": 250.0,
-            "d_downslope": 0.0,
+            "d_downslope": 0.0 if directional else 70.0,
             "d_range": 30.0,
-            "valid_directional": True,
+            "valid_directional": directional,
         })
+    return rows
+
+
+def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_quality_pass(tmp_path):
+    rows = _make_candidate_rows()
     source_csv = _expected_inventory_csv(rows)
     archive_path = tmp_path / "author.zip"
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("inventory/candidates_attributed.csv", source_csv)
+        archive.writestr("tables/TableS7_all_validated_zones.csv", _table_s7_csv(rows[:101]))
 
     result = compare_candidate_inventory(rows, archive_path, numeric_tolerance=1e-9)
     assert result["status"] == "PASS"
-    assert result["expected_zone_count"] == result["computed_directional_zone_count"] == 101
-    assert result["matched_centroid_count"] == 101
+    assert result["expected_candidate_count"] == result["computed_candidate_count"] == 106
+    assert result["matched_centroid_count"] == 106
+    assert result["expected_directional_quality_pass_count"] == 101
+    assert result["computed_directional_pass_count"] == 101
     assert result["mismatch_count"] == 0
+
+    validated = compare_validated_zone_table(rows, archive_path)
+    assert validated["status"] == "PASS"
+    assert validated["expected_zone_count"] == validated["computed_directional_zone_count"] == 101
+    assert validated["matched_centroid_count"] == 101
+    assert validated["mismatch_count"] == 0
 
     modified = [dict(row) for row in rows]
     modified[50]["R_res"] = 0.91
