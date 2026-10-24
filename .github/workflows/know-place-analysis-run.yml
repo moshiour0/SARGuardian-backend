@@ -27,22 +27,27 @@ jobs:
         shell: bash
         env:
           EVENT_MESSAGE: ${{ github.event.head_commit.message }}
+          HEAD_COMMIT_JSON: ${{ toJson(github.event.head_commit) }}
         run: |
           set -euo pipefail
           should_run=false
           if [[ "$EVENT_MESSAGE" == *"[run-know-place]"* ]]; then
-            should_run=true
+            if grep -Fq 'docs/know-place/author-exact-replay-consent.txt' <<< "$HEAD_COMMIT_JSON"; then
+              echo "Dedicated author-exact consent file changed; keep the legacy exploratory replay disabled."
+            else
+              should_run=true
+            fi
           fi
           echo "run_analysis=$should_run" >> "$GITHUB_OUTPUT"
           if [[ "$should_run" == "true" ]]; then
-            echo "Explicit consent marker found. The raw-data replay job is enabled."
+            echo "Explicit consent marker found for the legacy exploratory replay. The raw-data job is enabled."
           else
-            echo "No expensive run requested. No product downloads will occur."
+            echo "No legacy exploratory replay requested. No product downloads will occur."
             {
               echo "## Know Place Analysis trigger gate"
               echo
-              echo "This feature-branch update did not include the [run-know-place] marker, so no analysis was requested."
-              echo "No raw NISAR products were downloaded."
+              echo "This push did not authorize the legacy exploratory replay (no marker, or the dedicated author-exact consent file was changed)."
+              echo "No raw NISAR products were downloaded by the legacy workflow."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
