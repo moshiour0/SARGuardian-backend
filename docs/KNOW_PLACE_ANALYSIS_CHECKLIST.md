@@ -144,3 +144,11 @@
 - [ ] Do not claim paper parity, movement-detector validation or hazard detection until each distinct gate has its own evidence.
 
 **Status rule:** The Run Workflow launch path and multi-site protocol are implemented; exact author raw payloads and source hashes are still 0/5. Generic AOI runs are exploratory displacement measurements. `PAPER_REPRODUCTION_STATUS=BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. The feature branch is isolated; no merge/change to `main`.
+
+
+## Latest follow-up status — 2026-10-24
+
+- [x] Downloaded and ZIP-integrity-checked the live CMR catalog artifact from validation run [40102959304](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40102959304). SHA-256: `65e65ae2c4dec384c50ca5a8877e69b705a1861c1e85312026d62512c5dd9386`, matching the GitHub artifact digest.
+- [x] Independently inspected the manifest: exact author P05023 CMR identities 5/5 and direct HDF5 URLs 5/5; source payload downloads remain 0/5 and source SHA-256 hashes 0/5.
+- [ ] Execute the branch Run Workflow dispatcher with profile `author-exact-p05023`, explicit consent `[run-know-place]`, and configured Earthdata + Google Drive secrets. The available GitHub connection does not expose a workflow-dispatch action, so this step has not been launched from the assistant session.
+- [ ] Review raw HDF5 hashes/grid validation, scientific output metrics, and verified Drive-retention receipts after the run. Do not mark paper reproduction or hazard detection complete merely because acquisition succeeds.
