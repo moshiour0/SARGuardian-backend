@@ -26,6 +26,7 @@ from .author_parity import (
     author_crown_geometry_median,
     author_crown_slice,
     author_inside_aoi_mask,
+    author_local_mean_reference_statistics,
     author_north_up,
     author_polygon_null_statistics,
     author_project_offsets,
@@ -160,6 +161,41 @@ def compare_pair_to_archive(
     }
 
 
+
+
+def compare_p2_pair_to_archive(
+    p2: dict[str, Any], pair_index: int, benchmark: dict[str, Any]
+) -> dict[str, Any]:
+    """Compare P2/local-mean reference fields with Table S4's three P2 columns."""
+    expected = benchmark["published_site_series"]
+    specs = [
+        ("P2_R_crown", p2["P2_R_crown"], expected["local_mean_reference_crown_R"][pair_index], 3),
+        ("P2_R_bg", p2["P2_R_background"], expected["local_mean_reference_background_R"][pair_index], 3),
+        (
+            "P2_resolved",
+            p2["P2_resolved"],
+            bool(expected["local_mean_reference_crown_R"][pair_index]
+                 > expected["local_mean_reference_background_R"][pair_index]),
+            None,
+        ),
+    ]
+    checks = []
+    for metric, actual, target, decimals in specs:
+        passed = (bool(actual) == bool(target)) if metric == "P2_resolved" else _rounding_match(actual, target, decimals)
+        checks.append({
+            "metric": metric,
+            "actual": actual,
+            "archive_target": target,
+            "comparison_precision_decimals": decimals,
+            "passed": bool(passed),
+        })
+    return {
+        "status": "PASS_AT_ARCHIVE_ROUNDING" if all(row["passed"] for row in checks) else "MISMATCH",
+        "checks_passed": sum(row["passed"] for row in checks),
+        "checks_total": len(checks),
+        "comparisons": checks,
+    }
+
 def process_author_pair_arrays(
     *,
     along_track_m: Any,
@@ -280,6 +316,41 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             interval_days=days,
             polygon_null_rng=rng,
         )
+
+        # P2 must use a real 41x41 context around every reported box cell.
+        # A 20-pixel local-mean radius plus 2 pixels for the 5x5 R window
+        # prevents an artificial reflected boundary at the 6-km crop edge.
+        halo_pixels = 41 // 2 + 2
+        halo_rows = slice(
+            max(0, int(row_slice.start) - halo_pixels),
+            min(int(grid.grid_shape[0]), int(row_slice.stop) + halo_pixels),
+        )
+        halo_cols = slice(
+            max(0, int(col_slice.start) - halo_pixels),
+            min(int(grid.grid_shape[1]), int(col_slice.stop) + halo_pixels),
+        )
+        raw_halo = read_raw_goff(
+            item["path"], polarization="HH", layer=2,
+            expected_track="098", expected_direction="A", expected_processing="PR",
+            window_slices=(halo_rows, halo_cols), expected_grid=grid,
+        )
+        halo_east, halo_north = author_project_offsets(
+            raw_halo.along_track_m, raw_halo.slant_range_m, result["geometry"]
+        )
+        halo_valid = author_quality_mask(
+            halo_east, halo_north, raw_halo.snr,
+            minimum_snr=5.0, maximum_magnitude_m=10.0,
+        )
+        halo_east = np.where(halo_valid, halo_east, np.nan)
+        halo_north = np.where(halo_valid, halo_north, np.nan)
+        p2 = author_local_mean_reference_statistics(
+            halo_east, halo_north,
+            raw_halo.x_coordinates_m, raw_halo.y_coordinates_m, raw_halo.epsg,
+            local_window=41,
+            crown_bounds_lonlat=AUTHOR_CROWN_BOUNDS,
+            box_bounds_lonlat=AUTHOR_WIDE_BOUNDS,
+        )
+        p2_comparison = compare_p2_pair_to_archive(p2, pair_index, benchmark)
         comparison = compare_pair_to_archive(
             result["site_series"], result["polygon_null"], pair_index, benchmark
         )
@@ -313,6 +384,8 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             "extent_lonlat": result["extent_lonlat"],
             "site_series": result["site_series"],
             "polygon_null": result["polygon_null"],
+            "P2_local_mean_reference": p2,
+            "P2_archive_table_comparison": p2_comparison,
             "archive_table_comparison": comparison,
             "diagnostic_npz": array_path.name,
             "diagnostic_arrays_sha256": _sha256_file(array_path),
@@ -331,6 +404,12 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             "archive_checks_passed": comparison["checks_passed"],
             "archive_checks_total": comparison["checks_total"],
             "archive_table_comparison_status": comparison["status"],
+            "P2_R_crown": p2["P2_R_crown"],
+            "P2_R_background": p2["P2_R_background"],
+            "P2_resolved": p2["P2_resolved"],
+            "P2_archive_checks_passed": p2_comparison["checks_passed"],
+            "P2_archive_checks_total": p2_comparison["checks_total"],
+            "P2_archive_comparison_status": p2_comparison["status"],
         })
         del cubes, raw
 
@@ -348,9 +427,26 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
         and comparison_passed == 65
         and not mismatches
     )
+    p2_comparisons = [
+        check
+        for row in pair_reports
+        for check in row["P2_archive_table_comparison"]["comparisons"]
+    ]
+    p2_passed = sum(bool(check["passed"]) for check in p2_comparisons)
+    p2_total = len(p2_comparisons)
+    p2_mismatches = [
+        {"pair": row["pair"], **check}
+        for row in pair_reports
+        for check in row["P2_archive_table_comparison"]["comparisons"]
+        if not check["passed"]
+    ]
+    p2_table_match = len(pair_reports) == 5 and p2_total == 15 and p2_passed == 15 and not p2_mismatches
     paper_status = (
-        "PARTIAL_AUTHOR_TABLE_S4_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
-        if site_table_match else PAPER_BLOCKED
+        "PARTIAL_AUTHOR_P1_P2_AND_POLYGON_METRICS_MATCH_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
+        if site_table_match and p2_table_match
+        else "PARTIAL_AUTHOR_SITE_METRICS_MATCH_P2_UNVERIFIED_FULL_FOOTPRINT_SCREEN_NOT_REPRODUCED"
+        if site_table_match
+        else PAPER_BLOCKED
     )
     report = {
         "schema_version": "know-place-author-raw-site-series/1.0",
@@ -366,6 +462,18 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
             "checks_total": comparison_count,
             "mismatch_count": len(mismatches),
             "mismatches": mismatches,
+            "table_s4_metric_cells_directly_covered": 45 if len(pair_reports) == 5 else 9 * len(pair_reports),
+            "support_checks_not_in_table_s4": comparison_count - (9 * len(pair_reports)),
+            "checks_are_full_table_s4_parity": False,
+        },
+        "author_p2_table_comparison": {
+            "status": "PASS_AT_ARCHIVE_ROUNDING" if p2_table_match else "MISMATCH",
+            "checks_passed": p2_passed,
+            "checks_total": p2_total,
+            "mismatch_count": len(p2_mismatches),
+            "mismatches": p2_mismatches,
+            "required_halo_pixels_per_side": 22,
+            "method": "local mean of projected dE/dN in 41x41 window, subtract, then 5x5 residual coherence; compute on halo and crop to fixed box",
         },
         "author_profile": {
             "wide_bounds_lonlat": list(AUTHOR_WIDE_BOUNDS),
@@ -383,8 +491,9 @@ def run_author_raw_site_series(config_path: str | Path, output_dir: str | Path) 
         "hazard_detection_status": "NOT_EVALUATED",
         "pair_reports": pair_reports,
         "limitations": [
-            "A match to exported site-field summaries is not source-grid pixelwise parity.",
-            "The exact author crown rectangle is bounds-defined; this profile verifies the config bounds, but does not prove pixel-for-pixel raster mask parity on the original source grid.",
+            "A match to exported site-field summaries is not native source-grid pixelwise crown-mask parity.",
+            "The exact author crown rectangle is bounds-defined; aggregate counts do not prove pixel-for-pixel crown-mask parity on the original source grid.",
+            "The P2 calculation uses a 22-pixel halo to avoid artificial crop-edge reflection; its archive comparison is separately reported and does not expand the 65-check P1/polygon-null gate.",
             "The processed-field polygon null is an archive post-hoc analysis, not a published-paper metric.",
             "The footprint-wide candidate screen and its per-pair rasters are not computed by this site-series runner.",
             "No hazard-detection precision, recall, false-alarm rate, lead time or operational value is inferred.",
@@ -429,9 +538,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"STRUCTURAL_STATUS={report['structural_status']}")
     print(f"ARCHIVE_TABLE_PARITY={report['author_site_series_table_comparison']['status']}")
     print(f"ARCHIVE_TABLE_COMPARISONS={report['author_site_series_table_comparison']['checks_passed']}/{report['author_site_series_table_comparison']['checks_total']}")
+    print(f"P2_ARCHIVE_TABLE_PARITY={report['author_p2_table_comparison']['status']}")
+    print(f"P2_ARCHIVE_TABLE_COMPARISONS={report['author_p2_table_comparison']['checks_passed']}/{report['author_p2_table_comparison']['checks_total']}")
     print("PAPER_REPRODUCTION_STATUS=" + report["paper_reproduction_status"])
     print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
-    return 0 if (report["structural_status"] == "PASS" and report["author_site_series_table_comparison"].get("status") == "PASS_AT_ARCHIVE_ROUNDING" and report["author_site_series_table_comparison"].get("checks_passed") == 65 and report["author_site_series_table_comparison"].get("checks_total") == 65) else 1
+    return 0 if (
+        report["structural_status"] == "PASS"
+        and report["author_site_series_table_comparison"].get("status") == "PASS_AT_ARCHIVE_ROUNDING"
+        and report["author_site_series_table_comparison"].get("checks_passed") == 65
+        and report["author_site_series_table_comparison"].get("checks_total") == 65
+        and report["author_p2_table_comparison"].get("status") == "PASS_AT_ARCHIVE_ROUNDING"
+        and report["author_p2_table_comparison"].get("checks_passed") == 15
+        and report["author_p2_table_comparison"].get("checks_total") == 15
+    ) else 1
 
 
 if __name__ == "__main__":
