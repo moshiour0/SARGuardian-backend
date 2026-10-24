@@ -9,7 +9,6 @@ on:
     paths:
       - "tools/know_place/author_exact_acquisition.py"
       - "docs/know-place/reference/author_benchmark_v1.json"
-      - "docs/know-place/author-exact-replay-consent.txt"
       - ".github/workflows/know-place-author-exact-replay.yml"
   workflow_dispatch:
     inputs:
@@ -72,14 +71,10 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
-          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
         run: |
           set -euo pipefail
           run_author_exact=false
           if [[ ( "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "workflow_call" ) && "$MANUAL_CONSENT_MARKER" == "[run-know-place]" ]]; then
-            run_author_exact=true
-          elif [[ "$EVENT_NAME" == "push" && "$HEAD_COMMIT_MESSAGE" == "[run-know-place]" ]]; then
-            # Branch-only fallback: the exact commit title is the explicit per-run consent marker.
             run_author_exact=true
           fi
           echo "run_author_exact=$run_author_exact" >> "$GITHUB_OUTPUT"
