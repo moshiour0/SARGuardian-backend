@@ -235,10 +235,12 @@ def test_heldout_evaluation_rejects_exact_geometry_reuse_with_renamed_site():
     overlapping = copy.deepcopy(reg)
     validation_case = next(row for row in overlapping["cases"] if row["case_id"] == "VAL-E1")
     test_case = next(row for row in overlapping["cases"] if row["case_id"] == "T1")
-    # Same polygon, but reversed winding and a different starting vertex.
+    # Same polygon as VAL-E1, but reversed winding and a different start vertex.
+    shift = GEOMETRY_INDEX["VAL-E1"] * 0.03
+    west, east = 85.52 + shift, 85.54 + shift
     test_case["aoi_wkt"] = (
-        "POLYGON ((85.54 28.30, 85.54 28.28, 85.52 28.28, "
-        "85.52 28.30, 85.54 28.30))"
+        f"POLYGON (({east:.6f} 28.30, {east:.6f} 28.28, {west:.6f} 28.28, "
+        f"{west:.6f} 28.30, {east:.6f} 28.30))"
     )
     with pytest.raises(EventValidationError, match="VALIDATION_TEST_AOI_GEOMETRY_OVERLAP"):
         evaluate_heldout_events(
