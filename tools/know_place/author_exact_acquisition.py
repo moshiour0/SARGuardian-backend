@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -74,6 +75,75 @@ def analysis_result_is_complete(return_code: int, report: dict[str, Any]) -> boo
         and report.get("structural_status") == "PASS"
         and report.get("status") == "SCIENTIFIC_METRICS_COMPUTED"
     )
+
+
+def author_grid_identity_validation(grid: Any, row: dict[str, Any]) -> dict[str, Any]:
+    """Compare CMR's stem to the exact HDF5 filename returned by the GOFF parser."""
+    identity = grid.identity
+    expected_name = str(row["granule_name"])
+    expected_filename = str(row.get("source_filename") or f"{expected_name}.h5")
+    actual_filename = Path(identity.granule_name).name
+    start, end = str(row["interval"]).split("/", maxsplit=1)
+    checks = {
+        "filename": {
+            "expected": expected_filename,
+            "actual": actual_filename,
+            "passed": actual_filename == expected_filename,
+        },
+        "granule_stem": {
+            "expected": expected_name,
+            "actual": Path(actual_filename).stem,
+            "passed": Path(actual_filename).stem == expected_name,
+        },
+        "release_id": {
+            "expected": "P05023",
+            "actual": identity.release_id,
+            "passed": identity.release_id == "P05023",
+        },
+        "reference_start_date": {
+            "expected": start,
+            "actual": identity.reference_start.date().isoformat(),
+            "passed": identity.reference_start.date().isoformat() == start,
+        },
+        "secondary_start_date": {
+            "expected": end,
+            "actual": identity.secondary_start.date().isoformat(),
+            "passed": identity.secondary_start.date().isoformat() == end,
+        },
+        "epsg": {
+            "expected": TARGET_EPSG,
+            "actual": grid.epsg,
+            "passed": grid.epsg == TARGET_EPSG,
+        },
+    }
+    mismatches = [name for name, check in checks.items() if not check["passed"]]
+    return {
+        "status": "PASS" if not mismatches else "FAIL",
+        "expected_granule_name_without_extension": expected_name,
+        "expected_source_filename_with_extension": expected_filename,
+        "actual_identity_filename": actual_filename,
+        "checks": checks,
+        "mismatch_fields": mismatches,
+    }
+
+
+def source_receipt_counts(products: list[dict[str, Any]]) -> dict[str, int]:
+    """Separate completed byte transfers/hashes from scientifically validated source grids."""
+    hashed = [
+        row for row in products
+        if isinstance(row.get("source_bytes"), int)
+        and row["source_bytes"] > 0
+        and isinstance(row.get("source_sha256"), str)
+        and len(row["source_sha256"]) == 64
+        and all(char in "0123456789abcdefABCDEF" for char in row["source_sha256"])
+    ]
+    return {
+        "source_downloads": len(hashed),
+        "source_sha256_count": len(hashed),
+        "source_products_grid_validated": sum(
+            row.get("download_status") == "PASS" for row in products
+        ),
+    }
 
 
 def _trusted_asf_url(value: Any) -> bool:
@@ -435,6 +505,8 @@ def acquire_and_analyze(
         "status": "DOWNLOAD_IN_PROGRESS",
         "authorization_marker": CONSENT_MARKER,
         "science_acquisition_module_sha256": acquisition_sha,
+        "drive_version_tag": os.environ.get("DRIVE_VERSION_TAG", ""),
+        "product_execution_label": os.environ.get("PRODUCT_EXECUTION_LABEL", "initial"),
         "preflight": probe,
         "runner_free_bytes_before_download": free_bytes,
         "required_free_bytes_before_download": required_free,
@@ -471,36 +543,110 @@ def acquire_and_analyze(
             raise AuthorExactAcquisitionError("REFUSING_TO_OVERWRITE_EXISTING_RAW_HDF5")
         expected_bytes = int(product_receipt["remote_content_length_bytes"])
         try:
-            downloaded = downloader.download_exact_product_with_timeout(
-                session, row["exact_data_url"], target_path, expected_bytes,
-            )
+            max_attempts = 1
+            max_worker_phases = 2  # initial + one receipt-scoped retry phase, matching main.
+            worker_phase = 1
+            while worker_phase <= max_worker_phases:
+                execution_label = "initial" if worker_phase == 1 else "retry-1"
+                print(
+                    f"PRODUCT_ID={product_receipt['cmr_granule_concept_id']} "
+                    f"GRANULE_NAME={row['granule_name']} PRODUCT_TYPE=GOFF MATURITY=PROVISIONAL "
+                    f"EXPECTED_SOURCE_BYTES={expected_bytes} RAW_DIR={raw_dir}",
+                    flush=True,
+                )
+                download_completed = False
+                for attempt in range(1, max_attempts + 1):
+                    print(f"DOWNLOAD_ATTEMPT={attempt}/{max_attempts} execution_label={execution_label}", flush=True)
+                    try:
+                        downloaded = downloader.download_exact_product_with_timeout(
+                            session, row["exact_data_url"], target_path, expected_bytes,
+                        )
+                        download_completed = True
+                        break
+                    except Exception as download_exc:
+                        retryable = bool(downloader.is_retryable_remote_failure(download_exc))
+                        product_receipt.setdefault("attempt_history", []).append({
+                            "execution_label": execution_label,
+                            "attempt_number_within_worker": attempt,
+                            "failure_type": type(download_exc).__name__,
+                            "failure_code": str(download_exc).split(":", maxsplit=1)[0][:160],
+                            "download_failure_retryable": retryable,
+                            "completed_at_utc": _utc_now(),
+                        })
+                        print("DOWNLOAD_FAILURE_RETRYABLE=" + ("yes" if retryable else "no"), flush=True)
+                        if not retryable or worker_phase >= max_worker_phases:
+                            raise
+                if download_completed:
+                    product_receipt["download_execution_label"] = execution_label
+                    product_receipt["download_attempt_history"] = product_receipt.get("attempt_history", [])
+                    break
+                # This branch is reserved for a retryable remote error. Grid/identity
+                # validation occurs only after the loop and never triggers a redownload.
+                target_path.unlink(missing_ok=True)
+                delay = min(15 * (2 ** (worker_phase - 1)), 120)
+                print(
+                    f"DOWNLOAD_RETRY_SCHEDULED product={row['granule_name']} "
+                    f"next_execution_label=retry-1 sleep_seconds={delay}",
+                    flush=True,
+                )
+                product_receipt["download_status"] = "PENDING_RETRY"
+                source_manifest.update(source_receipt_counts(source_manifest["products"]))
+                _write_json_atomic(manifest_path, source_manifest)
+                _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
+                time.sleep(delay)
+                worker_phase += 1
+
             import h5py
             if not h5py.is_hdf5(target_path):
                 raise AuthorExactAcquisitionError("DOWNLOADED_SOURCE_IS_NOT_VALID_HDF5")
-            if target_path.stat().st_size != expected_bytes or downloaded != expected_bytes:
+            actual_bytes = target_path.stat().st_size
+            if actual_bytes != expected_bytes or downloaded != expected_bytes:
                 raise AuthorExactAcquisitionError("DOWNLOADED_SOURCE_BYTE_COUNT_MISMATCH")
+
+            # A complete authenticated transfer has its own durable byte/hash receipt.
+            # Do this before scientific grid checks so validation failure isn't reported
+            # as though the payload was never downloaded.
+            product_receipt.update({
+                "download_status": "BYTES_VERIFIED_GRID_PENDING",
+                "source_bytes": actual_bytes,
+                "source_sha256": sha256_file(target_path),
+                "hdf5_container_valid": True,
+                "byte_count_validation": "PASS",
+                "grid_validation_status": "PENDING",
+                "download_attempt_history": product_receipt.get("attempt_history", []),
+            })
+            source_manifest.update(source_receipt_counts(source_manifest["products"]))
+            source_manifest["raw_source_byte_identity"] = "PARTIAL_SOURCE_BYTES_HASHED"
+            _write_json_atomic(manifest_path, source_manifest)
+            _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
+            print(
+                f"AUTHOR_SOURCE_BYTES_VERIFIED={row['granule_name']} "
+                f"BYTES={actual_bytes} SHA256={product_receipt['source_sha256']}",
+                flush=True,
+            )
+
             grid = inspect_goff_grid(
                 target_path, polarization="HH", layer=2,
                 expected_track="098", expected_direction="A", expected_processing="PR",
             )
-            start, end = row["interval"].split("/", maxsplit=1)
-            if (
-                grid.identity.granule_name != row["granule_name"]
-                or grid.identity.release_id != "P05023"
-                or grid.identity.reference_start.date().isoformat() != start
-                or grid.identity.secondary_start.date().isoformat() != end
-                or grid.epsg != TARGET_EPSG
-            ):
-                raise AuthorExactAcquisitionError("RAW_HDF5_NOT_EXACT_AUTHOR_GRID_OR_INTERVAL")
+            identity_report = author_grid_identity_validation(grid, row)
+            product_receipt["identity_validation"] = identity_report
+            if identity_report["status"] != "PASS":
+                product_receipt["grid_validation_status"] = "FAIL_IDENTITY"
+                raise AuthorExactAcquisitionError("RAW_HDF5_IDENTITY_VALIDATION_FAILED")
             width = len(grid.x_coordinates_m)
             height = len(grid.y_coordinates_m)
             if width != EXPECTED_GRID_WIDTH or height != EXPECTED_GRID_HEIGHT:
+                product_receipt["grid_validation_status"] = "FAIL_DIMENSIONS"
+                product_receipt["actual_grid_shape"] = [height, width]
                 raise AuthorExactAcquisitionError(
                     f"RAW_HDF5_GRID_DIMENSION_MISMATCH:expected={EXPECTED_GRID_WIDTH}x{EXPECTED_GRID_HEIGHT}:actual={width}x{height}"
                 )
             x_posting = float(np.median(np.diff(grid.x_coordinates_m)))
             y_posting = float(np.median(np.diff(grid.y_coordinates_m)))
             if not all(abs(abs(value) - TARGET_POSTING_M) <= 1e-4 for value in (x_posting, y_posting)):
+                product_receipt["grid_validation_status"] = "FAIL_POSTING"
+                product_receipt["actual_grid_posting_m"] = [x_posting, y_posting]
                 raise AuthorExactAcquisitionError("RAW_HDF5_POSTING_NOT_80M")
             if reference_x_coordinates is None:
                 reference_x_coordinates = np.asarray(grid.x_coordinates_m).copy()
@@ -509,12 +655,11 @@ def acquire_and_analyze(
                 not np.array_equal(reference_x_coordinates, np.asarray(grid.x_coordinates_m))
                 or not np.array_equal(reference_y_coordinates, np.asarray(grid.y_coordinates_m))
             ):
+                product_receipt["grid_validation_status"] = "FAIL_GRID_MISMATCH"
                 raise AuthorExactAcquisitionError("RAW_HDF5_SOURCE_GRID_MISMATCH_ACROSS_AUTHOR_PRODUCTS")
             product_receipt.update({
                 "download_status": "PASS",
-                "source_bytes": target_path.stat().st_size,
-                "source_sha256": sha256_file(target_path),
-                "hdf5_container_valid": True,
+                "grid_validation_status": "PASS",
                 "grid_epsg": grid.epsg,
                 "grid_width": width,
                 "grid_height": height,
@@ -528,21 +673,35 @@ def acquire_and_analyze(
                 "layer": grid.layer,
                 "validated_at_utc": _utc_now(),
             })
-            source_manifest["source_downloads"] = sum(p.get("download_status") == "PASS" for p in source_manifest["products"])
+            source_manifest.update(source_receipt_counts(source_manifest["products"]))
+            source_manifest["raw_source_byte_identity"] = (
+                "FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED"
+                if source_manifest["source_sha256_count"] == 5
+                else "PARTIAL_SOURCE_BYTES_HASHED"
+            )
             source_manifest["status"] = "DOWNLOAD_IN_PROGRESS"
             _write_json_atomic(manifest_path, source_manifest)
             _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
             print(
-                f"AUTHOR_SOURCE_DOWNLOAD_PASS={row['granule_name']} "
-                f"BYTES={product_receipt['source_bytes']} SHA256={product_receipt['source_sha256']}",
+                f"AUTHOR_SOURCE_GRID_VALIDATED={row['granule_name']} "
+                f"GRID={width}x{height} EPSG={grid.epsg} POSTING={x_posting:.6f},{y_posting:.6f}",
                 flush=True,
             )
         except Exception as exc:
-            product_receipt["download_status"] = "FAIL"
+            counts = source_receipt_counts(source_manifest["products"])
+            has_hash = bool(product_receipt.get("source_sha256"))
+            product_receipt["download_status"] = (
+                "BYTES_VERIFIED_GRID_VALIDATION_FAILED" if has_hash else "FAIL"
+            )
             product_receipt["failure_type"] = type(exc).__name__
             product_receipt["failure_code"] = str(exc).split(":", maxsplit=1)[0][:160]
+            source_manifest.update(counts)
+            source_manifest["raw_source_byte_identity"] = (
+                "SOURCE_BYTES_HASHED_BUT_GRID_VALIDATION_FAILED"
+                if has_hash
+                else ("PARTIAL_SOURCE_BYTES_HASHED" if counts["source_downloads"] else "UNVERIFIED")
+            )
             source_manifest["status"] = "FAILED_DURING_SOURCE_DOWNLOAD"
-            source_manifest["source_downloads"] = sum(p.get("download_status") == "PASS" for p in source_manifest["products"])
             _write_json_atomic(manifest_path, source_manifest)
             _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)
             _write_json_atomic(output_root / "author-exact-analysis-status.json", {
@@ -550,7 +709,10 @@ def acquire_and_analyze(
                 "status": "FAILED_DURING_SOURCE_DOWNLOAD",
                 "failure_type": type(exc).__name__,
                 "failure_code": str(exc).split(":", maxsplit=1)[0][:160],
-                "source_downloads_verified": source_manifest["source_downloads"],
+                "source_downloads_completed": counts["source_downloads"],
+                "source_sha256_recorded": counts["source_sha256_count"],
+                "source_products_grid_validated": counts["source_products_grid_validated"],
+                "raw_source_byte_identity": source_manifest["raw_source_byte_identity"],
                 "paper_reproduction_status": "BLOCKED_RAW_GOFF_BYTES_AND_IMPLEMENTATION_PARITY_UNVERIFIED",
                 "hazard_detection_status": "NOT_EVALUATED",
                 "created_at_utc": _utc_now(),
@@ -560,8 +722,9 @@ def acquire_and_analyze(
             raise
 
     source_manifest["status"] = "PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED"
-    source_manifest["source_downloads"] = 5
-    source_manifest["author_exact_source_sha256_count"] = 5
+    source_manifest.update(source_receipt_counts(source_manifest["products"]))
+    source_manifest["author_exact_source_sha256_count"] = source_manifest["source_sha256_count"]
+    source_manifest["raw_source_byte_identity"] = "FIVE_EXACT_AUTHOR_SOURCE_HASHES_PINNED"
     source_manifest["download_completed_at_utc"] = _utc_now()
     _write_json_atomic(manifest_path, source_manifest)
     _write_json_atomic(output_root / "author-exact-source-manifest.json", source_manifest)

@@ -99,6 +99,11 @@ jobs:
       GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      DRIVE_VERSION_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_ID_SAFE: KnowPlaceAuthorExact-${{ github.run_id }}-${{ github.run_attempt }}
+      PRODUCT_EXECUTION_LABEL: initial
+      RETENTION_PROFILE: derived-only
+      SCIENCE_COMMIT: 10639a916c9829850775410b3ed7de62e527770d
 
     steps:
       - name: Prepare run paths and check credentials before source acquisition
@@ -140,6 +145,15 @@ jobs:
           repository: moshiour0/SARGuardian
           ref: 10639a916c9829850775410b3ed7de62e527770d
           path: science-source
+
+      - name: Verify pinned science revision
+        if: steps.credentials.outputs.secrets_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C science-source rev-parse HEAD)"
+          test "$actual" = "$SCIENCE_COMMIT"
+          echo "SCIENCE_REVISION_VERIFIED=$actual"
 
       - name: Set up Python 3.13
         if: steps.credentials.outputs.secrets_ready == 'true'
@@ -212,9 +226,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tools/drive_resumable_upload.py --root "$DERIVED_ROOT" --run-name "KnowPlaceAuthorExact-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --files "$DERIVED_ROOT/author-exact-derived-results.zip" --out "$DERIVED_ROOT/drive-upload-receipt.json"
+          python tools/drive_resumable_upload.py --root "$DERIVED_ROOT" --run-name "$RUN_ID_SAFE" --files "$DERIVED_ROOT/author-exact-derived-results.zip" --out "$DERIVED_ROOT/drive-upload-receipt.json"
           test -s "$DERIVED_ROOT/drive-upload-receipt.json"
-          python tools/drive_resumable_upload.py --root "$DERIVED_ROOT" --run-name "KnowPlaceAuthorExact-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --files "$DERIVED_ROOT/drive-upload-receipt.json" --out "$DERIVED_ROOT/drive-receipt-upload.json"
+          python tools/drive_resumable_upload.py --root "$DERIVED_ROOT" --run-name "$RUN_ID_SAFE" --files "$DERIVED_ROOT/drive-upload-receipt.json" --out "$DERIVED_ROOT/drive-receipt-upload.json"
           python - "$DERIVED_ROOT/drive-upload-receipt.json" "$DERIVED_ROOT/drive-receipt-upload.json" <<'PY'
           import json,sys
           first,second=[json.load(open(path,encoding="utf-8")) for path in sys.argv[1:]]

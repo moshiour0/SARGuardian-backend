@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 import tools.know_place.author_exact_acquisition as acquisition
+from tools.know_place.goff_io import parse_granule_identity
 from tools.know_place.author_catalog import (
     CMR_COLLECTION_CONCEPT_ID,
     EXPECTED_COLLECTION,
@@ -93,6 +95,67 @@ def test_exact_data_url_rejects_wrong_release_collection_host_path_or_link(edit)
     edit(row)
     with pytest.raises(acquisition.AuthorExactAcquisitionError):
         acquisition.select_exact_hdf5_data_url(row, target["granule_name"])
+
+
+def test_parser_filename_with_h5_extension_matches_exact_cmr_product_row() -> None:
+    target = load_author_granules()[0]
+    filename = target["granule_name"] + ".h5"
+    grid = SimpleNamespace(identity=parse_granule_identity(filename), epsg=32645)
+    report = acquisition.author_grid_identity_validation(
+        grid,
+        {
+            "granule_name": target["granule_name"],
+            "source_filename": filename,
+            "interval": target["interval"],
+        },
+    )
+    assert report["status"] == "PASS"
+    assert report["expected_granule_name_without_extension"] == target["granule_name"]
+    assert report["expected_source_filename_with_extension"] == filename
+    assert report["actual_identity_filename"] == filename
+    assert report["checks"]["filename"]["passed"] is True
+    assert report["checks"]["granule_stem"]["passed"] is True
+
+
+def test_grid_identity_receipt_rejects_wrong_release_date_or_crs() -> None:
+    target = load_author_granules()[0]
+    wrong_name = target["granule_name"].replace("_P05023_", "_X05026_") + ".h5"
+    grid = SimpleNamespace(identity=parse_granule_identity(wrong_name), epsg=4326)
+    report = acquisition.author_grid_identity_validation(
+        grid,
+        {
+            "granule_name": target["granule_name"],
+            "source_filename": target["granule_name"] + ".h5",
+            "interval": target["interval"],
+        },
+    )
+    assert report["status"] == "FAIL"
+    assert {"filename", "granule_stem", "release_id", "epsg"}.issubset(report["mismatch_fields"])
+
+
+def test_source_download_count_is_separate_from_grid_validated_count() -> None:
+    products = [
+        {
+            "download_status": "BYTES_VERIFIED_GRID_VALIDATION_FAILED",
+            "source_bytes": 1024,
+            "source_sha256": "a" * 64,
+        },
+        {
+            "download_status": "PASS",
+            "source_bytes": 2048,
+            "source_sha256": "b" * 64,
+        },
+        {
+            "download_status": "PENDING",
+            "source_bytes": None,
+            "source_sha256": None,
+        },
+    ]
+    assert acquisition.source_receipt_counts(products) == {
+        "source_downloads": 2,
+        "source_sha256_count": 2,
+        "source_products_grid_validated": 1,
+    }
 
 
 def test_discovery_requires_five_exact_p05023_cmr_rows_without_downloading(monkeypatch) -> None:

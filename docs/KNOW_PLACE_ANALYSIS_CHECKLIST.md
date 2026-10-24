@@ -160,3 +160,7 @@
 - [x] Improved the gate error and GitHub step summary to state the exact required value; added an automated regression test that rejects the unbracketed near-match.
 - [ ] Re-dispatch the branch workflow with profile author-exact-p05023, exact consent input [run-know-place], and valid Earthdata + Drive secrets. Do not start raw acquisition until the exact input is supplied.
 - [ ] After an authorized run, verify five source HDF5 byte counts/SHA-256 hashes, grid/identity checks, scientific outputs and both Drive-retention receipts. Do not mark paper reproduction or hazard detection complete merely because acquisition works.
+
+
+- [x] Audit the latest author-exact live run [40107851266](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40107851266): authenticated download reached the full first HDF5 size of 1,090,519,040 bytes, then was falsely rejected because the validator compared a parser filename with `.h5` against CMR's extension-free granule ID. Fix the filename/stem contract; record source byte count/SHA-256 separately from grid validation; only retry transient transfer failures once with a separate `retry-1` phase. Do not count this failed run as source-hash verification because no hash receipt was preserved by the old code.
+- [ ] Re-run isolated CI after this correction; then, only after explicit `[run-know-place]` manual dispatch, re-download/validate the exact five P05023 products and inspect new source hashes/metrics/verified Drive receipts. Keep paper parity BLOCKED and hazard detection NOT_EVALUATED.
