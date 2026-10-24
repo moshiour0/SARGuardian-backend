@@ -3,7 +3,7 @@
 **Checked:** 2026-10-24 UTC  
 **Isolated branch:** `feat/know-place-analysis`  
 **Historical ASF-only catalog run:** [40054946010](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40054946010)  
-**Historical ASF-only artifact:** ID `12544428178`, ZIP bytes 1,561, SHA-256 `cf23a0893ae6b08f18abb379a76e483edf99c8f1f37a020c552f82adbcb07711`. It records ASF query results only. Its ASF-only finding is superseded for catalog identity by `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md` and latest live validation run 40092715120 with artifact SHA-256 `e2d62d5b955e76083c90b64ace06f7e69109da628f7a5f37f62f15d37519377f`; all five exact P05023 identities and URLs are now confirmed.
+**Historical ASF-only artifact:** ID `12544428178`, ZIP bytes 1,561, SHA-256 `cf23a0893ae6b08f18abb379a76e483edf99c8f1f37a020c552f82adbcb07711`. It records ASF query results only. Its ASF-only finding is superseded for catalog identity by `docs/know-place/evidence/CMR_AUTHOR_P05023_EXACT_CATALOG_RESOLUTION_20261024.md` and latest live validation run 40093352981 with artifact SHA-256 `20929525a6d20e4011563d23ddde16d1144b5f4afbad44505b54c220c42e8897`; all five exact P05023 identities and URLs are now confirmed.
 
 ## Query sequence and outcome
 
