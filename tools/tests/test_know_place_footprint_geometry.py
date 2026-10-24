@@ -9,6 +9,11 @@ from tools.know_place.footprint_geometry import (
     FootprintGeometryError,
     build_per_pixel_coefficients,
 )
+from tools.know_place.footprint_screen import (
+    EXPECTED_INTERVALS,
+    project_per_pixel_offsets,
+    screen_pair,
+)
 
 
 def source_grid(y_axis=None, x_axis=None):
@@ -125,6 +130,28 @@ def test_geometry_rejects_same_shape_dem_with_misaligned_transform():
     shifted_dem_transform = Affine(5.0, 0.0, 15.0, 0.0, -1.0, 2.5)
     with pytest.raises(FootprintGeometryError, match="DEM_GRID_TRANSFORM_MISMATCH"):
         build(transform=transform, dem_transform=shifted_dem_transform)
+
+
+def test_geometry_coefficients_feed_per_pixel_projection_and_footprint_screen():
+    geometry = build()
+    elevation = dem_fixture()
+    at = np.full(elevation.shape, 0.4, dtype=np.float32)
+    sr = np.full(elevation.shape, 0.25, dtype=np.float32)
+    snr = np.full(elevation.shape, 8.0, dtype=np.float32)
+    c = geometry["coefficients"]
+    projected = project_per_pixel_offsets(
+        at, sr, snr, c["cE"], c["cN"], c["kE"], c["kN"]
+    )
+    expected_east = at * c["cE"] + sr * c["kE"]
+    expected_north = at * c["cN"] + sr * c["kN"]
+    assert np.array_equal(projected["valid_mask"], np.ones(elevation.shape, dtype=bool))
+    assert np.allclose(projected["dE_m"], expected_east, rtol=0, atol=1e-6)
+    assert np.allclose(projected["dN_m"], expected_north, rtol=0, atol=1e-6)
+
+    screen = screen_pair(projected, interval=EXPECTED_INTERVALS[0])
+    assert screen["status"] == "CANDIDATE_MOVEMENT_SCREEN_COMPUTED"
+    assert screen["hit_mask"].shape == elevation.shape
+    assert screen["hazard_detection_status"] == "NOT_EVALUATED"
 
 
 def test_geometry_block_size_does_not_change_results():
