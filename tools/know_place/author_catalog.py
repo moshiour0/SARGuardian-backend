@@ -242,7 +242,7 @@ def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], lis
     fallback_reports: list[dict[str, Any]] = []
     for target in unresolved:
         start_date, end_date = target["interval"].split("/", maxsplit=1)
-        query = {
+        spatial_query = {
             "dataset": "NISAR",
             "intersectsWith": AUTHOR_FALLBACK_CROWN_WKT,
             "start": f"{start_date}T00:00:00Z",
@@ -251,68 +251,118 @@ def _discover_author_products_with_fallback() -> tuple[list[dict[str, Any]], lis
             "mainBandPolarization": "HH",
             "maxResults": 500,
         }
+        # ASF documents wildcard matching for granule_list. This narrower
+        # filename query is deliberately separate from the AOI/date query:
+        # it catches a scene's release/processing variants without assuming
+        # that any returned variant equals the author-selected product.
+        wildcard_pattern = target["granule_name"].replace("_P05023_", "_*_", 1)
+        wildcard_query = {
+            "dataset": "NISAR",
+            "granule_list": [wildcard_pattern],
+            "maxResults": 100,
+        }
         target_row = next(row for row in verified if row["granule_name"] == target["granule_name"])
+        spatial_candidates: list[Any] = []
+        wildcard_candidates: list[Any] = []
+        spatial_error = None
+        wildcard_error = None
         try:
-            candidates = list(asf_search.search(**query))
+            spatial_candidates = list(asf_search.search(**spatial_query))
         except Exception as exc:
-            fallback_reports.append({
-                "target_granule_name": target["granule_name"],
-                "interval": target["interval"],
-                "status": "QUERY_FAILED",
-                "query": {key: value for key, value in query.items() if key != "intersectsWith"},
-                "aoi_wkt_sha256": __import__("hashlib").sha256(AUTHOR_FALLBACK_CROWN_WKT.encode("utf-8")).hexdigest(),
-                "exception_type": type(exc).__name__,
-                "result_count": None,
-                "same_interval_candidates": [],
-                "exact_author_id_found": False,
-                "source_downloads": 0,
-            })
-            target_row["spatiotemporal_fallback_search_status"] = "QUERY_FAILED"
-            continue
+            spatial_error = type(exc).__name__
+        try:
+            wildcard_candidates = list(asf_search.search(**wildcard_query))
+        except Exception as exc:
+            wildcard_error = type(exc).__name__
 
-        matching_candidates = []
-        for product in candidates:
-            record = _fallback_candidate_record(product, target)
-            if record is not None:
-                matching_candidates.append(record)
-        exact_candidates = [
-            product for product in candidates
-            if any(
-                _is_trusted_asf_url(url)
-                and _normalise_product_name(url) == target["granule_name"]
+        matching_by_name: dict[str, dict[str, Any]] = {}
+        for method, products in (
+            ("AOI_DATE_QUERY", spatial_candidates),
+            ("GRANULE_WILDCARD_QUERY", wildcard_candidates),
+        ):
+            for product in products:
+                record = _fallback_candidate_record(product, target)
+                if record is None:
+                    continue
+                name = record["granule_name"]
+                if name in matching_by_name:
+                    prior = matching_by_name[name]
+                    prior["discovery_methods"] = sorted(set(
+                        prior.get("discovery_methods", []) + [method]
+                    ))
+                else:
+                    record["discovery_methods"] = [method]
+                    matching_by_name[name] = record
+        matching_candidates = list(matching_by_name.values())
+
+        combined_candidates: list[Any] = []
+        seen_exact_names: set[str] = set()
+        for product in spatial_candidates + wildcard_candidates:
+            urls = _product_urls(product, _product_properties(product))
+            exact_name = next((
+                _normalise_product_name(url) for url in urls
+                if _is_trusted_asf_url(url)
                 and f"/{EXPECTED_COLLECTION}/" in urlparse(url).path
-                for url in _product_urls(product, _product_properties(product))
-            )
-        ]
+            ), "")
+            if exact_name == target["granule_name"] and exact_name not in seen_exact_names:
+                combined_candidates.append(product)
+                seen_exact_names.add(exact_name)
+
         exact_found = False
-        if exact_candidates:
+        if combined_candidates:
             try:
-                recovered = validate_author_catalog_product(target, exact_candidates)
+                recovered = validate_author_catalog_product(target, combined_candidates)
             except CatalogIdentityError:
                 target_row["spatiotemporal_fallback_search_status"] = "EXACT_ID_CANDIDATE_REJECTED"
             else:
-                recovered["catalog_identity_discovery_method"] = "AOI_DATE_FALLBACK_QUERY_AFTER_DIRECT_ID_MISS"
+                if any(
+                    _normalise_product_name(url) == target["granule_name"]
+                    for product in wildcard_candidates
+                    for url in _product_urls(product, _product_properties(product))
+                ):
+                    method = "GRANULE_WILDCARD_QUERY_AFTER_DIRECT_ID_MISS"
+                else:
+                    method = "AOI_DATE_FALLBACK_QUERY_AFTER_DIRECT_ID_MISS"
+                recovered["catalog_identity_discovery_method"] = method
                 recovered["direct_exact_id_query_status"] = "NOT_FOUND"
                 verified[verified.index(target_row)] = recovered
                 target_row = recovered
                 exact_found = True
+
+        all_fallbacks_failed = spatial_error is not None and wildcard_error is not None
+        result_cap_reached = (
+            len(spatial_candidates) >= spatial_query["maxResults"]
+            or len(wildcard_candidates) >= wildcard_query["maxResults"]
+        )
         if not exact_found and target_row["catalog_identity_status"] == "NOT_FOUND":
-            target_row["spatiotemporal_fallback_search_status"] = (
-                "RESULT_CAP_REACHED_NO_EXACT_ID" if len(candidates) >= query["maxResults"]
-                else "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
-            )
+            if all_fallbacks_failed:
+                status = "QUERY_FAILED"
+            elif result_cap_reached:
+                status = "RESULT_CAP_REACHED_NO_EXACT_ID"
+            else:
+                status = "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
+            target_row["spatiotemporal_fallback_search_status"] = status
             target_row["same_interval_candidates"] = matching_candidates
+
         fallback_reports.append({
             "target_granule_name": target["granule_name"],
             "interval": target["interval"],
-            "status": (
-                "EXACT_AUTHOR_ID_CONFIRMED"
-                if exact_found
-                else ("RESULT_CAP_REACHED" if len(candidates) >= query["maxResults"] else "COMPLETED")
+            "status": "EXACT_AUTHOR_ID_CONFIRMED" if exact_found else (
+                "QUERY_FAILED" if all_fallbacks_failed else (
+                    "RESULT_CAP_REACHED" if result_cap_reached else "COMPLETED_NO_EXACT_AUTHOR_ID_FOUND"
+                )
             ),
-            "query": {key: value for key, value in query.items() if key != "intersectsWith"},
-            "aoi_wkt_sha256": __import__("hashlib").sha256(AUTHOR_FALLBACK_CROWN_WKT.encode("utf-8")).hexdigest(),
-            "result_count": len(candidates),
+            "spatiotemporal_query": {
+                key: value for key, value in spatial_query.items() if key != "intersectsWith"
+            },
+            "aoi_wkt_sha256": __import__("hashlib").sha256(
+                AUTHOR_FALLBACK_CROWN_WKT.encode("utf-8")
+            ).hexdigest(),
+            "spatiotemporal_query_result_count": len(spatial_candidates) if spatial_error is None else None,
+            "spatiotemporal_query_exception_type": spatial_error,
+            "wildcard_query": wildcard_query,
+            "wildcard_query_result_count": len(wildcard_candidates) if wildcard_error is None else None,
+            "wildcard_query_exception_type": wildcard_error,
             "same_interval_candidates": matching_candidates,
             "exact_author_id_found": exact_found,
             "source_downloads": 0,
