@@ -519,6 +519,7 @@ def compare_candidate_inventory(
         by_key[key] = row
     mismatches: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
+    matched_rows_in_archive_order: list[tuple[dict[str, Any], dict[str, Any]]] = []
     maximum_error: dict[str, float] = {name: 0.0 for name in CANDIDATE_METRIC_COLUMNS}
     expected_quality_pass = 0
     computed_quality_pass = sum(bool(row["quality"]) for row in computed_rows)
@@ -530,6 +531,7 @@ def compare_candidate_inventory(
         if actual is None:
             missing.append({"lon": key[0], "lat": key[1]})
             continue
+        matched_rows_in_archive_order.append((expected, actual))
         expected_score = float(expected["score"])
         postprocessed_score = float(actual["n_epochs"]) * float(actual["anom_m"]) * float(actual["R_res"])
         postprocess_score_matches = abs(expected_score - postprocessed_score) <= numeric_tolerance
@@ -572,17 +574,56 @@ def compare_candidate_inventory(
                     "reason": "DIRECTIONAL_QUALITY_FLAG_MISMATCH",
                 })
     extra = [{"lon": key[0], "lat": key[1]} for key in sorted(by_key)]
+    # fix_zonal_attrs.py sorts the final GPKG/CSV by the post-processed score.
+    # Verify rank-order parity separately from per-row numeric parity. Score
+    # differences no larger than the declared tolerance are treated as ties so
+    # tiny float-rounding changes do not create a false rank inversion.
+    expected_order_scores = [float(expected["score"]) for expected, _ in matched_rows_in_archive_order]
+    computed_order_scores = [float(actual["score"]) for _, actual in matched_rows_in_archive_order]
+    source_order_sorted = all(
+        expected_order_scores[i] >= expected_order_scores[i + 1] - numeric_tolerance
+        for i in range(max(0, len(expected_order_scores) - 1))
+    )
+    rank_inversions: list[dict[str, Any]] = []
+    for i in range(len(matched_rows_in_archive_order)):
+        expected_i, actual_i = matched_rows_in_archive_order[i]
+        for j in range(i + 1, len(matched_rows_in_archive_order)):
+            expected_j, actual_j = matched_rows_in_archive_order[j]
+            expected_gap = float(expected_i["score"]) - float(expected_j["score"])
+            if expected_gap > numeric_tolerance and float(actual_i["score"]) + numeric_tolerance < float(actual_j["score"]):
+                rank_inversions.append({
+                    "earlier_source_rank": i + 1, "later_source_rank": j + 1,
+                    "earlier_centroid": [round(float(expected_i["lon"]), 5), round(float(expected_i["lat"]), 5)],
+                    "later_centroid": [round(float(expected_j["lon"]), 5), round(float(expected_j["lat"]), 5)],
+                    "expected_score_gap": expected_gap,
+                    "computed_score_earlier": float(actual_i["score"]),
+                    "computed_score_later": float(actual_j["score"]),
+                })
+    ranking_order = {
+        "status": "PASS" if source_order_sorted and not rank_inversions and len(matched_rows_in_archive_order) == len(expected_rows) else "MISMATCH",
+        "source_inventory_sorted_descending_by_final_score": source_order_sorted,
+        "matched_rows_in_source_order": len(matched_rows_in_archive_order),
+        "strict_score_order_pairs_checked": sum(
+            1 for i in range(len(expected_order_scores)) for j in range(i + 1, len(expected_order_scores))
+            if expected_order_scores[i] - expected_order_scores[j] > numeric_tolerance
+        ),
+        "rank_inversion_count": len(rank_inversions),
+        "rank_inversions": rank_inversions[:25],
+        "tie_tolerance": numeric_tolerance,
+    }
     mismatch_count_by_metric: dict[str, int] = {}
     for row in mismatches:
         metric = str(row.get("metric", "UNSPECIFIED"))
         mismatch_count_by_metric[metric] = mismatch_count_by_metric.get(metric, 0) + 1
     passed = (
         not missing and not extra and not mismatches
+        and ranking_order["status"] == "PASS"
         and len(expected_rows) == 106 and len(computed_rows) == 106
         and expected_quality_pass == 101 and computed_quality_pass == 101
     )
     return {
         "status": "PASS" if passed else "MISMATCH",
+        "ranking_order_comparison": ranking_order,
         "expected_candidate_count": len(expected_rows),
         "computed_candidate_count": len(computed_rows),
         "matched_centroid_count": len(expected_rows) - len(missing),
