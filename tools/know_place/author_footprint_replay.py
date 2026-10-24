@@ -594,8 +594,15 @@ def run_author_footprint_replay(
             raise FootprintReplayError(f"SOURCE_BYTE_COUNT_DOES_NOT_MATCH_MANIFEST:{interval_key}")
         cubes = read_geometry_cubes(source_path, expected_epsg=raw.epsg)
         fingerprint = _geometry_fingerprint(cubes)
+        geometry_matches_first_pair = (
+            reference_geometry_fingerprint is None
+            or fingerprint["fingerprint_sha256"] == reference_geometry_fingerprint["fingerprint_sha256"]
+        )
         if reference_geometry_fingerprint is None:
             reference_geometry_fingerprint = fingerprint
+            # Match the archived geometry.py contract exactly: geometry.load()
+            # constructs/caches coefficients from the first pair's radarGrid
+            # and the prepared DEM, and every later pair reuses that cache.
             coefficient_result = build_per_pixel_coefficients(
                 cubes.height_m, cubes.y_m, cubes.x_m,
                 cubes.incidence_deg, cubes.los_x, cubes.los_y,
@@ -616,9 +623,11 @@ def run_author_footprint_replay(
             )
             if coefficient_result.get("status") != "PER_PIXEL_GEOMETRY_COEFFICIENTS_COMPUTED":
                 raise FootprintReplayError("PER_PIXEL_GEOMETRY_BUILDER_NOT_COMPLETE")
-        elif fingerprint["fingerprint_sha256"] != reference_geometry_fingerprint["fingerprint_sha256"]:
-            raise FootprintReplayError(f"GEOMETRY_CUBES_DIFFER_ACROSS_PAIR:{interval_key}")
-
+        # Do not fail merely because later pairs contain different geometry
+        # metadata: the author's script explicitly reuses the first pair's
+        # geometry cache for the entire five-pair screen. Record differences
+        # as provenance diagnostics while using that first-pair cache.
+        
         assert coefficient_result is not None
         coeffs = coefficient_result["coefficients"]
         projection = project_per_pixel_offsets(
@@ -675,7 +684,7 @@ def run_author_footprint_replay(
                 "y_posting_m": float(np.median(np.diff(raw.y_coordinates_m))),
             },
             "geometry_fingerprint_sha256": fingerprint["fingerprint_sha256"],
-            "geometry_fields_identical_to_first_pair": True,
+            "geometry_fields_identical_to_first_pair": geometry_matches_first_pair,
             "projection_status": projection["status"],
             "quality_gate_counts": projection["quality_gate_counts"],
             "screen_status": screen["status"],
@@ -769,6 +778,12 @@ def run_author_footprint_replay(
         "terrain_assets": terrain_meta,
         "geometry": {
             "metadata_fingerprint_sha256": reference_geometry_fingerprint["fingerprint_sha256"],
+            "source_method_geometry_cache_policy": "Use first pair's radarGrid geometry for all five pairs, matching code/geometry.py geometry.load() cache behavior.",
+            "per_pair_geometry_fingerprints": [
+                {"interval": row["interval"], "fingerprint_sha256": row["geometry_fingerprint_sha256"],
+                 "identical_to_first_pair": row["geometry_fields_identical_to_first_pair"]}
+                for row in pair_reports
+            ],
             "coefficient_sha256": coefficient_hashes,
             "coefficient_status": coefficient_result["status"],
             "coefficient_diagnostics": coefficient_result["diagnostics"],
