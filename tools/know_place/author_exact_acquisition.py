@@ -78,6 +78,22 @@ def analysis_result_is_complete(return_code: int, report: dict[str, Any]) -> boo
     )
 
 
+def author_site_series_result_is_complete(return_code: int, report: dict[str, Any]) -> bool:
+    """Require the author-compatible raw-data profile and all 65 archived-table checks."""
+    comparison = report.get("author_site_series_table_comparison", {})
+    return (
+        return_code == 0
+        and report.get("structural_status") == "PASS"
+        and report.get("status") == "SCIENTIFIC_METRICS_COMPUTED"
+        and report.get("method_profile") == "ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE"
+        and report.get("source_products_processed") == 5
+        and comparison.get("status") == "PASS_AT_ARCHIVE_ROUNDING"
+        and comparison.get("checks_passed") == 65
+        and comparison.get("checks_total") == 65
+        and comparison.get("mismatch_count") == 0
+    )
+
+
 def author_grid_identity_validation(grid: Any, row: dict[str, Any]) -> dict[str, Any]:
     """Compare CMR's stem to the exact HDF5 filename returned by the GOFF parser."""
     identity = grid.identity
@@ -787,7 +803,86 @@ def acquire_and_analyze(
         report.setdefault("paper_reproduction_status", PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS)
         report["hazard_detection_status"] = "NOT_EVALUATED"
         _write_json_atomic(report_path, report)
-        analysis_success = analysis_result_is_complete(completed.returncode, report)
+        exploratory_analysis_success = analysis_result_is_complete(completed.returncode, report)
+
+        # Run a separately labelled author-compatible site-series profile against the
+        # same five verified raw HDF5 files. This must not re-download source data.
+        author_report_path = output_root / "author-raw-site-series-report.json"
+        author_stdout_path = output_root / "author-raw-site-series.stdout.log"
+        author_stderr_path = output_root / "author-raw-site-series.stderr.log"
+        author_exit_code: int | None
+        try:
+            author_completed = subprocess.run(
+                [
+                    sys.executable, "-m", "tools.know_place.author_raw_site_series",
+                    "--config", str(run_root / "know-place-inputs.json"),
+                    "--out", str(output_root),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5 * 60 * 60,
+            )
+            author_exit_code = author_completed.returncode
+            author_stdout_path.write_text(author_completed.stdout or "", encoding="utf-8")
+            author_stderr_path.write_text(author_completed.stderr or "", encoding="utf-8")
+        except subprocess.TimeoutExpired as exc:
+            author_exit_code = None
+            stdout_value = getattr(exc, "stdout", None) or ""
+            stderr_value = getattr(exc, "stderr", None) or ""
+            if isinstance(stdout_value, bytes):
+                stdout_value = stdout_value.decode("utf-8", errors="replace")
+            if isinstance(stderr_value, bytes):
+                stderr_value = stderr_value.decode("utf-8", errors="replace")
+            author_stdout_path.write_text(str(stdout_value), encoding="utf-8")
+            author_stderr_path.write_text(str(stderr_value), encoding="utf-8")
+            _write_json_atomic(author_report_path, {
+                "schema_version": "know-place-author-raw-site-series/1.0",
+                "status": "AUTHOR_SITE_SERIES_ANALYSIS_TIMEOUT",
+                "structural_status": "FAIL",
+                "method_profile": "ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE",
+                "source_products_processed": 0,
+                "author_site_series_table_comparison": {
+                    "status": "BLOCKED_TIMEOUT", "checks_passed": 0, "checks_total": 65,
+                    "mismatch_count": None, "mismatches": [],
+                },
+                "paper_reproduction_status": PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS,
+                "hazard_detection_status": "NOT_EVALUATED",
+            })
+        if not author_report_path.is_file():
+            _write_json_atomic(author_report_path, {
+                "schema_version": "know-place-author-raw-site-series/1.0",
+                "status": "AUTHOR_SITE_SERIES_REPORT_MISSING",
+                "structural_status": "FAIL",
+                "method_profile": "ARCHIVED_AUTHOR_SITE_SERIES_COMPATIBLE",
+                "source_products_processed": 0,
+                "author_site_series_table_comparison": {
+                    "status": "BLOCKED_REPORT_MISSING", "checks_passed": 0, "checks_total": 65,
+                    "mismatch_count": None, "mismatches": [],
+                },
+                "paper_reproduction_status": PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS,
+                "hazard_detection_status": "NOT_EVALUATED",
+            })
+        author_site_report = json.loads(author_report_path.read_text(encoding="utf-8"))
+        author_site_success = author_site_series_result_is_complete(author_exit_code if author_exit_code is not None else -1, author_site_report)
+
+        # Preserve both method paths in the main report. A numeric resemblance from
+        # the exploratory path must not mask a mismatch in the author-compatible path.
+        report["author_compatible_site_series"] = {
+            "report_file": author_report_path.name,
+            "status": author_site_report.get("status"),
+            "structural_status": author_site_report.get("structural_status"),
+            "method_profile": author_site_report.get("method_profile"),
+            "archive_comparison": author_site_report.get("author_site_series_table_comparison"),
+            "exit_code": author_exit_code,
+            "complete_and_archive_matched": author_site_success,
+        }
+        report["exploratory_analysis_complete"] = exploratory_analysis_success
+        report["paper_reproduction_status"] = PAPER_REPRODUCTION_STATUS_AFTER_AUTHOR_EXACT_INPUTS
+        report["hazard_detection_status"] = "NOT_EVALUATED"
+        _write_json_atomic(report_path, report)
+
+        analysis_success = exploratory_analysis_success and author_site_success
         status = {
             "schema_version": "know-place-author-exact-run-status/1.0",
             "status": (
@@ -797,6 +892,13 @@ def acquire_and_analyze(
             "analysis_exit_code": completed.returncode,
             "analysis_status": report.get("status"),
             "structural_status": report.get("structural_status"),
+            "exploratory_analysis_complete": exploratory_analysis_success,
+            "author_site_series_exit_code": author_exit_code,
+            "author_site_series_status": author_site_report.get("status"),
+            "author_site_series_table_comparison_status": author_site_report.get("author_site_series_table_comparison", {}).get("status"),
+            "author_site_series_comparisons_passed": author_site_report.get("author_site_series_table_comparison", {}).get("checks_passed"),
+            "author_site_series_comparisons_total": author_site_report.get("author_site_series_table_comparison", {}).get("checks_total"),
+            "author_site_series_complete_and_archive_matched": author_site_success,
             "analysis_metrics_complete": analysis_success,
             "paper_reproduction_status": report.get("paper_reproduction_status"),
             "hazard_detection_status": report.get("hazard_detection_status"),
@@ -804,8 +906,12 @@ def acquire_and_analyze(
             "created_at_utc": _utc_now(),
         }
         _write_json_atomic(output_root / "author-exact-analysis-status.json", status)
-        print(f"AUTHOR_EXACT_ANALYSIS_EXIT_CODE={completed.returncode}")
-        print(f"AUTHOR_EXACT_ANALYSIS_STATUS={report.get('status')}")
+        print(f"EXPLORATORY_ANALYSIS_EXIT_CODE={completed.returncode}")
+        print(f"EXPLORATORY_ANALYSIS_STATUS={report.get('status')}")
+        print(f"AUTHOR_SITE_SERIES_EXIT_CODE={author_exit_code}")
+        print(f"AUTHOR_SITE_SERIES_STATUS={author_site_report.get('status')}")
+        print("AUTHOR_SITE_SERIES_TABLE_PARITY=" + str(author_site_report.get("author_site_series_table_comparison", {}).get("status")))
+        print(f"AUTHOR_SITE_SERIES_TABLE_CHECKS={author_site_report.get('author_site_series_table_comparison', {}).get('checks_passed')}/{author_site_report.get('author_site_series_table_comparison', {}).get('checks_total')}")
         print(f"PAPER_REPRODUCTION_STATUS={report.get('paper_reproduction_status')}")
         print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
         return status
