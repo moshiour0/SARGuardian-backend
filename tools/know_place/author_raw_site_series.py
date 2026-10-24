@@ -421,7 +421,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"ARCHIVE_TABLE_COMPARISONS={report['author_site_series_table_comparison']['checks_passed']}/{report['author_site_series_table_comparison']['checks_total']}")
     print("PAPER_REPRODUCTION_STATUS=" + report["paper_reproduction_status"])
     print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
-    return 0 if report["structural_status"] == "PASS" else 1
+    return 0 if (report["structural_status"] == "PASS" and report["author_site_series_table_comparison"].get("status") == "PASS_AT_ARCHIVE_ROUNDING" and report["author_site_series_table_comparison"].get("checks_passed") == 65 and report["author_site_series_table_comparison"].get("checks_total") == 65) else 1
 
 
 if __name__ == "__main__":
