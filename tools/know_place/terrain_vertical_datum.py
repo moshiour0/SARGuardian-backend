@@ -314,8 +314,13 @@ def build_public_glo90_sensitivity(
         delta = calculate_height_offset_m(orthometric, hae)
         if np.any(np.abs(delta[valid]) > 200.0):
             raise VerticalDatumSensitivityError(f"VERTICAL_OFFSET_OUT_OF_PLAUSIBLE_RANGE_ROWS_{row_start}_{row_stop}")
-        height_hae[row_start:row_stop] = np.where(valid, hae, np.nan).astype(np.float32)
-        height_delta[row_start:row_stop] = delta.astype(np.float32)
+        # Round the experimental ellipsoidal DEM to its saved Float32
+        # representation first; derive the stored offset from those exact saved
+        # heights so reading the two GeoTIFFs back preserves HAE - H.
+        hae_float32 = np.where(valid, hae, np.nan).astype(np.float32)
+        delta_float32 = calculate_height_offset_m(orthometric, hae_float32.astype(np.float64)).astype(np.float32)
+        height_hae[row_start:row_stop] = hae_float32
+        height_delta[row_start:row_stop] = delta_float32
         valid_output_total += int(np.count_nonzero(np.isfinite(hae[valid])))
     if valid_input_total != valid_output_total:
         raise VerticalDatumSensitivityError("HEIGHT_CONVERSION_VALID_CELL_COUNT_MISMATCH")
