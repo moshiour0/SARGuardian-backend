@@ -16,6 +16,7 @@ from tools.know_place.event_validation import (
     evaluate_heldout_events as _evaluate_heldout_events,
     select_validation_threshold,
     main,
+    _cluster_bootstrap_intervals,
     seal_threshold_policy,
     validate_event_registry,
 )
@@ -165,6 +166,8 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
     result = evaluate_heldout_events(
         reg, prediction_payload(), threshold_policy(reg),
         bootstrap_replicates=100, bootstrap_seed=12, minimum_independent_sites_for_ci=4,
+        minimum_independent_positive_sites_for_ci=2,
+        minimum_independent_non_event_sites_for_ci=2,
     )
 
     metrics = result["event_level_metrics_on_evaluable_cases"]
@@ -208,8 +211,13 @@ def test_heldout_evaluation_has_known_answer_and_counts_no_result_conservatively
         "post_event_detection_delay_values_reported": 0,
         "policy": "Missing first-alarm times are reported as unavailable; they are not imputed and do not erase the ALERT state from event-level recall.",
     }
-    assert result["uncertainty"]["status"] == "COMPUTED_SITE_CLUSTER_BOOTSTRAP"
+    assert result["uncertainty"]["status"] == "INSUFFICIENT_DEFINED_BOOTSTRAP_REPLICATES"
     assert result["uncertainty"]["independent_sites"] == 4
+    assert result["uncertainty"]["independent_positive_event_sites"] == 2
+    assert result["uncertainty"]["independent_non_event_sites"] == 2
+    assert result["uncertainty"]["intervals"]["specificity"] is None
+    assert "specificity" in result["uncertainty"]["withheld_metrics"]
+    assert result["uncertainty"]["defined_replicate_fraction"]["specificity"] < 0.95
 
 
 def test_threshold_must_be_frozen_and_selected_on_validation_split():
@@ -378,6 +386,43 @@ def test_registry_rejects_unreviewed_labels_geometry_conflicts_and_duplicate_ids
         validate_event_registry(reg)
 
 
+def test_site_cluster_bootstrap_withholds_intervals_when_event_class_sites_are_too_few():
+    rows = [
+        {"site_id": "E1", "event_label": True, "state": "ALERT"},
+        {"site_id": "N1", "event_label": False, "state": "NO_ALERT"},
+        {"site_id": "N2", "event_label": False, "state": "ALERT"},
+        {"site_id": "N3", "event_label": False, "state": "NO_ALERT"},
+        {"site_id": "N4", "event_label": False, "state": "ALERT"},
+        {"site_id": "N5", "event_label": False, "state": "NO_ALERT"},
+    ]
+    result = _cluster_bootstrap_intervals(
+        rows, replicates=100, seed=9, minimum_sites=5,
+        minimum_positive_sites=2, minimum_non_event_sites=5,
+    )
+    assert result["status"] == "INSUFFICIENT_INDEPENDENT_CLASS_SITES"
+    assert result["independent_sites"] == 6
+    assert result["independent_positive_event_sites"] == 1
+    assert result["independent_non_event_sites"] == 5
+    assert all(value is None for value in result["intervals"].values())
+
+
+def test_site_cluster_bootstrap_computes_intervals_when_both_classes_are_well_supported():
+    rows = [
+        {"site_id": f"S{i}", "event_label": i < 5, "state": ("NO_ALERT" if i % 3 == 0 else "ALERT")}
+        for i in range(10)
+    ]
+    result = _cluster_bootstrap_intervals(
+        rows, replicates=500, seed=260826, minimum_sites=5,
+        minimum_positive_sites=5, minimum_non_event_sites=5,
+    )
+    assert result["status"] == "COMPUTED_SITE_CLUSTER_BOOTSTRAP"
+    assert result["independent_positive_event_sites"] == 5
+    assert result["independent_non_event_sites"] == 5
+    assert all(value is not None for value in result["intervals"].values())
+    assert all(count >= 475 for count in result["defined_replicates"].values())
+    assert result["withheld_metrics"] == []
+
+
 def test_cluster_confidence_intervals_are_withheld_for_too_few_sites():
     reg = registry()
     reg["cases"] = [
@@ -422,6 +467,8 @@ def test_event_evaluation_cli_writes_a_checksummed_result(tmp_path, capsys):
         "--out", str(output_path),
         "--bootstrap-replicates", "100",
         "--minimum-independent-sites-for-ci", "4",
+        "--minimum-independent-positive-sites-for-ci", "2",
+        "--minimum-independent-non-event-sites-for-ci", "2",
     ])
 
     assert code == 0

@@ -463,16 +463,36 @@ def _confusion_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _cluster_bootstrap_intervals(
-    rows: list[dict[str, Any]], *, replicates: int, seed: int, minimum_sites: int,
+    rows: list[dict[str, Any]],
+    *,
+    replicates: int,
+    seed: int,
+    minimum_sites: int,
+    minimum_positive_sites: int = 5,
+    minimum_non_event_sites: int = 5,
+    minimum_defined_fraction: float = 0.95,
 ) -> dict[str, Any]:
     sites = sorted({row["site_id"] for row in rows})
+    positive_sites = {row["site_id"] for row in rows if row["event_label"]}
+    non_event_sites = {row["site_id"] for row in rows if not row["event_label"]}
+    base = {
+        "independent_sites": len(sites),
+        "independent_positive_event_sites": len(positive_sites),
+        "independent_non_event_sites": len(non_event_sites),
+        "minimum_sites_required": minimum_sites,
+        "minimum_positive_event_sites_required": minimum_positive_sites,
+        "minimum_non_event_sites_required": minimum_non_event_sites,
+        "minimum_defined_bootstrap_fraction_required": minimum_defined_fraction,
+        "intervals": {name: None for name in METRIC_NAMES},
+        "defined_replicates": {name: 0 for name in METRIC_NAMES},
+        "defined_replicate_fraction": {name: 0.0 for name in METRIC_NAMES},
+        "withheld_metrics": list(METRIC_NAMES),
+    }
     if len(sites) < minimum_sites:
-        return {
-            "status": "INSUFFICIENT_INDEPENDENT_SITES",
-            "independent_sites": len(sites),
-            "minimum_sites_required": minimum_sites,
-            "intervals": {name: None for name in METRIC_NAMES},
-        }
+        return {"status": "INSUFFICIENT_INDEPENDENT_SITES", **base}
+    if len(positive_sites) < minimum_positive_sites or len(non_event_sites) < minimum_non_event_sites:
+        return {"status": "INSUFFICIENT_INDEPENDENT_CLASS_SITES", **base}
+
     grouped = {site: [row for row in rows if row["site_id"] == site] for site in sites}
     rng = np.random.default_rng(seed)
     sampled: dict[str, list[float]] = {name: [] for name in METRIC_NAMES}
@@ -484,22 +504,31 @@ def _cluster_bootstrap_intervals(
             value = metrics[name]
             if value is not None and math.isfinite(value):
                 sampled[name].append(float(value))
+
+    defined_counts = {name: len(values) for name, values in sampled.items()}
+    defined_fractions = {name: count / replicates for name, count in defined_counts.items()}
+    withheld = [
+        name for name in METRIC_NAMES
+        if defined_fractions[name] < minimum_defined_fraction
+    ]
     intervals = {
         name: (
             [float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5))]
-            if values else None
+            if values and defined_fractions[name] >= minimum_defined_fraction else None
         )
         for name, values in sampled.items()
     }
     return {
-        "status": "COMPUTED_SITE_CLUSTER_BOOTSTRAP",
-        "independent_sites": len(sites),
-        "minimum_sites_required": minimum_sites,
+        "status": "COMPUTED_SITE_CLUSTER_BOOTSTRAP" if not withheld else "INSUFFICIENT_DEFINED_BOOTSTRAP_REPLICATES",
+        **{key: value for key, value in base.items() if key not in {"intervals", "defined_replicates", "defined_replicate_fraction", "withheld_metrics"}},
         "replicates": replicates,
         "seed": seed,
         "prng": "numpy.default_rng/PCG64",
         "intervals": intervals,
-        "interpretation": "95% site-cluster bootstrap intervals; resampling cases as independent pixels is forbidden.",
+        "defined_replicates": defined_counts,
+        "defined_replicate_fraction": defined_fractions,
+        "withheld_metrics": withheld,
+        "interpretation": "Percentile intervals use site-cluster resampling. A metric interval is withheld unless at least 95% of requested replicates define that metric; sites, not pixels, are resampled.",
     }
 
 
@@ -512,6 +541,8 @@ def evaluate_heldout_events(
     bootstrap_replicates: int = 2000,
     bootstrap_seed: int = 260826,
     minimum_independent_sites_for_ci: int = 5,
+    minimum_independent_positive_sites_for_ci: int = 5,
+    minimum_independent_non_event_sites_for_ci: int = 5,
 ) -> dict[str, Any]:
     """Score only held-out test cases against a content-addressed frozen policy.
 
@@ -582,6 +613,18 @@ def evaluate_heldout_events(
         raise EventValidationError("BOOTSTRAP_REPLICATES_MUST_BE_AT_LEAST_100")
     if isinstance(minimum_independent_sites_for_ci, bool) or not isinstance(minimum_independent_sites_for_ci, int) or minimum_independent_sites_for_ci < 2:
         raise EventValidationError("MINIMUM_INDEPENDENT_SITES_INVALID")
+    if (
+        isinstance(minimum_independent_positive_sites_for_ci, bool)
+        or not isinstance(minimum_independent_positive_sites_for_ci, int)
+        or minimum_independent_positive_sites_for_ci < 2
+    ):
+        raise EventValidationError("MINIMUM_INDEPENDENT_POSITIVE_SITES_INVALID")
+    if (
+        isinstance(minimum_independent_non_event_sites_for_ci, bool)
+        or not isinstance(minimum_independent_non_event_sites_for_ci, int)
+        or minimum_independent_non_event_sites_for_ci < 2
+    ):
+        raise EventValidationError("MINIMUM_INDEPENDENT_NON_EVENT_SITES_INVALID")
 
     if not isinstance(prediction_payload, dict) or prediction_payload.get("schema_version") != PREDICTION_SCHEMA:
         raise EventValidationError("PREDICTION_SCHEMA_UNSUPPORTED")
@@ -707,6 +750,8 @@ def evaluate_heldout_events(
         replicates=bootstrap_replicates,
         seed=bootstrap_seed,
         minimum_sites=minimum_independent_sites_for_ci,
+        minimum_positive_sites=minimum_independent_positive_sites_for_ci,
+        minimum_non_event_sites=minimum_independent_non_event_sites_for_ci,
     )
     return {
         "schema_version": "know-place-event-evaluation/1.0",
@@ -779,6 +824,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bootstrap-replicates", type=int, default=2000)
     parser.add_argument("--bootstrap-seed", type=int, default=260826)
     parser.add_argument("--minimum-independent-sites-for-ci", type=int, default=5)
+    parser.add_argument("--minimum-independent-positive-sites-for-ci", type=int, default=5)
+    parser.add_argument("--minimum-independent-non-event-sites-for-ci", type=int, default=5)
     args = parser.parse_args(argv)
 
     try:
@@ -794,6 +841,8 @@ def main(argv: list[str] | None = None) -> int:
             bootstrap_replicates=args.bootstrap_replicates,
             bootstrap_seed=args.bootstrap_seed,
             minimum_independent_sites_for_ci=args.minimum_independent_sites_for_ci,
+            minimum_independent_positive_sites_for_ci=args.minimum_independent_positive_sites_for_ci,
+            minimum_independent_non_event_sites_for_ci=args.minimum_independent_non_event_sites_for_ci,
         )
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(
