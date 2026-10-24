@@ -4,7 +4,18 @@ This guide applies only to branch `feat/know-place-analysis`. Do not run the exi
 
 ## Current phase
 
-The pure kernels, strict raw-HDF5 reader, metadata-cube interpolation, five-pair orchestration and synthetic integration tests are implemented. The supplied paper and Supplementary Information now establish the crown bounds and exact five author granule IDs. This remains an **exploratory paper-method path**, not a validated landslide detector: the historical raw replay's first pair is X05026 rather than author P05023, and the separate Zenodo code/output archive is now hash-verified. However, source HDF5 payloads are not in the archive and exact author-method parity has not been implemented; this remains an exploratory path, not a validated detector.
+The strict raw-HDF5 reader, author-exact acquisition runner, source-byte hash/grid checks, generic AOI/date measurement workflow, workflow dispatcher, and six-site benchmark registry are now implemented on `feat/know-place-analysis`. Live NASA CMR metadata resolves all five exact author P05023 identities and HDF5 access routes. However, this follow-up has **not** downloaded the five raw author HDF5 payloads, so source SHA-256 pins remain 0/5; author-method parity and paper reproduction remain blocked. The output is an exploratory displacement measurement—not a validated landslide detector or operational early-warning model.
+
+## Run via GitHub Actions (current entry point)
+
+The branch-specific copy of `.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` shares a workflow path already present on the default branch. From **Actions**, select **SARGuardian AOI WKT E2E (safe branch dispatcher)**, choose branch `feat/know-place-analysis` in the **Run workflow** branch selector, then choose one profile:
+
+- `author-exact-p05023`: exact five author pairs. Put `[run-know-place]` in the consent input. Defaults: geometry height 5151 m (exploratory constant; not a DEM/datum correction), 1000 control draws, seed 260826. Earthdata and Drive secrets must be configured.
+- `generic-aoi-date`: enter the WGS84 AOI polygon and inclusive dates. With `execute_downloads=false`, it produces a catalog/series plan without downloading raw GOFF. Set true only when you intend to download; the same exact consent marker and required secrets are enforced.
+
+The dispatcher and child workflows both check consent before raw-source acquisition. The generic path is exploratory measurement, not a calibrated movement/hazard detector. The existing `main` dispatcher has not been edited.
+
+**Latest isolated validation:** [run 40102852943](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40102852943), branch commit `b1768ba0ab6d8b19e0803e88a19f9d494339b867): 213 tests passed, eight workflow YAML files parsed, and actionlint v1.7.12 checksum/semantic validation passed. This validation did not download GOFF payloads.
 
 ## Five-pair product candidates observed in Dynamic AOI Run 39942529304
 
@@ -18,7 +29,7 @@ The table below records the **historical raw replay inputs** from Dynamic AOI Ru
 | 2026-07-26 → 2026-08-19 | `NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001` | GOFF-015 |
 | 2026-08-19 → 2026-08-31 | `NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001` | GOFF-019 |
 
-The author series uses ascending T098, L-SAR HH, PR GOFF layer2 products. The archived TableS1 manifest confirms five exact P05023 IDs, but the archive does not contain their raw HDF5 bytes. The isolated live-catalog check confirmed four trusted collection routes and returned NOT_FOUND for the first P05023 pair. Do not relabel historical X05026 as P05023; keep raw replay blocked until exact source bytes are pinned.
+The author series uses ascending T098, L-SAR HH, PR GOFF layer2 products. The archived Table S1 manifest and latest collection-scoped CMR evidence confirm all five exact P05023 identities and data URLs. The archive does not contain their raw HDF5 bytes, and this session has not downloaded them or pinned any source SHA-256 hashes. Do not relabel historical X05026 as P05023; keep paper-reproduction status blocked until exact bytes and method parity are verified.
 
 ## Reference box and crown
 
