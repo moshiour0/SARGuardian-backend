@@ -91,14 +91,40 @@ def test_repository_inventory_round_trips_to_source_hash_after_git_newline_norma
     assert source["RGIId"] == "RGI60-15.04173"
 
 
-def test_exported_field_crown_mask_count_discrepancy_remains_explicit() -> None:
+def test_exported_field_displacement_and_R_crown_counts_are_separate_estimands() -> None:
     fixture = _read_json(FIXTURE_PATH)
+    assert fixture["schema_version"] == "know-place-author-archive-audit/1.1"
     diagnostic = fixture["exported_field_crown_mask_diagnostic"]
-    assert diagnostic["valid_crown_cells_from_exported_geotiff_bounds"] == [283, 294, 296, 292, 195]
-    assert diagnostic["published_table_s4_valid_crown_cells"] == [302, 299, 302, 298, 202]
-    assert diagnostic["difference_export_minus_published"] == [-19, -5, -6, -6, -7]
-    assert diagnostic["exact_pixel_mask_parity"] is False
-    assert diagnostic["gate"] == "BLOCKED_CROWN_PIXEL_MASK_PARITY"
+
+    displacement = diagnostic["count_estimands"]["displacement_valid_crown_cells"]
+    assert displacement["source_table"] == "tables/nisar_pot_series.json"
+    assert displacement["source_key"] == "n"
+    assert displacement["exported_geotiff_bounds_counts"] == [283, 294, 296, 292, 195]
+    assert displacement["published_counts"] == [283, 294, 296, 292, 195]
+    assert displacement["difference_export_minus_published"] == [0, 0, 0, 0, 0]
+    assert displacement["count_parity"] == "PASS_ON_EXPORTED_FIELD_DIAGNOSTIC"
+
+    r_valid = diagnostic["count_estimands"]["R_valid_crown_cells"]
+    assert r_valid["source_table"] == "tables/polygon_null.json"
+    assert r_valid["source_key"] == "n_px"
+    assert r_valid["exported_geotiff_bounds_counts"] == [302, 299, 302, 298, 202]
+    assert r_valid["published_counts"] == [302, 299, 302, 298, 202]
+    assert r_valid["difference_export_minus_published"] == [0, 0, 0, 0, 0]
+    assert r_valid["count_parity"] == "PASS_ON_EXPORTED_FIELD_DIAGNOSTIC"
+
+    pair_rows = diagnostic["per_pair_results"]
+    assert len(pair_rows) == 5
+    assert [row["displacement_valid_crown_cells_export"] for row in pair_rows] == displacement["exported_geotiff_bounds_counts"]
+    assert [row["R_valid_crown_cells_export"] for row in pair_rows] == r_valid["exported_geotiff_bounds_counts"]
+    assert [row["finite_R_mask_equals_archived_band3"] for row in pair_rows] == [True] * 5
+    assert max(row["max_absolute_R_error"] for row in pair_rows) < diagnostic["R_band_crosscheck"]["comparison_tolerance"]
+    assert diagnostic["R_band_crosscheck"]["finite_masks_equal_for_all_five_fields"] is True
+    assert diagnostic["R_band_crosscheck"]["result"] == "PASS_STORED_R_BAND_MATCHES_D_E_D_N"
+
+    # Equal aggregate counts on exported TIFFs do not prove pixelwise parity on the original GOFF grid.
+    assert diagnostic["exact_source_grid_pixel_mask_parity"] == "UNVERIFIED"
+    assert diagnostic["gate"] == "BLOCKED_SOURCE_GRID_PIXEL_MASK_PARITY_UNVERIFIED"
+    assert "no cause is inferred" in diagnostic["remaining_uncertainty"]
 
 
 def test_author_method_parity_blockers_and_nonhazard_status_are_explicit() -> None:
