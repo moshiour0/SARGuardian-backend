@@ -228,3 +228,11 @@
 - [ ] Run the new author-compatible profile against the five pinned P05023 HDF5 files on an explicitly consented manual dispatch; examine all 65 comparisons and the independently generated site-series CSV/NPZs. The exact consent input [run-know-place] has not been given in this turn.
 - [ ] Complete the independent full-footprint pixelwise screen comparison and terrain/vertical-reference sensitivity. No hazard-detection performance claim.
 - Global paper reproduction remains unverified until the consented source-level run actually matches; hazard detection remains NOT_EVALUATED. Main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886; no merge or write to main.
+
+
+## Processed-field site-series cross-check — 2026-10-25
+
+- [x] Independently recomputed five site-series rows from the archive's five cropped field TIFFs and compared exact valid-crown counts plus displacement median, daily rate, P1 crown R and P1 scene R to the original tables: **25/25 matches, zero mismatches**. Evidence: docs/know-place/evidence/AUTHOR_ARCHIVE_SITE_SERIES_REPLAY_20261025.md.
+- [x] Separate post-hoc polygon-null replay remains 45/45 at stored precision: docs/know-place/evidence/AUTHOR_ARCHIVE_POLYGON_NULL_REPLAY_20261025.md. These checks are from processed fields, not direct replay from raw GOFF.
+- [ ] Run raw-source author-compatible site series on the exact five P05023 HDF5 files and require 65/65 Table S4 metric comparisons before marking the site-series table matched. This is not authorized in the absence of explicit [run-know-place] consent.
+- [ ] Keep full-footprint screening raster parity and hazard-detection validation as separate incomplete gates.
