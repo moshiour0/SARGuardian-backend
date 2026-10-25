@@ -256,7 +256,7 @@ def build_author_map_report(artifact_root: str | Path, source_run_id: int) -> di
         "schema_version": "know-place-author-map-adapter/1.0",
         "source_run_id": source_run_id,
         "source_backend_commit": manifest.get("repository_commit"),
-        "source_manifest_sha256": manifest.get("source_manifest_sha256"),
+        "source_manifest_sha256": _sha256_bytes((root / "author-exact-source-manifest.json").read_bytes()),
         "analysis_report_sha256": _sha256_bytes((root / "know-place-analysis-report.json").read_bytes()),
         "derived_bundle_sha256": _sha256_bytes(archive_path.read_bytes()),
         "paper_reproduction_status": analysis.get("paper_reproduction_status"),
