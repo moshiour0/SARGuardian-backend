@@ -459,3 +459,15 @@ See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated dec
 - [x] Push replay gate [run 40224867157](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867157) skipped the raw analysis job because no `[run-know-place]` marker was present.
 - [ ] Browser/device smoke test with a newly generated arbitrary-AOI result bundle; not performed in this patch. Confirm relative GeoTIFF links work from the fully extracted artifact directory.
 - [ ] Full scientific measurement, paper-method reproduction and event-level detector skill are separate gates; `HAZARD_DETECTION_STATUS=NOT_EVALUATED` remains unchanged.
+
+
+## AOI workflow failure correction — 2026-10-26
+
+- [x] Root-caused catalog maturity/query, polarization normalization and release-variant selection failures from live Actions logs.
+- [x] Add exact release allowlist to request schema/hash/manifest and workflow inputs; blank selection never silently resolves an ambiguous release.
+- [x] Add regression tests for request release IDs and filtering X05026 when P05023 is explicitly selected.
+- [x] Live ASF dry-run smoke test [run 40228894456](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40228894456): `CATALOG_AND_SERIES_PLAN_READY`, 8 eligible PROVISIONAL candidates, 4 selected P05023 pairs; offline and interactive map HTML outputs present.
+- [x] CI passed: 294 tests plus Python compile, workflow YAML, actionlint, live ASF identity and CMR link gates.
+- [x] Raw replay consent gate [run 40228894462](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40228894462) skipped raw five-pair processing; no raw HDF5 downloaded by the fix.
+- [ ] Browser/device visual smoke test and real displacement measurement for the newly selected generic AOI remain pending; catalog dry-run is not a scientific measurement.
+- [ ] Full paper reproduction remains partial and hazard detection remains `NOT_EVALUATED`.
