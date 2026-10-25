@@ -20,6 +20,66 @@ PAIRS = (
  ("2026-08-19/2026-08-31","20260819__20260831",195,202),
 )
 
+AUTHOR_SOURCE_COLLECTION_ID = "C2854341702-ASF"
+AUTHOR_SOURCE_COLLECTION_NAME = "NISAR_L2_GOFF_PROVISIONAL_V1"
+AUTHOR_SOURCE_MATURITY = "PROVISIONAL"
+AUTHOR_SOURCE_EPSG = 32645
+AUTHOR_SOURCE_WIDTH = 4311
+AUTHOR_SOURCE_HEIGHT = 4230
+AUTHOR_SOURCE_GRID = {
+    "grid_epsg": AUTHOR_SOURCE_EPSG,
+    "grid_width": AUTHOR_SOURCE_WIDTH,
+    "grid_height": AUTHOR_SOURCE_HEIGHT,
+    "grid_x_min_m": 126760.0,
+    "grid_x_max_m": 471560.0,
+    "grid_y_min_m": 3008920.0,
+    "grid_y_max_m": 3347240.0,
+    "grid_x_posting_m": 80.0,
+    "grid_y_posting_m": -80.0,
+    "polarization": "HH",
+    "layer": "layer2",
+}
+# Frozen identity and byte-integrity ledger for the five exact author-published
+# products. The hashes are retained evidence, not a claim that deleted raw bytes
+# were re-read by this audit.
+AUTHOR_EXPECTED_PRODUCTS = (
+    {
+        "interval": "2026-06-20/2026-07-02",
+        "cmr_id": "G4248299988-ASF",
+        "filename": "NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001.h5",
+        "bytes": 1090519040,
+        "sha256": "d3670f0504576feac52f75a7e8f0ff12f5f5c2ef676a0329a16f66cb91300f05",
+    },
+    {
+        "interval": "2026-07-02/2026-07-14",
+        "cmr_id": "G4261120661-ASF",
+        "filename": "NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5",
+        "bytes": 1090519040,
+        "sha256": "8a947f7fa4458afb564431514f36950a89e004d79e6f0e6bfb7461f7e867123c",
+    },
+    {
+        "interval": "2026-07-14/2026-07-26",
+        "cmr_id": "G4264302811-ASF",
+        "filename": "NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001.h5",
+        "bytes": 1092616192,
+        "sha256": "ac3eb50eb5c35cb70769b44492398d6b212e880b70558d4d7d2376c5d8e49313",
+    },
+    {
+        "interval": "2026-07-26/2026-08-19",
+        "cmr_id": "G4286855543-ASF",
+        "filename": "NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001.h5",
+        "bytes": 1101004800,
+        "sha256": "45e4641da04f235941b1e88262961e9e62ca05ce3ceb35fdac452649b13e416f",
+    },
+    {
+        "interval": "2026-08-19/2026-08-31",
+        "cmr_id": "G4296814366-ASF",
+        "filename": "NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001.h5",
+        "bytes": 1098907648,
+        "sha256": "4dbe3d82c2e03422abf9fc3ead2ad70c0734a80ec52cad87cd6659716fce5371",
+    },
+)
+
 class CrownMaskAuditError(ValueError):
     """Raised when an archive cannot support an unambiguous audit."""
 
@@ -100,6 +160,134 @@ def _validate_wkt(v: Any, bounds: Sequence[float], label: str) -> None:
     w,s,e,n=map(float,bounds); expected=((w,s),(e,s),(e,n),(w,n),(w,s))
     if pts!=expected: raise CrownMaskAuditError(f"{label}_WKT_NOT_EXACT_PUBLISHED_RECTANGLE")
 
+
+def _validate_source_provenance(
+    source: dict[str, Any], source_manifest_bytes: bytes, cleanup: dict[str, Any]
+) -> None:
+    """Fail closed on source-row identity, bytes, grid, and raw-delete evidence."""
+    if (
+        source.get("author_release_id") != "P05023"
+        or source.get("collection_concept_id") != AUTHOR_SOURCE_COLLECTION_ID
+        or source.get("expected_collection_short_name") != AUTHOR_SOURCE_COLLECTION_NAME
+        or source.get("expected_maturity") != AUTHOR_SOURCE_MATURITY
+        or source.get("expected_intervals") != [p["interval"] for p in AUTHOR_EXPECTED_PRODUCTS]
+        or source.get("author_product_count") != 5
+        or source.get("exact_cmr_confirmed_count") != 5
+        or source.get("blocking_count") != 0
+        or source.get("status") != "PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED"
+        or source.get("source_sha256_count") != 5
+        or source.get("author_exact_source_sha256_count") != 5
+    ):
+        raise CrownMaskAuditError("AUTHOR_SOURCE_IDENTITY_MANIFEST_INVALID")
+
+    if (
+        cleanup.get("source_manifest_sha256") != sha256_bytes(source_manifest_bytes)
+        or cleanup.get("source_manifest_verified") is not True
+    ):
+        raise CrownMaskAuditError("SOURCE_MANIFEST_RECEIPT_HASH_MISMATCH")
+
+    products = source.get("products")
+    if not isinstance(products, list) or len(products) != len(AUTHOR_EXPECTED_PRODUCTS):
+        raise CrownMaskAuditError("AUTHOR_SOURCE_IDENTITY_MANIFEST_INVALID")
+
+    seen_hashes: set[str] = set()
+    for index, (product, expected) in enumerate(zip(products, AUTHOR_EXPECTED_PRODUCTS, strict=True)):
+        interval = expected["interval"]
+        start, end = interval.split("/")
+        filename = expected["filename"]
+        stem = filename[:-3]
+        identity = product.get("identity_validation")
+        checks = identity.get("checks") if isinstance(identity, dict) else None
+        required_checks = {
+            "filename": filename,
+            "granule_stem": stem,
+            "release_id": "P05023",
+            "reference_start_date": start,
+            "secondary_start_date": end,
+            "epsg": AUTHOR_SOURCE_EPSG,
+        }
+        if (
+            product.get("interval") != interval
+            or product.get("release_id") != "P05023"
+            or product.get("collection_concept_id") != AUTHOR_SOURCE_COLLECTION_ID
+            or product.get("cmr_granule_concept_id") != expected["cmr_id"]
+            or product.get("granule_name") != stem
+            or product.get("source_filename") != filename
+            or product.get("download_url_host") != "nisar.asf.earthdatacloud.nasa.gov"
+            or product.get("remote_content_length_bytes") != expected["bytes"]
+            or product.get("source_bytes") != expected["bytes"]
+            or product.get("source_sha256") != expected["sha256"]
+            or not isinstance(product.get("source_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", product.get("source_sha256", "")) is None
+            or product.get("download_status") != "PASS"
+            or product.get("hdf5_container_valid") is not True
+            or product.get("byte_count_validation") != "PASS"
+            or product.get("content_validation_status") != "PASS"
+            or product.get("grid_validation_status") != "PASS"
+            or product.get("polarization") != "HH"
+            or product.get("layer") != "layer2"
+            or not isinstance(identity, dict)
+            or identity.get("status") != "PASS"
+            or identity.get("expected_granule_name_without_extension") != stem
+            or identity.get("expected_source_filename_with_extension") != filename
+            or identity.get("actual_identity_filename") != filename
+            or identity.get("mismatch_fields") != []
+            or not isinstance(checks, dict)
+            or any(
+                not isinstance(checks.get(name), dict)
+                or checks[name].get("passed") is not True
+                or checks[name].get("expected") != value
+                or checks[name].get("actual") != value
+                for name, value in required_checks.items()
+            )
+            or any(product.get(key) != value for key, value in AUTHOR_SOURCE_GRID.items())
+        ):
+            raise CrownMaskAuditError(f"AUTHOR_SOURCE_ROW_PROVENANCE_INVALID:{interval}")
+        if not isinstance(product.get("validated_at_utc"), str) or not product["validated_at_utc"].strip():
+            raise CrownMaskAuditError(f"AUTHOR_SOURCE_ROW_PROVENANCE_INVALID:{interval}")
+        seen_hashes.add(product["source_sha256"])
+
+    if len(seen_hashes) != 5:
+        raise CrownMaskAuditError("AUTHOR_SOURCE_ROWS_NOT_UNIQUE")
+
+    deleted = cleanup.get("deleted_sources")
+    if (
+        cleanup.get("expected_source_count") != 5
+        or cleanup.get("source_files_hash_verified_before_delete") != 5
+        or cleanup.get("raw_hdf5_files_before_delete") != 5
+        or cleanup.get("raw_hdf5_deleted_count") != 5
+        or cleanup.get("raw_hdf5_files_remaining_count") != 0
+        or cleanup.get("raw_hdf5_remaining_count", 0) != 0
+        or cleanup.get("raw_hdf5_remaining") != []
+        or cleanup.get("raw_hdf5_uploaded") is not False
+        or cleanup.get("raw_hdf5_deleted_after_verified_drive_retention") is not True
+        or cleanup.get("raw_cleanup_evidence_is_post_delete") is not True
+        or cleanup.get("raw_directory_removed") is not True
+        or not isinstance(deleted, list)
+        or len(deleted) != 5
+        or not isinstance(cleanup.get("drive_derived_bundle_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", cleanup.get("drive_derived_bundle_sha256", "")) is None
+        or not isinstance(cleanup.get("drive_derived_bundle_bytes"), int)
+        or cleanup.get("drive_derived_bundle_bytes", 0) <= 0
+        or not cleanup.get("drive_derived_bundle_file_id")
+        or not cleanup.get("drive_upload_receipt_copy_id")
+    ):
+        raise CrownMaskAuditError("RAW_SOURCE_DELETE_RECEIPT_INVALID")
+
+    for product, receipt, expected in zip(products, deleted, AUTHOR_EXPECTED_PRODUCTS, strict=True):
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("source_filename") != expected["filename"]
+            or receipt.get("source_bytes") != expected["bytes"]
+            or receipt.get("source_sha256") != expected["sha256"]
+            or receipt.get("source_filename") != product.get("source_filename")
+            or receipt.get("source_bytes") != product.get("source_bytes")
+            or receipt.get("source_sha256") != product.get("source_sha256")
+            or receipt.get("deleted") is not True
+        ):
+            raise CrownMaskAuditError("RAW_SOURCE_DELETE_RECEIPT_MISMATCH")
+
+
 def audit_crown_masks(run_artifact: str | Path, author_archive: str | Path) -> dict[str,Any]:
     runp,authp=Path(run_artifact),Path(author_archive)
     if not runp.is_file() or not authp.is_file(): raise CrownMaskAuditError("INPUT_ARCHIVE_MISSING")
@@ -121,10 +309,8 @@ def audit_crown_masks(run_artifact: str | Path, author_archive: str | Path) -> d
             "author-exact-analysis-status.json","author-raw-site-series-report.json"))
         _validate_wkt(inputs.get("crown_wkt"),CROWN,"CROWN")
         _validate_wkt(inputs.get("reference_box_wkt"),BOX,"REFERENCE_BOX")
-        prods=source.get("products",[])
-        if (len(prods)!=5 or source.get("source_sha256_count")!=5 or source.get("author_exact_source_sha256_count")!=5
-            or source.get("author_release_id")!="P05023" or any(p.get("release_id")!="P05023" for p in prods)):
-            raise CrownMaskAuditError("AUTHOR_SOURCE_IDENTITY_MANIFEST_INVALID")
+        source_manifest_bytes = rz.read("author-exact-source-manifest.json")
+        _validate_source_provenance(source, source_manifest_bytes, cleanup)
         if status.get("status")!="OUTPUTS_WRITTEN" or status.get("analysis_metrics_complete") is not True:
             raise CrownMaskAuditError("ANALYSIS_OUTPUT_STATUS_NOT_PASS")
         if (cleanup.get("status")!="PASS" or cleanup.get("raw_hdf5_deleted_count")!=5
