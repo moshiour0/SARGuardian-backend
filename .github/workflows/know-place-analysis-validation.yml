@@ -262,6 +262,7 @@ jobs:
               "product_selection": {
                   "allowed_maturities": ["PROVISIONAL"],
                   "preferred_granules": [],
+                  "allowed_release_ids": ["P05023"],
                   "track": "098",
                   "direction": "A",
               },
@@ -296,6 +297,11 @@ jobs:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_MUST_NOT_COMPUTE_MEASUREMENTS")
           if int(result.get("source_candidates",0))<1:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_NO_PROVISIONAL_CANDIDATES")
+          pairs=result.get("pairwise_series_plan",{}).get("pairs",[])
+          if not pairs:
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_NO_SELECTED_PAIRS")
+          if any(pair.get("release_id")!="P05023" for pair in pairs):
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_SELECTED_RELEASE_MISMATCH")
           if catalog.get("query",{}).get("short_name_filter")!=["NISAR_L2_GOFF_PROVISIONAL_V1"]:
               raise SystemExit("ERROR=LIVE_AOI_COLLECTION_FILTER_NOT_RECORDED")
           if any(row.get("maturity")!="PROVISIONAL" for row in catalog.get("candidates",[])):
@@ -307,6 +313,7 @@ jobs:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_SOURCE_EVIDENCE_INVALID")
           print("LIVE_ARBITRARY_AOI_CATALOG_DRY_RUN=PASS")
           print("PROVISIONAL_CANDIDATES={}".format(result["source_candidates"]))
+          print("SELECTED_P05023_PAIRS={}".format(len(pairs)))
           print("INTERACTIVE_MAP_OUTPUT=PASS")
           print("RAW_HDF5_DOWNLOADS=0")
           print("MEASUREMENT_STATUS=NOT_RUN_DRY_RUN")

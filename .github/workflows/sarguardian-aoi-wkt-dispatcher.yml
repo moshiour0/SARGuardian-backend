@@ -76,6 +76,11 @@ on:
           - A
           - D
         default: A
+      allowed_release_ids:
+        description: "Generic mode: optional comma-separated exact release IDs. Blank does not auto-select if same-interval release variants conflict."
+        required: false
+        default: ""
+        type: string
       reference_wkt:
         description: "Optional stable reference polygon; blank uses a 2 km local context (stability is assumed, not guaranteed)"
         required: false
@@ -207,6 +212,7 @@ jobs:
       polarization: ${{ inputs.polarization }}
       track: ${{ inputs.track }}
       direction: ${{ inputs.direction }}
+      allowed_release_ids: ${{ inputs.allowed_release_ids }}
       reference_wkt: ${{ inputs.reference_wkt }}
       geometry_height_m: ${{ inputs.geometry_height_m }}
       coherence_neighbours: ${{ inputs.coherence_neighbours }}

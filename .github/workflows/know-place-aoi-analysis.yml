@@ -74,6 +74,11 @@ on:
           - A
           - D
         default: ANY
+      allowed_release_ids:
+        description: "Optional comma-separated exact release IDs (e.g. P05023). Blank keeps all; ambiguous variants fail safe rather than auto-substitute."
+        required: false
+        default: ""
+        type: string
       reference_wkt:
         description: "Optional reference/background polygon WKT; blank uses a 2 km local-context component-median reference"
         required: false
@@ -126,6 +131,11 @@ on:
       direction:
         required: false
         default: ANY
+        type: string
+      allowed_release_ids:
+        description: "Optional comma-separated exact release IDs (e.g. P05023). Blank keeps all; ambiguous variants fail safe rather than auto-substitute."
+        required: false
+        default: ""
         type: string
       reference_wkt:
         required: false
@@ -187,6 +197,7 @@ jobs:
           POLARIZATION: ${{ inputs.polarization }}
           TRACK: ${{ inputs.track }}
           DIRECTION: ${{ inputs.direction }}
+          ALLOWED_RELEASE_IDS: ${{ inputs.allowed_release_ids }}
           REFERENCE_WKT: ${{ inputs.reference_wkt }}
           CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
         run: |
@@ -199,6 +210,7 @@ jobs:
           selection = {
               "allowed_maturities": ["PROVISIONAL"],
               "preferred_granules": [],
+              "allowed_release_ids": [item.strip().upper() for item in os.environ.get("ALLOWED_RELEASE_IDS", "").split(",") if item.strip()],
           }
           if os.environ["TRACK"].strip().upper() != "ANY":
               selection["track"] = os.environ["TRACK"].strip()
