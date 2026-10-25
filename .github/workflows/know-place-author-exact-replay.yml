@@ -318,6 +318,23 @@ jobs:
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           PY
 
+      - name: Generate self-contained author-exact evidence dashboard
+        id: dashboard
+        if: always() && steps.analysis.outcome == 'success' && steps.credentials.outputs.secrets_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.know_place.author_dashboard --result-root "$DERIVED_ROOT" --output "$DERIVED_ROOT/dashboard.html"
+          test -s "$DERIVED_ROOT/dashboard.html"
+          {
+            echo "## Author-exact evidence dashboard"
+            echo
+            echo "Generated `dashboard.html` from the run's saved site-series arrays and footprint GeoTIFFs."
+            echo "The HTML embeds the scientific previews; external satellite-context images are linked to their publishers."
+            echo "Paper reproduction remains partial while displacement-null and exact crown-geometry/method parity are unresolved."
+            echo "Hazard detection remains NOT_EVALUATED."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Write failure receipt if acquisition stops before derived evidence
         if: always()
         shell: bash
@@ -435,6 +452,7 @@ jobs:
           ANALYSIS_OUTCOME: ${{ steps.analysis.outcome }}
           FOOTPRINT_OUTCOME: ${{ steps.footprint.outcome }}
           FINAL_REPORT_OUTCOME: ${{ steps.final_report.outcome }}
+          DASHBOARD_OUTCOME: ${{ steps.dashboard.outcome }}
           SECRETS_READY: ${{ steps.credentials.outputs.secrets_ready }}
         run: |
           set -euo pipefail
@@ -452,6 +470,10 @@ jobs:
           fi
           if [[ "$FINAL_REPORT_OUTCOME" != "success" ]]; then
             echo "ERROR=AUTHOR_COMBINED_REPORT_UPDATE_FAILED_OR_SKIPPED"
+            exit 1
+          fi
+          if [[ "$DASHBOARD_OUTCOME" != "success" || ! -s "$DERIVED_ROOT/dashboard.html" ]]; then
+            echo "ERROR=AUTHOR_EVIDENCE_DASHBOARD_NOT_GENERATED"
             exit 1
           fi
           python - "$DERIVED_ROOT/author-exact-analysis-status.json" "$DERIVED_ROOT/know-place-analysis-report.json" "$DERIVED_ROOT/author-raw-site-series-report.json" "$DERIVED_ROOT/author-exact-source-manifest.json" "$DERIVED_ROOT/drive-upload-receipt.json" "$DERIVED_ROOT/drive-receipt-upload.json" "$DERIVED_ROOT/author-exact-raw-cleanup-receipt.json" "$DERIVED_ROOT/drive-cleanup-receipt-upload.json" "$DERIVED_ROOT/footprint/author-footprint-replay-report.json" <<'PY'
