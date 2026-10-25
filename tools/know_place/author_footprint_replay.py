@@ -109,6 +109,19 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _iso_date(compact_date: str) -> str:
+    """Convert screen-kernel YYYYMMDD dates to manifest/config ISO dates."""
+    if len(compact_date) != 8 or not compact_date.isdigit():
+        raise FootprintReplayError("EXPECTED_INTERVAL_DATE_NOT_YYYYMMDD")
+    return f"{compact_date[:4]}-{compact_date[4:6]}-{compact_date[6:]}"
+
+
+def _manifest_interval(interval: tuple[str, str]) -> str:
+    """Represent an expected pair in the acquisition manifest's ISO date format."""
+    reference_date, secondary_date = interval
+    return f"{_iso_date(reference_date)}/{_iso_date(secondary_date)}"
+
+
 def _validate_source_manifest(path: Path) -> dict[str, dict[str, Any]]:
     manifest = _read_json(path)
     if manifest.get("status") != "PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED":
@@ -119,7 +132,8 @@ def _validate_source_manifest(path: Path) -> dict[str, dict[str, Any]]:
         raise FootprintReplayError("SOURCE_DOWNLOAD_OR_HASH_COUNT_NOT_FIVE")
     if manifest.get("source_products_grid_validated") != 5:
         raise FootprintReplayError("SOURCE_GRID_VALIDATION_COUNT_NOT_FIVE")
-    if manifest.get("expected_intervals") != [f"{a}/{b}" for a, b in EXPECTED_INTERVALS]:
+    expected_manifest_intervals = [_manifest_interval(interval) for interval in EXPECTED_INTERVALS]
+    if manifest.get("expected_intervals") != expected_manifest_intervals:
         raise FootprintReplayError("SOURCE_MANIFEST_INTERVAL_ORDER_MISMATCH")
     products = manifest.get("products")
     if not isinstance(products, list) or len(products) != 5:
@@ -751,15 +765,14 @@ def run_author_footprint_replay(
     coefficient_result: dict[str, Any] | None = None
     reference_geometry_fingerprint: dict[str, Any] | None = None
     source_hashes: list[dict[str, Any]] = []
-    interval_list = [f"{a}/{b}" for a, b in EXPECTED_INTERVALS]
-
     for index, (item, interval) in enumerate(zip(products, EXPECTED_INTERVALS, strict=True)):
         interval_key = f"{interval[0]}__{interval[1]}"
-        source_row = manifest_rows[f"{interval[0]}/{interval[1]}"]
+        manifest_interval = _manifest_interval(interval)
+        source_row = manifest_rows[manifest_interval]
         source_path = Path(item["path"]).resolve()
         if source_path.name != source_row.get("source_filename"):
             raise FootprintReplayError(f"SOURCE_FILENAME_DOES_NOT_MATCH_MANIFEST:{interval_key}")
-        if item["reference_date"] != interval[0] or item["secondary_date"] != interval[1]:
+        if item["reference_date"] != _iso_date(interval[0]) or item["secondary_date"] != _iso_date(interval[1]):
             raise FootprintReplayError(f"SOURCE_PAIR_ORDER_MISMATCH:{interval_key}")
         raw = read_raw_goff(
             source_path, polarization="HH", layer=2,
