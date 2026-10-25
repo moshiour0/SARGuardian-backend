@@ -34,7 +34,7 @@ jobs:
           check-latest: false
 
       - name: Install only map-generation dependencies
-        run: python -m pip install --disable-pip-version-check numpy pyproj
+        run: python -m pip install --disable-pip-version-check numpy pyproj h5py
 
       - name: Build synthetic-only generic-AOI map fixture
         shell: bash
@@ -271,7 +271,7 @@ jobs:
             echo "## Generic AOI map browser smoke — synthetic fixture only"
             echo
             echo "- This run tests the generic-AOI map renderer using invented fixture values; it is not a scientific measurement."
-            echo "- Browser checks: see artifact `know-place-generic-aoi-synthetic-browser-smoke`."
+            echo "- Browser checks: see artifact know-place-generic-aoi-synthetic-browser-smoke."
             echo "- Raw HDF5 downloaded/read: no."
             echo "- Actual generic-AOI measurement bundle browser test: still pending."
             echo "- Hazard detection: NOT_EVALUATED."
