@@ -492,3 +492,14 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - RGI 7.0 is an inventory snapshot targeted around year 2000; Region 14 documentation describes GAMDAM/GGI18 replacement outlines mostly mapped from imagery around 2002. Such geometry can be used only as a separate independent inventory-outline ROI, not silently equated with the IIRS mask or January 2026 ice boundary.
 - Test contract forbids exact AOI/product/source hashes or scores from being inferred from these leads. No RGI archive, ITS_LIVE payload or NISAR raw payload was downloaded; no catalog query/scoring executed.
 - Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.md; ledger: docs/know-place/reference/multi_site_source_geometry_leads_20261025.json.
+
+
+## 36. 2026-10-25 — Crown audit integration + glacier geometry lead CI gate
+
+- Latest commit before this note: 55dc8c2b27e44531d0ebff65178397846cfd0131 on feat/know-place-analysis.
+- Isolated validation [run 40198744624](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744624) completed successfully: 266 tests passed in 5.70 s, all nine Know Place workflow YAML files plus the shared dispatcher parsed, pinned actionlint v1.7.12 passed, and both live ASF/CMR metadata-only catalog gates passed.
+- Matching push-triggered raw replay gate [run 40198744626](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744626) completed successfully with the five-pair analysis job SKIPPED because no explicit [run-know-place] consent was present. No new raw GOFF HDF5 was downloaded.
+- The crown-mask audit's new full-archive synthetic tests passed, including a deliberately corrupted mask failing closed. The actual retained Run #17 source artifact and pinned Zenodo archive were independently inspected earlier; saved masks match the published rectangle/source grid with zero XOR differences, while original author-vector parity remains unverified.
+- The Himalayan source-geometry lead ledger records the IIRS article's published velocity ranges and RGI7 lineage, without asserting exact AOIs or source IDs not present in public text. No RGI archive, NISAR/ITS_LIVE payload or geometry bytes were fetched; Samudra Tapu's RGI7 ID remains unresolved, and Bara Shigri's cited RGI7 ID remains literature-sourced but not source-archive verified.
+- Scientific state remains partial: exact displacement-null sampler still unresolved; vertical datum's effect on actual GOFF geometry coefficients cannot be quantified without the source geometry cube; paper reproduction remains partial and hazard detection remains NOT_EVALUATED.
+- Backend main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886; all work is isolated on feat/know-place-analysis.

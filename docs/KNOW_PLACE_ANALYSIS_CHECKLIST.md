@@ -377,3 +377,10 @@ Evidence: docs/know-place/evidence/CROWN_MASK_AUDIT_20261025.md and CROWN_MASK_A
 - [ ] Recover exact NISAR pair/granule metadata and pinned ITS_LIVE version before catalog scoring. No raw download without explicit consent.
 - [ ] Keep hazard detection NOT_EVALUATED until held-out multisite event/non-event evaluation is performed.
 Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.md and docs/know-place/reference/multi_site_source_geometry_leads_20261025.json.
+
+
+## Latest verified state — 2026-10-25
+
+- [x] Run isolated validation on source-geometry leads commit: [40198744624](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744624), 266 tests passed, all workflow YAML and pinned actionlint checks passed; live ASF/CMR metadata-only gates passed.
+- [x] Confirm linked raw-replay gate [40198744626](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744626) skipped analysis at the explicit consent guard. New raw NISAR GOFF downloads: 0.
+- [x] Confirm main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886.
