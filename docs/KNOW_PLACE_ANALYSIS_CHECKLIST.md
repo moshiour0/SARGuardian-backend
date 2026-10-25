@@ -448,3 +448,14 @@ The former statement that all 15 displacement-null values were numerically block
 - Engineering closure for the currently verified derived-only scope: **PASS**. Numeric Table S4 comparison: **95/95 at published precision**, with the displacement-null numeric reconstruction clearly labelled source-inspired. Scientific full-paper closure: **PARTIAL**, because original displacement-null generator/draw history, editable crown vector/golden mask, exact RGI 6.0 polygon overlay and original terrain byte provenance are not established. Hazard-detection skill remains NOT_EVALUATED; operational warning remains NOT_IMPLEMENTED.
 
 See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated decision and remaining release gates.
+
+
+## Interactive arbitrary-AOI result map — 2026-10-26
+
+- [x] Add a separate internet-enabled Leaflet/OpenStreetMap map output while preserving the offline dashboard.
+- [x] Generate the interactive map for both catalog-only dry runs and measurement reports; show AOI boundary, pair selection, approximate displacement preview, opacity/AOI controls, quality support, source provenance and native-grid GeoTIFF link.
+- [x] Explicitly add `tools/tests/test_know_place_interactive_map.py` to the isolated validation workflow's test list.
+- [x] CI [run 40224867156](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867156): 287 tests passed; compile, YAML parsing, actionlint and metadata-only catalog gates passed.
+- [x] Push replay gate [run 40224867157](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867157) skipped the raw analysis job because no `[run-know-place]` marker was present.
+- [ ] Browser/device smoke test with a newly generated arbitrary-AOI result bundle; not performed in this patch. Confirm relative GeoTIFF links work from the fully extracted artifact directory.
+- [ ] Full scientific measurement, paper-method reproduction and event-level detector skill are separate gates; `HAZARD_DETECTION_STATUS=NOT_EVALUATED` remains unchanged.

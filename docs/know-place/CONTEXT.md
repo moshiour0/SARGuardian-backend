@@ -1,9 +1,9 @@
 # Know Place Analysis — Living Context (read first)
 
-**Last reviewed:** 2026-10-24  
+**Last reviewed:** 2026-10-26  
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
-**Latest CI-validated code/test/workflow baseline:** `5354a344ce19eac652fa8102c790fce18e18ec13` (validation run [40115947045](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40115947045): 217 tests passed in 2.62 s)
+**Latest CI-validated code/test/workflow baseline:** `7d6e8789c2cc7bd93c2c1c8790e23f6f636b8039` (validation run [40224867156](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867156): 287 tests passed in 3.44 s; interactive-map tests explicitly included)
 **Main baseline (rechecked):** 2218dfeb73353080d8d94bd733d9e7bd9a848886  
 **Purpose:** durable handoff for future ChatGPT sessions. Read this file and the linked blueprint/checklist before continuing; update it whenever material code, evidence, decisions, validation status, or blockers change.
 
@@ -31,7 +31,7 @@
 ### Repository and validation baseline
 
 - Branch exists: feat/know-place-analysis.
-- Latest fully CI-validated code/test/workflow baseline: `5354a344ce19eac652fa8102c790fce18e18ec13`.
+- Latest fully CI-validated code/test/workflow baseline: `7d6e8789c2cc7bd93c2c1c8790e23f6f636b8039` (287 tests passed; see run 40224867156).
 - Previous baseline validation: [run 40040361146](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40040361146), with 141 tests passed before this correction.
 - **Latest CI-validated code/test/workflow baseline:** `5354a344ce19eac652fa8102c790fce18e18ec13` (validation: [run 40115947045](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40115947045)).
 - **Latest isolated validation:** [run 40115947045](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40115947045), commit `5354a344ce19eac652fa8102c790fce18e18ec13`. Result: **217 tests passed in 2.62 s**; all eight workflow YAML files parsed, pinned actionlint v1.7.12 checksum and semantic validation passed, and both jobs succeeded. This validates the corrected post-download paper-status contract.
@@ -503,3 +503,15 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - The Himalayan source-geometry lead ledger records the IIRS article's published velocity ranges and RGI7 lineage, without asserting exact AOIs or source IDs not present in public text. No RGI archive, NISAR/ITS_LIVE payload or geometry bytes were fetched; Samudra Tapu's RGI7 ID remains unresolved, and Bara Shigri's cited RGI7 ID remains literature-sourced but not source-archive verified.
 - Scientific state remains partial: exact displacement-null sampler still unresolved; vertical datum's effect on actual GOFF geometry coefficients cannot be quantified without the source geometry cube; paper reproduction remains partial and hazard detection remains NOT_EVALUATED.
 - Backend main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886; all work is isolated on feat/know-place-analysis.
+
+
+## 37. 2026-10-26 — Arbitrary-AOI interactive map integrated
+
+- Added `tools/know_place/interactive_map.py` and wired `tools/know_place/aoi_runner.py` to write `visuals/interactive-map.html` for catalog-only dry runs and for measurement-result rendering. The existing offline `visuals/dashboard.html` is retained.
+- The Leaflet/OpenStreetMap view presents the request's WGS84 AOI polygon, selectable acquisition pair, approximate downsampled displacement-magnitude overlay, overlay-opacity control, AOI visibility toggle, zoom-to-AOI, valid/total AOI pixels, median magnitude, interval-average rate, high-motion review count, source hash, CRS, scientific-status gates, and a relative link to the native-grid GeoTIFF.
+- The map requires an internet connection for Leaflet assets and OpenStreetMap tiles; the original dashboard remains offline-capable. The browser overlay is a presentation-only geographic warp of a small preview. The linked native-grid GeoTIFF and run manifest remain authoritative; do not report map pixels as independent measurements.
+- The generic AOI workflow supports a valid single-ring WGS84 polygon plus inclusive dates, but usable measurements still depend on actual NISAR GOFF catalogue/source coverage, product maturity/track and the selected time range. This is not a guarantee of worldwide or all-date coverage. Downloaded jobs retain the configured product-count guard and require the exact `[run-know-place]` marker plus Earthdata/Drive credentials.
+- Code commit: `00adc9b308360fec1314aba17f4fa8d4a1f34343`. Validation workflow/test-manifest correction: `7d6e8789c2cc7bd93c2c1c8790e23f6f636b8039`. Isolated CI [run 40224867156](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867156) passed **287 tests in 3.44 s**; Python compilation, workflow YAML parsing, actionlint checksum/semantic validation, and metadata-only ASF/CMR gates passed. The interactive-map test module is explicitly listed in CI; an earlier run's unchanged count of 281 was insufficient because it omitted the new test file.
+- Paired push-triggered replay gate [run 40224867157](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867157) passed its consent gate and **skipped** the expensive five-pair raw replay; no new raw GOFF HDF5 payloads were downloaded. Do not dispatch a source replay without the exact consent marker.
+- No generic AOI was downloaded or scientifically measured as part of this UI patch, and a full browser/device smoke test against a real result bundle has not been performed. The map component is code/test integrated, not yet end-to-end demonstrated on a newly selected arbitrary AOI. Paper-reproduction status remains partial; hazard detection remains `NOT_EVALUATED`; operational warning remains `NOT_IMPLEMENTED`.
+- Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`. All changes stay on `feat/know-place-analysis`.
