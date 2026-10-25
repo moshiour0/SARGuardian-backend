@@ -28,7 +28,9 @@ The computed crown medians round to the published crown values at two decimals. 
 
 Status: INDEPENDENT_METHOD_DERIVED_NOT_AUTHOR_SAMPLER_PARITY. Exact author-code parity remains unverifiable from the supplied archive. The 94.7th percentile is a published ranking against a null distribution, not a calibrated hazard probability or proof of early-warning capability.
 
-The next scientific iteration is a predeclared sensitivity matrix over plausible compact-region and acceptance choices, with no result-driven tuning. If further author source or draw-level output is found, compare it directly. Then verify the exact crown geometry/source-grid mask, and run a separately named vertical-datum sensitivity. Keep whole-paper status PARTIAL and hazard detection NOT_EVALUATED.
+The source archive inventory confirms the reproducibility gap: `tables/displacement_null.json` is present, while the distributed `code/` directory has no displacement-null generator or saved draw-level sample/rejection history. `code/polygon_null.py` is for directional-coherence R and is not the displacement sampler. The published method does not state the exact region-shape, PRNG/seed, or full rejection policy needed to reproduce the percentile from the archive alone.
+
+The next scientific iteration is to recover an author-supplied generator/draw file if available; otherwise preserve the independent reconstruction and policy sensitivity without tuning it to the published answer. Published-bounds rectangle/native-grid mask consistency is now verified on the retained artifact (five pairs; mask XOR=0), with area matching the paper's rounded 2.07 km². The original author editable vector/golden-mask comparison remains unverified. Run the separate terrain vertical-datum/source-level parity only when its required inputs and explicit authorization are available. Keep whole-paper status PARTIAL and hazard detection NOT_EVALUATED.
 
 ## Sensitivity diagnostic (not a search for a matching answer)
 
