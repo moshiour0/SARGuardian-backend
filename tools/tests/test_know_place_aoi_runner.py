@@ -21,6 +21,7 @@ from tools.know_place.aoi_runner import (
     _magnitude_gate_limit,
     _high_magnitude_review_flag,
     _maturity,
+    _polarization_codes,
     _product_name,
     _preview,
     _trusted_download_url,
@@ -80,6 +81,15 @@ def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch
     assert calls["intersectsWith"].startswith("POLYGON ((")
     assert calls["mainBandPolarization"] == "HH"
     assert all(row["decision"] == "ELIGIBLE_CATALOG_CANDIDATE" for row in manifest["candidates"])
+
+def test_polarization_codes_normalize_dual_pol_delimiters_without_substring_matches():
+    assert _polarization_codes("HH") == {"HH"}
+    assert _polarization_codes("HH+HV") == {"HH", "HV"}
+    assert _polarization_codes("HH/HV") == {"HH", "HV"}
+    assert _polarization_codes("HH-HV") == {"HH", "HV"}
+    assert _polarization_codes("HH, HV") == {"HH", "HV"}
+    assert _polarization_codes("VH only") == {"VH"}
+    assert _polarization_codes("unknown") == set()
 
 def test_catalog_excludes_unexpected_product_type_without_aborting(monkeypatch):
     wrong_name = "NISAR_L2_UR_GUNW_029_098_A_016_030_4000_SH_20260831T233918_20260831T233952_20260912T233918_20260912T233952_P05023_F_F_J_001.h5"

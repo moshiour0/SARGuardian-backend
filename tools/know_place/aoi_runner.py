@@ -334,6 +334,13 @@ def _product_name(properties: dict[str, Any], urls: list[str]) -> str:
     raise AOIRunError("CATALOG_GRANULE_NAME_UNRESOLVED", "Catalog returned a GOFF product without an exact granule name")
 
 
+def _polarization_codes(value: Any) -> set[str]:
+    """Extract complete H/V polarization codes from common ASF separators."""
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return set()
+    return set(re.findall(r"(?<![A-Z])[HV]{2}(?![A-Z])", raw))
+
 def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Query ASF once for the AOI/date range and preserve explicit exclusions."""
     try:
@@ -398,8 +405,8 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             or properties.get("frequencyAPolarization")
             or ""
         ).upper()
-        available_pol = {part.strip() for part in raw_pol.replace(",", "+").split("+") if part.strip()}
-        if raw_pol and request.polarization not in available_pol and raw_pol != request.polarization:
+        available_pol = _polarization_codes(raw_pol)
+        if raw_pol and request.polarization not in available_pol:
             row = {
                 "granule_name": name, "release_id": identity.release_id,
                 "maturity": maturity, "decision": "EXCLUDED_POLARIZATION_MISMATCH",
