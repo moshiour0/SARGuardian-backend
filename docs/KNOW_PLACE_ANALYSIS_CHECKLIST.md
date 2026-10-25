@@ -471,3 +471,18 @@ See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated dec
 - [x] Raw replay consent gate [run 40228894462](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40228894462) skipped raw five-pair processing; no raw HDF5 downloaded by the fix.
 - [ ] Browser/device visual smoke test and real displacement measurement for the newly selected generic AOI remain pending; catalog dry-run is not a scientific measurement.
 - [ ] Full paper reproduction remains partial and hazard detection remains `NOT_EVALUATED`.
+
+
+## Live author-exact measurement and latest null audit — 2026-10-26
+
+- [x] Run the explicitly authorized Bhote Koshi five-pair replay using exact P05023 only: [run 40232441596](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40232441596), complete success.
+- [x] Validate five of five exact CMR identities, payload byte counts, SHA-256 hashes and HDF5 grids (4311 × 4230, EPSG:32645, 80 m); source evidence is preserved in the Actions artifact and `docs/know-place/evidence/AUTHOR_EXACT_P05023_MEASUREMENT_20261026.md`.
+- [x] Compute the five-pair exploratory displacement series and archive-compatible site/P2 path; 65/65 site-series and 15/15 P2 numeric checks pass at archive rounding.
+- [x] Compare full-footprint author aggregate rasters (3/3), candidate inventory (106/106), validated zones (101/101), and score/ranking gates.
+- [x] Upload the derived-only bundle and receipts to private Drive, remotely verify both, then delete the five raw HDF5 files. Post-delete receipt: raw HDF5 remaining 0; raw HDF5 uploaded false; cleanup receipt upload/verification PASS.
+- [x] Run source-inspired displacement-null reconstruction from deposited derived GeoTIFFs only: [run 40233222258](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222258), all five published crown/null medians and percentiles matched at table precision (15/15 numeric fields). See `docs/know-place/evidence/DISPLACEMENT_NULL_ARCHIVE_RECONSTRUCTION_20261026.md`.
+- [x] Validate current source/dependency and workflow paths: [run 40233222222](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222222) passed.
+- [ ] Original displacement-null generator/draw identity, author editable crown vector/golden mask, exact RGI 6.0 polygon overlay and DEM-to-radar-grid vertical-datum transformation remain unverified. Keep whole-paper reproduction `PARTIAL`.
+- [ ] Inspect the real-measurement output in the interactive arbitrary-AOI map and complete mobile/desktop browser visual smoke test; the existing catalog-only arbitrary-AOI smoke is not enough.
+- [ ] Independent labelled multi-event/non-event validation remains pending. `HAZARD_DETECTION_STATUS=NOT_EVALUATED`; operational warning remains `NOT_IMPLEMENTED`.
+- Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; no main edits or merges.
