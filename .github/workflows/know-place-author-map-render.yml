@@ -207,14 +207,79 @@ jobs:
                 leafletLoaded: state.leafletLoaded,
                 noPageErrors: errors.length === 0,
               };
+              const responsiveViewports = [];
+              const mobileScreenshot = path.join(path.dirname(screenshot), "browser-smoke-mobile.png");
+              const tabletScreenshot = path.join(path.dirname(screenshot), "browser-smoke-tablet.png");
+              const viewportSpecs = [
+                { label: "mobile-360x800", width: 360, height: 800, mobile: true },
+                { label: "mobile-390x844", width: 390, height: 844, mobile: true },
+                { label: "tablet-768x1024", width: 768, height: 1024, mobile: false },
+                { label: "landscape-844x390", width: 844, height: 390, mobile: false },
+              ];
+              for (const spec of viewportSpecs) {
+                const viewportPage = await browser.newPage({
+                  viewport: { width: spec.width, height: spec.height },
+                  deviceScaleFactor: 1,
+                  isMobile: spec.mobile,
+                  hasTouch: spec.mobile,
+                });
+                viewportPage.on("pageerror", error => errors.push(String(error)));
+                await viewportPage.goto("file://" + htmlPath, { waitUntil: "domcontentloaded", timeout: 30000 });
+                await viewportPage.waitForFunction(() => document.querySelector("#pair-select")?.options.length === 5, { timeout: 25000 });
+                await viewportPage.selectOption("#pair-select", "3");
+                await viewportPage.waitForFunction(() => document.querySelector("#pair-label")?.textContent.includes("2026-07-26"), { timeout: 10000 });
+                const layout = await viewportPage.evaluate(() => {
+                  const map = document.querySelector("#map");
+                  const pair = document.querySelector("#pair-select");
+                  const mapRect = map?.getBoundingClientRect();
+                  const pairRect = pair?.getBoundingClientRect();
+                  return {
+                    viewportWidth: window.innerWidth,
+                    documentWidth: document.documentElement.scrollWidth,
+                    bodyWidth: document.body.scrollWidth,
+                    mapWidth: Math.round(mapRect?.width || 0),
+                    mapHeight: Math.round(mapRect?.height || 0),
+                    pairControlWidth: Math.round(pairRect?.width || 0),
+                    pairControlVisible: Boolean(pair && pairRect?.width > 0 && getComputedStyle(pair).display !== "none" && getComputedStyle(pair).visibility !== "hidden"),
+                    selectedPair: document.querySelector("#pair-label")?.textContent ?? "",
+                  };
+                });
+                const viewportChecks = {
+                  noHorizontalOverflow: layout.documentWidth <= spec.width && layout.bodyWidth <= spec.width,
+                  mapFitsViewport: layout.mapWidth >= Math.min(300, spec.width - 24) && layout.mapWidth <= spec.width,
+                  mapHasUsableHeight: layout.mapHeight >= 300,
+                  pairControlVisible: layout.pairControlVisible,
+                  criticalPairAvailable: layout.selectedPair.includes("2026-07-26") && layout.selectedPair.includes("2026-08-19"),
+                };
+                const viewportPassed = Object.values(viewportChecks).every(Boolean);
+                responsiveViewports.push({
+                  label: spec.label,
+                  viewport: { width: spec.width, height: spec.height, mobile_emulation: spec.mobile },
+                  rendered_state: layout,
+                  checks: viewportChecks,
+                  status: viewportPassed ? "PASS" : "FAIL",
+                });
+                console.log("RESPONSIVE_VIEWPORT_" + spec.label.toUpperCase() + "=" + (viewportPassed ? "PASS" : "FAIL"));
+                if (spec.label === "mobile-360x800") {
+                  await viewportPage.screenshot({ path: mobileScreenshot, fullPage: true });
+                }
+                if (spec.label === "tablet-768x1024") {
+                  await viewportPage.screenshot({ path: tabletScreenshot, fullPage: true });
+                }
+                await viewportPage.close();
+              }
+              checks.responsiveViewports = responsiveViewports.length === 4 && responsiveViewports.every(viewport => viewport.status === "PASS");
+              checks.noPageErrors = errors.length === 0;
               const passed = Object.values(checks).every(Boolean);
               fs.writeFileSync(outJson, JSON.stringify({
-                schema_version: "know-place-author-map-browser-smoke/1.0",
+                schema_version: "know-place-author-map-browser-smoke/1.1",
                 status: passed ? "PASS" : "FAIL",
                 source_run_id: Number(process.env.SOURCE_RUN_ID),
                 selected_pair: state.pairLabel,
                 rendered_state: state,
                 checks,
+                responsive_viewports: responsiveViewports,
+                responsive_screenshot_files: [path.basename(mobileScreenshot), path.basename(tabletScreenshot)],
                 page_errors: errors,
                 screenshot_file: path.basename(screenshot),
                 raw_hdf5_read_or_downloaded: false,
@@ -257,6 +322,9 @@ jobs:
           if not all(path.is_file() for path in files):
               raise SystemExit("ERROR=MAP_EVIDENCE_MEMBER_MISSING")
           if screenshot.is_file(): files.append(screenshot)
+          for name in ("browser-smoke-mobile.png", "browser-smoke-tablet.png"):
+              responsive_screenshot=root/name
+              if responsive_screenshot.is_file(): files.append(responsive_screenshot)
           with zipfile.ZipFile(target,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
               for path in files: archive.write(path,path.name)
           with zipfile.ZipFile(target) as archive:
@@ -317,6 +385,8 @@ jobs:
               raise SystemExit("ERROR=AUTHOR_MAP_PROVENANCE_GATE_FAILED")
           if smoke.get("status")!="PASS" or smoke.get("rendered_state",{}).get("pairCount")!=5:
               raise SystemExit("ERROR=AUTHOR_MAP_BROWSER_GATE_FAILED")
+          if smoke.get("checks",{}).get("responsiveViewports") is not True or len(smoke.get("responsive_viewports",[]))!=4:
+              raise SystemExit("ERROR=AUTHOR_MAP_RESPONSIVE_BROWSER_GATE_FAILED")
           for receipt in (drive,copy):
               if receipt.get("remote_verification")!="PASS" or receipt.get("raw_product_uploaded") is not False:
                   raise SystemExit("ERROR=AUTHOR_MAP_DRIVE_GATE_FAILED")
@@ -335,6 +405,7 @@ jobs:
             echo "- Map: \`interactive-map.html\` (Leaflet/OpenStreetMap; requires internet access)"
             echo "- Acquisition pairs: 5 exact P05023."
             echo "- Browser smoke: PASS; selected interval 2026-07-26 → 2026-08-19."
+            echo "- Responsive viewport smoke: PASS at 360×800, 390×844, 768×1024 and 844×390; mobile/tablet screenshots retained."
             echo "- Private Drive remote verification: PASS."
             echo "- Raw HDF5: not downloaded by this map-render workflow."
             echo "- Hazard detection: NOT_EVALUATED."
