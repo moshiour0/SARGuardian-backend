@@ -172,3 +172,30 @@ def test_author_dashboard_is_written_as_a_standalone_html_file(tmp_path):
     assert target.stat().st_size > 4000
     assert "<html lang=\"en\">" in text
     assert "data:image/png;base64," in text
+
+def test_shared_dispatcher_exposes_retained_dashboard_without_raw_download_consent():
+    import yaml
+
+    repo_root = Path(__file__).resolve().parents[2]
+    dispatcher_path = repo_root / ".github" / "workflows" / "sarguardian-aoi-wkt-dispatcher.yml"
+    with dispatcher_path.open("r", encoding="utf-8") as stream:
+        dispatcher = yaml.load(stream, Loader=yaml.BaseLoader)
+
+    inputs = dispatcher["on"]["workflow_dispatch"]["inputs"]
+    assert "render-author-dashboard" in inputs["run_profile"]["options"]
+    assert inputs["source_run_id"]["default"] == "40170290176"
+    assert inputs["source_attempt"]["default"] == "1"
+    assert dispatcher["permissions"]["actions"] == "read"
+
+    render_job = dispatcher["jobs"]["render_author_dashboard"]
+    assert "render-author-dashboard" in render_job["if"]
+    assert render_job["uses"] == (
+        "moshiour0/SARGuardian-backend/.github/workflows/"
+        "know-place-author-dashboard.yml@feat/know-place-analysis"
+    )
+    assert render_job["with"]["source_run_id"] == "${{ inputs.source_run_id }}"
+    assert render_job["with"]["source_attempt"] == "${{ inputs.source_attempt }}"
+    # This profile must not be coupled to the exact-author or generic raw-download path.
+    assert "render-author-dashboard" not in dispatcher["jobs"]["author_exact_p05023"]["if"]
+    assert "render-author-dashboard" not in dispatcher["jobs"]["generic_aoi_date"]["if"]
+
