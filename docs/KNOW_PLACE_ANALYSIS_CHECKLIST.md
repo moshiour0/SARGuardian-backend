@@ -364,3 +364,16 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Do not merge to or edit main without review and explicit approval.
 
 Evidence: docs/know-place/evidence/CROWN_MASK_AUDIT_20261025.md and CROWN_MASK_AUDIT_20261025.json.
+
+
+## Multi-site Himalayan source geometry audit — 2026-10-25
+
+- [x] Audit the IIRS comparison article's public text; record the January 2026 label and published ranges without inventing exact pair timestamps, product IDs or AOI vectors.
+- [x] Record source leads for the legacy RGI 6 IDs and Bara Shigri's literature-cited RGI 7 identifier.
+- [x] Keep Samudra Tapu's RGI 7 ID unfilled because this audit has not resolved it from the official source table.
+- [x] Add a machine-readable lead ledger and tests that prevent these leads from becoming fake exact AOIs or scored validation cases.
+- [ ] Acquire and hash the official RGI 7 Region 14 archive; resolve Samudra Tapu's RGI 7 ID; extract and hash the actual polygons.
+- [ ] Treat RGI outlines only as independent inventory-outline ROIs, not as the IIRS authors' exact mask or a date-matched January 2026 ice margin.
+- [ ] Recover exact NISAR pair/granule metadata and pinned ITS_LIVE version before catalog scoring. No raw download without explicit consent.
+- [ ] Keep hazard detection NOT_EVALUATED until held-out multisite event/non-event evaluation is performed.
+Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.md and docs/know-place/reference/multi_site_source_geometry_leads_20261025.json.

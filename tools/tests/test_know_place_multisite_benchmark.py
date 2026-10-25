@@ -108,3 +108,30 @@ def test_protocol_requires_frozen_thresholds_and_separate_holdout(registry: dict
     assert "before opening the final holdout" in protocol["pass_policy"]
     assert "Bhote Koshi is the author-method reproduction target" in protocol["split_policy"]
     assert any("hazard detection" in note.lower() for note in registry["current_engine_claim_boundary"]["prohibited_claims"])
+
+
+def test_himalayan_inventory_geometry_remains_a_lead_not_an_exact_paper_aoi(registry: dict) -> None:
+    leads_path = ROOT / "docs/know-place/reference/multi_site_source_geometry_leads_20261025.json"
+    leads = json.loads(leads_path.read_text(encoding="utf-8"))
+    assert leads["schema_version"] == "know-place-multisite-source-geometry-leads/1.0"
+    assert leads["execution_boundary"]["nisar_raw_payload_downloaded"] is False
+    assert leads["execution_boundary"]["catalog_query_executed"] is False
+    assert leads["execution_boundary"]["event_or_velocity_validation_scored"] is False
+    sites = {row["site_id"]: row for row in leads["sites"]}
+    samudra = sites["samudra-tapu-glacier-2026-01"]
+    bara = sites["bara-shigri-glacier-2026-01"]
+    assert samudra["legacy_rgi6_id"] == "RGI60-14.15613"
+    assert samudra["rgi7_id"] is None
+    assert samudra["geometry_wkt"] is None
+    assert samudra["canonical_geometry_sha256"] is None
+    assert bara["legacy_rgi6_id"] == "RGI60-14.15447"
+    assert bara["rgi7_id"] == "RGI2000-v7.0-G-14-32495"
+    assert bara["geometry_wkt"] is None
+    assert bara["canonical_geometry_sha256"] is None
+    assert all(not row["exact_product_ids"] and not row["source_product_sha256"] for row in sites.values())
+    assert leads["primary_reference"]["exact_pair_start_end_dates_in_reviewed_page_text"] is None
+    assert leads["primary_reference"]["exact_nisar_granule_ids_in_reviewed_page_text"] == []
+    assert leads["primary_reference"]["exact_aoi_wkt_or_vector_sha256_in_reviewed_page_text"] is None
+    assert leads["inventory_source"]["equivalence_to_iirs_paper_aoi"] == "NOT_ESTABLISHED"
+    assert all(site["exact_product_plan"]["exact_aoi_wkt"] is None for site in registry["sites"]
+               if site["site_id"] in sites)

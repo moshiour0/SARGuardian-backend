@@ -483,3 +483,12 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - Corrected a stale generic test fixture whose smaller bounds dropped 17 western-edge cells on the pinned crop. The published exact bounds are now used.
 - The audit is saved-mask/published-bounds consistency, not proof of original author-vector parity; the archive contains no editable vector or golden pixel mask. Paper status remains PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED; hazard detection remains NOT_EVALUATED.
 - No raw replay was run. All modifications remain on feat/know-place-analysis; main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886.
+
+
+## 35. 2026-10-25 — Multi-site Himalayan source-geometry leads
+
+- Reviewed the public IIRS article for NISAR/ITS_LIVE Himalayan comparison details. It reports January 2026 ranges for Samudra Tapu and Bara Shigri but the reviewed page text does not pin exact NISAR pairs/granules, AOI polygon/vector hash, or a pinned ITS_LIVE product/version.
+- Added a metadata-only source-geometry lead ledger. Samudra Tapu's RGI 6 ID RGI60-14.15613 is cited in a published review; its RGI 7 identifier is left null until verified against source data. Bara Shigri's RGI 6 ID RGI60-14.15447 and RGI 7 lead RGI2000-v7.0-G-14-32495 are cited in literature, but the actual inventory archive and polygon bytes have not yet been hash-verified.
+- RGI 7.0 is an inventory snapshot targeted around year 2000; Region 14 documentation describes GAMDAM/GGI18 replacement outlines mostly mapped from imagery around 2002. Such geometry can be used only as a separate independent inventory-outline ROI, not silently equated with the IIRS mask or January 2026 ice boundary.
+- Test contract forbids exact AOI/product/source hashes or scores from being inferred from these leads. No RGI archive, ITS_LIVE payload or NISAR raw payload was downloaded; no catalog query/scoring executed.
+- Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.md; ledger: docs/know-place/reference/multi_site_source_geometry_leads_20261025.json.
