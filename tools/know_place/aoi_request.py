@@ -12,6 +12,7 @@ from datetime import date
 import hashlib
 import json
 import math
+import re
 from typing import Any
 
 from .geometry import parse_polygon_wkt
@@ -41,6 +42,7 @@ class AOIRequest:
     track: str | None
     direction: str | None
     preferred_granules: tuple[str, ...]
+    allowed_release_ids: tuple[str, ...]
     allowed_maturities: tuple[str, ...]
     reference_wkt: str | None
     background_correction_policy: str
@@ -68,7 +70,7 @@ class AOIRequest:
             "analysis_mode": self.analysis_mode,
             "source_adapters": list(self.source_adapters),
             "polarization": self.polarization,
-            "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules), "allowed_maturities": list(self.allowed_maturities)},
+            "product_selection": {"track": self.track, "direction": self.direction, "preferred_granules": list(self.preferred_granules), "allowed_release_ids": list(self.allowed_release_ids), "allowed_maturities": list(self.allowed_maturities)},
             "reference": {
                 "policy": self.background_correction_policy,
                 "polygon_wkt": self.reference_wkt,
@@ -189,6 +191,12 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
     if not isinstance(raw_preferred, list) or any(not isinstance(item, str) or not item.strip() for item in raw_preferred):
         raise AOIRequestError("PREFERRED_GRANULES_MUST_BE_STRING_ARRAY")
     preferred_granules = tuple(sorted(set(item.strip() for item in raw_preferred)))
+    raw_release_ids = selection.get("allowed_release_ids", [])
+    if not isinstance(raw_release_ids, list) or any(not isinstance(item, str) or not item.strip() for item in raw_release_ids):
+        raise AOIRequestError("ALLOWED_RELEASE_IDS_MUST_BE_STRING_ARRAY")
+    allowed_release_ids = tuple(sorted({item.strip().upper() for item in raw_release_ids}))
+    if any(re.fullmatch(r"[A-Z][0-9]{5}", item) is None for item in allowed_release_ids):
+        raise AOIRequestError("ALLOWED_RELEASE_ID_FORMAT_INVALID")
     raw_maturities = selection.get("allowed_maturities", ["PROVISIONAL"])
     if not isinstance(raw_maturities, list) or not raw_maturities:
         raise AOIRequestError("ALLOWED_MATURITIES_MUST_BE_NONEMPTY_ARRAY")
@@ -283,7 +291,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         "analysis_mode": analysis_mode,
         "source_adapters": list(normalized_adapters),
         "polarization": polarization,
-        "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_maturities": list(allowed_maturities)},
+        "product_selection": {"track": track, "direction": direction, "preferred_granules": list(preferred_granules), "allowed_release_ids": list(allowed_release_ids), "allowed_maturities": list(allowed_maturities)},
         "reference": {"polygon_wkt": reference_wkt, "policy": reference_policy, "fallback_buffer_m": reference_buffer_m},
         "geometry_policy": {"constant_hae_m": geometry_height_m},
         "quality_policy": {
@@ -309,6 +317,7 @@ def validate_aoi_request(payload: dict[str, Any]) -> AOIRequest:
         track=track,
         direction=direction,
         preferred_granules=preferred_granules,
+        allowed_release_ids=allowed_release_ids,
         allowed_maturities=allowed_maturities,
         reference_wkt=reference_wkt,
         background_correction_policy=reference_policy,

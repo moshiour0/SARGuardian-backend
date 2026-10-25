@@ -104,6 +104,27 @@ def test_invalid_track_direction_and_release_pins_are_explicit_errors():
     with pytest.raises(AOIRequestError, match="PREFERRED_GRANULES_MUST_BE_STRING_ARRAY"):
         validate_aoi_request(payload)
 
+    payload = request()
+    payload["product_selection"]["allowed_release_ids"] = "P05023"
+    with pytest.raises(AOIRequestError, match="ALLOWED_RELEASE_IDS_MUST_BE_STRING_ARRAY"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["product_selection"]["allowed_release_ids"] = ["not-a-release"]
+    with pytest.raises(AOIRequestError, match="ALLOWED_RELEASE_ID_FORMAT_INVALID"):
+        validate_aoi_request(payload)
+
+
+def test_allowed_release_ids_are_normalized_and_preserved_in_request_hash():
+    payload = request()
+    payload["product_selection"]["allowed_release_ids"] = ["p05023", "P05023"]
+    parsed = validate_aoi_request(payload)
+    assert parsed.allowed_release_ids == ("P05023",)
+    assert parsed.to_dict()["product_selection"]["allowed_release_ids"] == ["P05023"]
+
+    different = request()
+    different["product_selection"]["allowed_release_ids"] = ["X05026"]
+    assert validate_aoi_request(different).request_sha256 != parsed.request_sha256
 
 def test_no_reference_polygon_is_labeled_unreferenced_not_background_corrected():
     payload = request()
