@@ -81,7 +81,7 @@ jobs:
           const path = require("path");
           const { chromium } = require("playwright");
           (async () => {
-            const root = path.resolve("artifacts/generic-aoi-browser");
+            const root = path.resolve(process.env.GITHUB_WORKSPACE, "artifacts/generic-aoi-browser");
             const htmlPath = path.join(root, "generic-aoi-synthetic-map.html");
             const errors = [];
             const viewports = [
