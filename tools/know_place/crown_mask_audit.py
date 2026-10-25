@@ -164,7 +164,7 @@ def audit_crown_masks(run_artifact: str | Path, author_archive: str | Path) -> d
                 if any(np.asarray(z[k]).shape!=dm.shape for k in ("east_m","north_m","horizontal_magnitude_m","directional_coherence_R","valid_mask")):
                     raise CrownMaskAuditError(f"DIAGNOSTIC_ARRAY_SHAPE_MISMATCH:{prefix}")
                 cf=(xd-X0)/DX-.5; rf=(yd-Y0)/DY-.5; cols,grid_rows=np.rint(cf).astype(int),np.rint(rf).astype(int)
-                if (np.max(np.abs(cf-cols))>1e-7 or np.max(np.abs(rf-rows))>1e-7
+                if (np.max(np.abs(cf-cols))>1e-7 or np.max(np.abs(rf-grid_rows))>1e-7
                     or np.any(cols<0) or np.any(cols>=WIDTH) or np.any(grid_rows<0) or np.any(grid_rows>=HEIGHT)):
                     raise CrownMaskAuditError(f"DIAGNOSTIC_AXES_NOT_PINNED_GRID_CENTRES:{prefix}")
                 gdiag=geographic_mask(xd,yd)
