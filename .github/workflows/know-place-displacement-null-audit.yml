@@ -67,6 +67,46 @@ jobs:
           print("PAPER_REPRODUCTION_STATUS="+report["paper_reproduction_status"])
           print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
           PY
+      - name: Summarize displacement-null table parity and limitations
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -s displacement-null-reconstruction.json ]]; then
+            {
+              echo "## Displacement-null Table S4 reconstruction"
+              echo
+              echo "No machine-readable reconstruction report was produced."
+              echo "Paper reproduction remains partial; hazard detection remains NOT_EVALUATED."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python - "displacement-null-reconstruction.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          print("## Displacement-null Table S4 reconstruction")
+          print()
+          print(f"- Reconstruction status: `{report.get('status')}`")
+          print(f"- Matched rows: {sum(r.get('comparison_status') == 'PASS_AT_PUBLISHED_TABLE_PRECISION' for r in report.get('rows', []))}/5")
+          print(f"- Archive SHA-256: `{report.get('inputs',{}).get('author_archive',{}).get('sha256','not available')}`")
+          print()
+          print("| Pair | Crown median computed / published (m) | Null median computed / published (m) | Percentile computed / published | Numeric status |")
+          print("|---|---:|---:|---:|---|")
+          for row in report.get("rows", []):
+              pair=row.get("pair","unknown")
+              crown=f"{row.get('crown_median_m',float('nan')):.2f} / {row.get('published_crown_m',float('nan')):.2f}"
+              null=f"{row.get('null_median_m',float('nan')):.2f} / {row.get('published_null_median_m',float('nan')):.2f}"
+              pct=f"{row.get('percentile',float('nan')):.1f} / {row.get('published_percentile',float('nan')):.1f}"
+              print(f"| {pair} | {crown} | {null} | {pct} | {row.get('comparison_status','MISSING')} |")
+          print()
+          print(f"- Original null-generator source: `{report.get('original_generator_source')}`")
+          print(f"- Original draw-sequence identity: `{report.get('author_draw_sequence_identity')}`")
+          print(f"- Paper reproduction: `{report.get('paper_reproduction_status')}`")
+          print(f"- Hazard detection: `{report.get('hazard_detection_status')}`")
+          print()
+          print("**Interpretation boundary:** published rounded values reproduced from the deposited derived GeoTIFFs do not prove identity with the original generator or its draw/rejection sequence. No hazard-detection skill was evaluated.")
+          PY
+
       - name: Preserve machine-readable comparison report
         if: always()
         uses: actions/upload-artifact@v4
