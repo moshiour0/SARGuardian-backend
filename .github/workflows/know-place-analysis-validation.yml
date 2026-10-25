@@ -19,6 +19,7 @@ on:
       - ".github/workflows/know-place-terrain-datum-sensitivity.yml"
       - ".github/workflows/know-place-author-exact-replay.yml"
       - ".github/workflows/know-place-author-exact-consent-bridge.yml"
+      - ".github/workflows/know-place-author-map-render.yml"
       - ".github/workflows/know-place-generic-aoi-consent-bridge.yml"
       - ".github/workflows/know-place-generic-aoi-drive-retry.yml"
       - ".github/workflows/know-place-author-dashboard.yml"
@@ -39,6 +40,7 @@ on:
       - ".github/workflows/know-place-aoi-analysis.yml"
       - ".github/workflows/know-place-author-exact-replay.yml"
       - ".github/workflows/know-place-author-exact-consent-bridge.yml"
+      - ".github/workflows/know-place-author-map-render.yml"
       - ".github/workflows/know-place-generic-aoi-consent-bridge.yml"
       - ".github/workflows/know-place-generic-aoi-drive-retry.yml"
       - ".github/workflows/know-place-author-dashboard.yml"
@@ -120,6 +122,7 @@ jobs:
               Path(".github/workflows/know-place-terrain-datum-sensitivity.yml"),
               Path(".github/workflows/know-place-author-exact-replay.yml"),
               Path(".github/workflows/know-place-author-exact-consent-bridge.yml"),
+              Path(".github/workflows/know-place-author-map-render.yml"),
               Path(".github/workflows/know-place-generic-aoi-consent-bridge.yml"),
               Path(".github/workflows/know-place-generic-aoi-drive-retry.yml"),
               Path(".github/workflows/know-place-author-dashboard.yml"),
@@ -149,6 +152,7 @@ jobs:
           tools/tests/test_know_place_geotiff.py
           tools/tests/test_know_place_dashboard.py
           tools/tests/test_know_place_interactive_map.py
+          tools/tests/test_know_place_author_map_adapter.py
           tools/tests/test_know_place_author_dashboard.py
           tools/tests/test_know_place_uncertainty.py
           tools/tests/test_know_place_upload_bundle.py
@@ -177,7 +181,7 @@ jobs:
           /tmp/actionlint -version
 
       - name: Run semantic GitHub Actions workflow validation
-        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml .github/workflows/know-place-author-exact-replay.yml .github/workflows/know-place-author-exact-consent-bridge.yml .github/workflows/know-place-generic-aoi-consent-bridge.yml .github/workflows/know-place-generic-aoi-drive-retry.yml .github/workflows/know-place-author-dashboard.yml .github/workflows/sarguardian-aoi-wkt-dispatcher.yml .github/workflows/know-place-retained-crown-audit.yml
+        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml .github/workflows/know-place-author-exact-replay.yml .github/workflows/know-place-author-exact-consent-bridge.yml .github/workflows/know-place-author-map-render.yml .github/workflows/know-place-generic-aoi-consent-bridge.yml .github/workflows/know-place-generic-aoi-drive-retry.yml .github/workflows/know-place-author-dashboard.yml .github/workflows/sarguardian-aoi-wkt-dispatcher.yml .github/workflows/know-place-retained-crown-audit.yml
 
   live-asf-catalog-contract:
     name: Live ASF identity gates for historical and author-exact granules (no downloads)
