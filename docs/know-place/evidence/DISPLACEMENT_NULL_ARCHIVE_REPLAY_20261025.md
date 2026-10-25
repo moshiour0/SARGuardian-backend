@@ -9,8 +9,10 @@
 - Published summary: tables/displacement_null.json; 497 bytes; SHA-256 b8a16de84a0c3f732daf7d3d3cd261596edbe312a432d7f65978a1a5947ac207
 - Inputs: five deposited fields/offsets_*.tif GeoTIFFs (80 × 73, EPSG:4326). No raw HDF5 was read or downloaded.
 - Reproducer: tools/know_place/displacement_null_archive_reconstruction.py
-- CI replay: [Run 40218853647](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40218853647), output parity asserted by the workflow itself.
-- Unit and workflow validation: [Run 40218853654](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40218853654), 281 tests passed.
+- Repository machine-readable summary: DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.json
+- Full workflow JSON artifact: [Run 40219393283 artifact 12608431799](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283/artifacts/12608431799)
+- CI replay: [Run 40219393283](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283), output parity asserted by the workflow itself; all five pairs passed and the machine-readable JSON was uploaded as artifact ID 12608431799 (ZIP SHA-256 6fd4a6b80fb1ae17aa7a68d0be8379a8e6522b88ddff0e18b7386b7cda091ddd).
+- Unit and workflow validation: [Run 40219229814](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219229814), 281 tests passed; all 11 Know Place workflows plus the dispatcher parsed and pinned actionlint checks passed.
 
 ## Fixed reconstruction policy
 
