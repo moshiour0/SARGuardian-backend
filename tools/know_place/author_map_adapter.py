@@ -120,7 +120,8 @@ def _preview_from_npz(payload: bytes, pair_label: str) -> tuple[dict[str, Any], 
         line: list[float | None] = []
         for col in range(width):
             value = float(magnitude[row, col])
-            line.append(value if valid[row, col] and math.isfinite(value) else None)
+            # Only the selected crown/AOI support region is colour-filled; scene pixels outside the mask remain transparent.
+            line.append(value if valid[row, col] and crown[row, col] and math.isfinite(value) else None)
         values.append(line)
 
     preview = {
@@ -131,6 +132,7 @@ def _preview_from_npz(payload: bytes, pair_label: str) -> tuple[dict[str, Any], 
         "max_y_m": float(y[0]),
         "pixel_size_x_m": float(np.median(dx)),
         "pixel_size_y_m": float(abs(np.median(dy))),
+        "support_mask_label": "Crown-mask only; outside-crown and invalid pixels are transparent.",
     }
     return preview, valid_crown, crown_cells
 
