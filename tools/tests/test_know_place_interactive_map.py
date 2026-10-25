@@ -99,6 +99,8 @@ def test_form_controls_are_constrained_to_the_mobile_panel_width():
     assert ".controls{display:grid;gap:12px;align-content:start;min-width:0;width:100%;max-width:100%}" in rendered
     assert ".field{display:grid;gap:5px;min-width:0;width:100%;max-width:100%}" in rendered
     assert "select,input[type=range]{display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box}" in rendered
+    assert "#source-hash{overflow-wrap:anywhere;word-break:break-word}" in rendered
+    assert 'const conciseLabel=dates+" · "+(pair.release_id||"release unknown")' in rendered
     assert "@media(max-width:920px){main{padding:12px}.layout{grid-template-columns:minmax(0,1fr);width:100%;max-width:100%}#map{height:55vh;min-height:340px}}" in rendered
 
 

@@ -32,3 +32,8 @@ The first responsive browser smoke exposed a real small-screen overflow: at 360 
 ## Second mobile layout correction — 2026-10-26
 
 The next browser run confirmed the 360 px / 390 px overflow persisted despite input-level max-width: the grid/container intrinsic sizing still allowed a 589 px controls column. Constrain the outer map grid and panel, explicitly set the controls/field width to 100%, and use `minmax(0,1fr)` for the narrow-screen grid track. The viewport smoke report should additionally retain the measured grid/control widths to make any remaining failure diagnosable. No raw input download or measurement rerun.
+
+
+## Mobile viewport-expansion root-cause correction — 2026-10-26
+
+The previous mobile screenshots showed the source SHA-256 rendered as a single unbroken 64-character string in the controls panel; that text can expand the mobile layout viewport. The map now wraps the provenance hash safely, and the acquisition selector omits the already-displayed redundant status token so its option labels stay concise. The browser report also records viewport, grid, controls, field, selector and hash widths plus media-query state to diagnose any future overflow. Re-run the same four viewports and retain mobile/tablet screenshots; do not declare mobile QA complete until all gates pass.

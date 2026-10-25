@@ -188,7 +188,7 @@ def build_interactive_map_html(report: dict[str, Any]) -> str:
 <style>
 :root{color-scheme:dark;--bg:#0b1220;--panel:#111c2e;--line:#27364c;--text:#edf3fb;--muted:#9fb0c5;--accent:#7dd3fc;--warn:#fbbf24}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:1440px;margin:auto;padding:20px}h1{margin:0;font-size:clamp(24px,4vw,36px)}h2{font-size:17px;margin:0 0 10px}p{color:var(--muted);margin:5px 0}.muted{color:var(--muted)}a{color:var(--accent)}
+main{max-width:1440px;margin:auto;padding:20px}h1{margin:0;font-size:clamp(24px,4vw,36px)}h2{font-size:17px;margin:0 0 10px}p{color:var(--muted);margin:5px 0}.muted{color:var(--muted)}a{color:var(--accent)}#source-hash{overflow-wrap:anywhere;word-break:break-word}
 header{display:flex;align-items:end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}.eyebrow{text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-size:12px;font-weight:700}
 .layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;min-width:0;width:100%;max-width:100%}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;max-width:100%}
 #map{height:min(72vh,760px);min-height:390px;border:1px solid var(--line);border-radius:8px;background:#dbe6ed}
@@ -255,7 +255,7 @@ if (typeof L === "undefined") {
   if (!mapData.pairs.length) {
     pairSelect.add(new Option("No measured pairs (catalog-only run)", ""));
     pairSelect.disabled = true;
-  } else mapData.pairs.forEach((pair,index)=>pairSelect.add(new Option(pair.label,String(index))));
+  } else mapData.pairs.forEach((pair,index)=>{ const dates=(pair.reference_date||"?")+" → "+(pair.secondary_date||"?"); const conciseLabel=dates+" · "+(pair.release_id||"release unknown"); pairSelect.add(new Option(conciseLabel,String(index))); });
 
   function imageData(preview) {
     const rows = preview && preview.values;
