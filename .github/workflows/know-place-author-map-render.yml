@@ -178,6 +178,8 @@ jobs:
                 medianRate: document.querySelector("#median-rate")?.textContent ?? "",
                 sourceHash: document.querySelector("#source-hash")?.textContent ?? "",
                 hazardStatus: document.querySelector("#hazard-status")?.textContent ?? "",
+                geometryNote: document.querySelector("#geometry-note")?.textContent ?? "",
+                geotiffLinkHidden: document.querySelector("#geotiff-link")?.classList.contains("hidden") ?? false,
                 mapMessage: document.querySelector("#map-message")?.textContent ?? "",
                 leafletLoaded: typeof window.L !== "undefined",
               }));
@@ -190,6 +192,8 @@ jobs:
                 crownSupport: state.validPixels.startsWith("292 / 323"),
                 medianMagnitude: state.medianMagnitude === "0.966 m",
                 hazardUnaudited: state.hazardStatus === "NOT_EVALUATED",
+                crownApproximationClearlyLabelled: state.geometryNote.toLowerCase().includes("rectangle approximation"),
+                noFalseNativeGridLink: state.geotiffLinkHidden,
                 leafletLoaded: state.leafletLoaded,
                 noPageErrors: errors.length === 0,
               };
