@@ -348,12 +348,15 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         short_name_filter: list[str]
         short_name_filter = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
         results = asf_search.search(
-            # `shortName` is the exact collection selector; omit the dataset alias,
-            # which also maps to shortName in this asf_search series.
+            # NISAR CMR supports limited searchable attributes. Search by both
+            # dataset and exact collection, but disable v13 collection aliasing
+            # so "dataset=NISAR" cannot overwrite the GOFF shortName selector.
+            dataset="NISAR",
+            shortName=short_name_filter,
+            collectionAlias=False,
             intersectsWith=request.aoi_wkt,
             start=f"{request.start_date.isoformat()}T00:00:00Z",
             end=f"{request.end_date.isoformat()}T23:59:59Z",
-            shortName=short_name_filter,
             mainBandPolarization=request.polarization,
             maxResults=2000,
         )
@@ -375,6 +378,15 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         properties = _asf_property(product)
         urls = _product_urls(product, properties)
         name = _product_name(properties, urls)
+        # Search APIs can return collection-alias noise. Preserve and exclude
+        # unexpected product types rather than parsing a GUNW/GSLC name as GOFF.
+        if not (name.startswith("NISAR_L2_PR_GOFF_") and name.lower().endswith(".h5")):
+            all_rows.append({
+                "granule_name": name,
+                "decision": "EXCLUDED_PRODUCT_TYPE_MISMATCH",
+                "expected_product_type": "NISAR_L2_PR_GOFF",
+            })
+            continue
         trusted_urls = [url for url in urls if _trusted_download_url(url)]
         if not trusted_urls:
             raise AOIRunError("ASF_DOWNLOAD_HOST_UNTRUSTED", "Catalog returned no trusted HTTPS ASF download URL")
@@ -807,6 +819,23 @@ def run_aoi_analysis(
             json.dumps(catalog_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         if not catalog_rows:
+            candidates = catalog_manifest.get("candidates", [])
+            counts: dict[str, int] = {}
+            for candidate in candidates:
+                decision = str(candidate.get("decision", "UNCLASSIFIED"))
+                counts[decision] = counts.get(decision, 0) + 1
+            print("ASF_CATALOG_RESULT_COUNT={}".format(catalog_manifest.get("result_count", 0)))
+            print("ASF_CATALOG_DECISION_COUNTS={}".format(json.dumps(counts, sort_keys=True)))
+            print("ASF_CATALOG_SAMPLE_ROWS={}".format(json.dumps([
+                {
+                    "granule_name": row.get("granule_name"),
+                    "decision": row.get("decision"),
+                    "maturity": row.get("maturity"),
+                    "reference_date": row.get("reference_date"),
+                    "secondary_date": row.get("secondary_date"),
+                }
+                for row in candidates[:8]
+            ], sort_keys=True)))
             raise AOIRunError("NO_ALLOWED_NISAR_GOFF_PRODUCTS", "No GOFF products matched the AOI, date range, polarization and maturity policy")
 
         plan_rows = [

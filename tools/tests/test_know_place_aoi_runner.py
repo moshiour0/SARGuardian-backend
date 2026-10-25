@@ -69,13 +69,30 @@ def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch
     assert manifest["query"]["start_utc"] == "2026-06-20T00:00:00Z"
     assert manifest["query"]["end_utc"] == "2026-07-14T23:59:59Z"
     assert calls["shortName"] == ["NISAR_L2_GOFF_PROVISIONAL_V1"]
-    assert "dataset" not in calls
+    assert calls["dataset"] == "NISAR"
+    assert calls["collectionAlias"] is False
     assert "processingLevel" not in calls
     assert "dataMaturity" not in calls
     assert calls["shortName"] == ["NISAR_L2_GOFF_PROVISIONAL_V1"]
     assert calls["intersectsWith"].startswith("POLYGON ((")
     assert calls["mainBandPolarization"] == "HH"
     assert all(row["decision"] == "ELIGIBLE_CATALOG_CANDIDATE" for row in manifest["candidates"])
+
+def test_catalog_excludes_unexpected_product_type_without_aborting(monkeypatch):
+    wrong_name = "NISAR_L2_UR_GUNW_029_098_A_016_030_4000_SH_20260831T233918_20260831T233952_20260912T233918_20260912T233952_P05023_F_F_J_001.h5"
+    wrong_product = SimpleNamespace(
+        properties={"granuleName": wrong_name},
+        get_urls=lambda: [f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/{wrong_name}"],
+    )
+    fake = SimpleNamespace(search=lambda **kwargs: [wrong_product])
+    monkeypatch.setitem(sys.modules, "asf_search", fake)
+
+    products, manifest = discover_nisar_goff(request())
+
+    assert products == []
+    assert manifest["result_count"] == 1
+    assert manifest["candidates"][0]["decision"] == "EXCLUDED_PRODUCT_TYPE_MISMATCH"
+    assert manifest["candidates"][0]["expected_product_type"] == "NISAR_L2_PR_GOFF"
 
 def test_catalog_maturity_allowlist_excludes_unselected_variants(monkeypatch):
     fake = SimpleNamespace(search=lambda **kwargs: [product(PAIR_NAMES[0], maturity="BETA")])
