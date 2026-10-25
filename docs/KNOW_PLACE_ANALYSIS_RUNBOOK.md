@@ -225,3 +225,8 @@ The dashboard keeps publisher-linked optical images separate from NISAR-derived 
 
 Main remains untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
 
+
+### External-image correction note — 25 October 2026
+
+The dashboard's Geopera image card uses the corrected stereo-elevation-change image from the 1 September follow-up: https://geopera.com/blog/bhote-koshi-stereo-elevation-model . Geopera explicitly retracted the original 28 August parallax sediment map after finding its stereo viewing-geometry assumption was wrong. The card must remain labelled as external WorldView-3 context only; it is not NISAR displacement output and must not be used as event-prediction evidence. The pre-event optical thumbnail also remains contextual and is not georegistered to the crown mask.
+

@@ -155,7 +155,8 @@ def test_author_dashboard_shows_run_provenance_methods_and_scientific_limitation
     assert "সহজ ব্যাখ্যা" in dashboard
     assert "extent_CC-BY-NC-4.0" not in dashboard  # no restricted extent data is packaged
     assert "https://www.tbsnews.net/explainer/" in dashboard
-    assert "https://geopera.com/blog/bhote-koshi-flood-2026-satellite-analysis" in dashboard
+    assert "https://geopera.com/blog/bhote-koshi-stereo-elevation-model" in dashboard
+    assert "this thumbnail is from the corrected follow-up, not the retracted map" in dashboard
     assert "https://unpkg.com" not in dashboard and "https://cdn." not in dashboard
     assert dashboard.count("data:image/png;base64,") == 5
     uris = re.findall(r"data:image/png;base64,([A-Za-z0-9+/=]+)", dashboard)

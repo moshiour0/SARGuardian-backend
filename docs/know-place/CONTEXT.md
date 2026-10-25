@@ -410,3 +410,10 @@ This section supersedes earlier status descriptions where the five exact author 
 
 All changes in this continuation are confined to `feat/know-place-analysis`. Backend `main` remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; do not merge, cherry-pick, or edit main until the dashboard-bearing E2E gate and a separately reviewed scientific acceptance gate pass. No new raw NISAR downloads were authorized or performed in this continuation.
 
+
+### External imagery provenance correction — 2026-10-25
+
+- The dashboard's Geopera context card now uses the corrected stereo-elevation-change map and links to the 1 September follow-up, not the original 28 August cover image. The follow-up explicitly retracts the earlier parallax sediment map because the assumed opposite-side stereo viewing geometry was wrong; it says the derived sediment wedge was noise, not measured deposition. Source: https://geopera.com/blog/bhote-koshi-stereo-elevation-model .
+- Keep this image strictly as **external WorldView-3 stereo context**, not as NISAR-derived displacement and not as a SARGuardian measurement input. The original article and its retracted map must not be used to substantiate scientific claims.
+- The TBS pre-event optical thumbnail remains publisher-attributed context only; neither external image is registered to the NISAR crown or included in displacement calculations.
+

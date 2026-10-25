@@ -34,12 +34,12 @@ SATELLITE_CONTEXT = (
         "note": "Contextual published imagery only. It is not the NISAR input, and it is not registered to the crown mask in this dashboard.",
     },
     {
-        "title": "After the event: downstream impact context",
-        "date": "27 August 2026 · described as WorldView-3 by the publisher",
-        "image": "https://geopera.com/blogs/bhotekoshi-cover.webp",
-        "url": "https://geopera.com/blog/bhote-koshi-flood-2026-satellite-analysis",
+        "title": "After the event: corrected stereo elevation-change context",
+        "date": "27 August 2026 · corrected WorldView-3 stereo analysis (published 1 Sep 2026)",
+        "image": "https://geopera.com/blogs/bhotekoshi-dsm-dh.webp",
+        "url": "https://geopera.com/blog/bhote-koshi-stereo-elevation-model",
         "publisher": "Geopera",
-        "note": "A contextual view of downstream debris impact; not the NISAR crown polygon or a displacement measurement input.",
+        "note": "Corrected external stereo-elevation-change context, not a NISAR displacement output. Geopera retracted the earlier parallax sediment map after finding its viewing-geometry assumption was wrong; this thumbnail is from the corrected follow-up, not the retracted map.",
     },
 )
 PALETTE_MAG = [(30, 55, 95), (23, 125, 165), (59, 190, 164), (249, 210, 91), (212, 64, 45)]
