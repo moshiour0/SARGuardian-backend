@@ -1,0 +1,44 @@
+name: One-time cancel for mismatched legacy replay
+
+on:
+  push:
+    branches:
+      - feat/know-place-analysis
+    paths:
+      - "docs/know-place/CANCEL_MISMATCHED_RUN_40231488633.md"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-mismatched-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel only the confirmed X05026-era replay run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const runId = 40231488633;
+            const expectedSha = "70301edb5a94c9db72ab082209e424f0f111ac1f";
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner, repo, run_id: runId
+            });
+            core.info(JSON.stringify({
+              run_id: run.id, name: run.name, status: run.status,
+              head_branch: run.head_branch, head_sha: run.head_sha
+            }));
+            if (run.name !== "Know Place Analysis - exact five-pair raw replay" ||
+                run.head_branch !== "feat/know-place-analysis" ||
+                run.head_sha !== expectedSha) {
+              core.setFailed("Safety guard: refusing to cancel a run that does not match the exact target identity.");
+              return;
+            }
+            if (run.status === "queued" || run.status === "in_progress") {
+              await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id: runId });
+              core.info("Cancellation requested for the mismatched legacy replay. No X05026 result will be treated as author-exact evidence.");
+            } else {
+              core.info("Target run is already terminal; no cancellation request needed.");
+            }
