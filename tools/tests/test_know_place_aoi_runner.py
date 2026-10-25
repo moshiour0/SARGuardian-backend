@@ -68,8 +68,10 @@ def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch
     assert manifest["eligible_count"] == 2
     assert manifest["query"]["start_utc"] == "2026-06-20T00:00:00Z"
     assert manifest["query"]["end_utc"] == "2026-07-14T23:59:59Z"
-    assert calls["processingLevel"] == "GOFF"
-    assert calls["dataMaturity"] == "PROVISIONAL"
+    assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
+    assert "processingLevel" not in calls
+    assert "dataMaturity" not in calls
+    assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
     assert calls["intersectsWith"].startswith("POLYGON ((")
     assert calls["mainBandPolarization"] == "HH"
     assert all(row["decision"] == "ELIGIBLE_CATALOG_CANDIDATE" for row in manifest["candidates"])
@@ -96,11 +98,11 @@ def test_catalog_uses_singleton_maturity_filter_when_asf_omits_property(monkeypa
 
     products, manifest = discover_nisar_goff(request())
 
-    assert calls["dataMaturity"] == "PROVISIONAL"
+    assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
     assert len(products) == 1
     assert products[0]["maturity"] == "PROVISIONAL"
-    assert products[0]["maturity_evidence"] == "authoritative_asf_search_filter:dataMaturity=PROVISIONAL"
-    assert manifest["query"]["data_maturity_filter"] == ["PROVISIONAL"]
+    assert products[0]["maturity_evidence"] == "authoritative_asf_search_filter:shortName=NISAR_L2_GOFF_PROVISIONAL_V1"
+    assert manifest["query"]["short_name_filter"] == ["NISAR_L2_GOFF_PROVISIONAL_V1"]
 
 
 def test_unknown_explicit_maturity_fails_closed_even_if_query_is_singleton():

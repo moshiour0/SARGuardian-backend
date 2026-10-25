@@ -296,8 +296,8 @@ jobs:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_MUST_NOT_COMPUTE_MEASUREMENTS")
           if int(result.get("source_candidates",0))<1:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_NO_PROVISIONAL_CANDIDATES")
-          if catalog.get("query",{}).get("data_maturity_filter")!=["PROVISIONAL"]:
-              raise SystemExit("ERROR=LIVE_AOI_MATURITY_FILTER_NOT_RECORDED")
+          if catalog.get("query",{}).get("short_name_filter")!=["NISAR_L2_GOFF_PROVISIONAL_V1"]:
+              raise SystemExit("ERROR=LIVE_AOI_COLLECTION_FILTER_NOT_RECORDED")
           if any(row.get("maturity")!="PROVISIONAL" for row in catalog.get("candidates",[])):
               raise SystemExit("ERROR=LIVE_AOI_CATALOG_INCLUDED_WRONG_MATURITY")
           for relative in ("visuals/dashboard.html","visuals/interactive-map.html"):

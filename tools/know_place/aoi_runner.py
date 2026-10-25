@@ -311,7 +311,7 @@ def _maturity(
         if str(value).strip()
     ))
     if len(allowed) == 1 and allowed[0] in {"PROVISIONAL", "BETA"}:
-        return allowed[0], f"authoritative_asf_search_filter:dataMaturity={allowed[0]}"
+        return allowed[0], f"authoritative_asf_search_filter:shortName=NISAR_L2_GOFF_{allowed[0]}_V1"
     raise AOIRunError(
         "CATALOG_MATURITY_UNRESOLVED",
         "Catalog omitted maturity metadata and the authoritative search filter does not identify a single maturity",
@@ -343,23 +343,17 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
 
     try:
         requested_maturities = tuple(request.allowed_maturities)
-        # ASF supports dataMaturity as a server-side filter. Pass a scalar for a
-        # single requested chain, or a list for explicit multi-maturity queries.
-        # This avoids accepting unrelated catalog products and supports exact
-        # maturity evidence when ASF omits the field from returned properties.
-        maturity_filter: str | list[str]
-        maturity_filter = (
-            requested_maturities[0]
-            if len(requested_maturities) == 1
-            else list(requested_maturities)
-        )
+        # Query exact maturity-specific GOFF collections. Combining processingLevel
+        # with dataMaturity can map both aliases to conflicting collection names.
+        short_name_filter: str | list[str]
+        short_names = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
+        short_name_filter = short_names[0] if len(short_names) == 1 else short_names
         results = asf_search.search(
             dataset="NISAR",
             intersectsWith=request.aoi_wkt,
             start=f"{request.start_date.isoformat()}T00:00:00Z",
             end=f"{request.end_date.isoformat()}T23:59:59Z",
-            processingLevel="GOFF",
-            dataMaturity=maturity_filter,
+            shortName=short_name_filter,
             mainBandPolarization=request.polarization,
             maxResults=2000,
         )
@@ -448,8 +442,8 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             "main_band_polarization": request.polarization,
             "polarization_evidence_policy": "query filter is recorded; exact HDF5 polarization group must be validated before measurement",
             "allowed_maturities": list(request.allowed_maturities),
-            "data_maturity_filter": list(request.allowed_maturities),
-            "maturity_evidence_policy": "returned metadata or trusted collection path; when omitted, singleton server-side dataMaturity filter; multi-maturity unresolved results fail closed",
+            "short_name_filter": [f"NISAR_L2_GOFF_{value}_V1" for value in request.allowed_maturities],
+            "maturity_evidence_policy": "returned metadata or trusted collection path; when omitted, singleton exact GOFF collection shortName filter; multi-maturity unresolved results fail closed",
         },
         "result_count": len(all_rows),
         "eligible_count": len(accepted),
