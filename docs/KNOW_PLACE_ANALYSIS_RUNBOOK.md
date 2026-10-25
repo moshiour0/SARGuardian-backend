@@ -230,3 +230,14 @@ Main remains untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
 
 The dashboard's Geopera image card uses the corrected stereo-elevation-change image from the 1 September follow-up: https://geopera.com/blog/bhote-koshi-stereo-elevation-model . Geopera explicitly retracted the original 28 August parallax sediment map after finding its stereo viewing-geometry assumption was wrong. The card must remain labelled as external WorldView-3 context only; it is not NISAR displacement output and must not be used as event-prediction evidence. The pre-event optical thumbnail also remains contextual and is not georegistered to the crown mask.
 
+### Standalone Run #17 dashboard package and corrected imagery — 25 October 2026
+
+A local dashboard artifact has been checked against the retained result bundle from [Run #17](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40170290176). The downloaded source artifact ID is `12589719900`; SHA-256 matches GitHub's artifact digest at `a25bb86069585b2cb023f5fbe889e160ae1749b0b61172ce4f8d1d9953c76682`. The dashboard's five source-product hashes match the source manifest, and the reported selected comparison totals were cross-checked against saved reports: site-series 65/65, P2 15/15, footprint rasters 3/3, candidate inventory 106 rows, Table S7 101 rows.
+
+The standalone HTML and its manifest/package can be downloaded from this chat. The local artifact is suitable for presenting the existing Run #17 result, but it does not establish that the GitHub safe-render workflow itself has uploaded a dashboard to Drive.
+
+The external Geopera image is now the corrected 1 September WorldView-3 stereo-elevation-change image, linked to https://geopera.com/blog/bhote-koshi-stereo-elevation-model . Geopera's follow-up explicitly retracts the original parallax sediment map after finding an incorrect stereo viewing-geometry assumption. Treat the corrected image as contextual external imagery, not as NISAR displacement output.
+
+Latest CI after the renderer-image change: [run 40187665186](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40187665186), **256 passed**, all nine workflow YAMLs parsed, actionlint passed. The safe workflow remains pending manual dispatch via the shared branch dispatcher: `run_profile=render-author-dashboard`, `source_run_id=40170290176`, `source_attempt=1`. This route requires no `[run-know-place]` marker because it downloads no raw NISAR products.
+
+Paper status remains partial until displacement-null and exact geometry/mask parity are resolved; hazard detection remains not evaluated. Main is untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.

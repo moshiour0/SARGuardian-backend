@@ -312,3 +312,15 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Complete preregistered multi-event and non-event validation before estimating detection skill, false alarms, or lead time.
 - [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and scientific acceptance gates are independently reviewed.
 
+## Local Run #17 dashboard package and source-image correction — 2026-10-25
+
+- [x] Download and verify source artifact ID `12589719900` against GitHub SHA-256 `a25bb86069585b2cb023f5fbe889e160ae1749b0b61172ce4f8d1d9953c76682`.
+- [x] Confirm the derived-only archive contains no raw HDF5; verify all five source hashes shown in the dashboard against the source manifest.
+- [x] Cross-check selected comparison totals: 65/65 site-series, 15/15 P2, 3/3 aggregate rasters, 106 candidate rows, and 101 Table S7 rows.
+- [x] Add provenance manifest and package the standalone HTML plus scientific preview PNGs for review.
+- [x] Replace the old Geopera cover imagery with the corrected WorldView-3 stereo-elevation-change image and document the original article's explicit retraction.
+- [x] Run isolated CI after the image-source correction: [40187665186](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40187665186) passed 256 tests, all nine workflow YAML checks and pinned actionlint.
+- [ ] Dispatch `render-author-dashboard` through the shared branch dispatcher and verify the new workflow's dashboard artifact, Drive HTML/manifest upload, and remote receipt-copy verification. No raw NISAR download is needed.
+- [ ] Finish displacement-null draw-level parity and exact crown/source-grid mask verification before declaring complete paper reproduction.
+- [ ] Keep hazard detection `NOT_EVALUATED` until independent held-out event/non-event evaluation is complete.
+- [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and separate scientific acceptance gates pass.
