@@ -267,3 +267,9 @@ The paper describes compact regions with the crown's own valid-pixel count, plac
 The apparent 292/298 count difference is resolved by estimand: 292 is valid displacement count `n` in `nisar_pot_series.json`; 298 is coherence-valid crown count `n_px` in `polygon_null.json` for 26 July–19 August. They are not interchangeable.
 
 Paper status remains partial and hazard detection remains not evaluated until the displacement-null and geometry/mask gates are addressed. No raw replay is needed for this initial archive-level reconstruction; main remains untouched.
+
+## First independent displacement-null reconstruction — 2026-10-25
+
+The new module `tools/know_place/displacement_null.py` reads only the five processed offset-field TIFFs in the supplied Zenodo archive. It records inputs and SHA-256, uses finite east/north vectors, ranks the crown median against up to 1,200 size-matched raster-index disks per pair, records all sampled centres and accepted/rejected outcomes, and makes the seed/PRNG and assumptions part of a versioned JSON report. The first run's complete outputs are summarized in `docs/know-place/evidence/DISPLACEMENT_NULL_RECONSTRUCTION_20261025.md`.
+
+Results are explicitly `INDEPENDENT_METHOD_DERIVED_NOT_AUTHOR_SAMPLER_PARITY`: the supplied Zenodo archive has published aggregate values but not the displacement-null generator or its draw-level samples. Observed medians match the published two-decimal values, while some null percentiles differ (26 July–19 August: 92.2 computed vs 94.7 published). Do not tune seeds or geometry to force the expected answer. The next task is a predeclared sensitivity matrix over unrecovered region/acceptance choices, followed by exact crown-mask parity and a separately named vertical-datum sensitivity. Paper status remains partial; hazard detection remains not evaluated.

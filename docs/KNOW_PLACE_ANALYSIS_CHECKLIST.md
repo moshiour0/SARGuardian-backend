@@ -336,3 +336,13 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Implement a separate method-derived displacement-null reconstruction on archived offset fields, retain every draw and rejection reason, pin seed/PRNG and all sampling policy choices, and compare the five aggregate rows without tuning to force agreement.
 - [ ] If the exact author draw generator cannot be recovered, label outputs independent/method-derived and keep whole-paper status partial; never call the 94.7th percentile a detection.
 - [ ] After null work, verify exact crown polygon/source-grid mask parity, then run a separate vertical-datum sensitivity. Multi-site event/non-event validation remains required before any hazard-detection claim.
+
+## First displacement-null reconstruction — 2026-10-25
+
+- [x] Add a separately named method-derived displacement-null module with versioned seed, PRNG, region, centre-selection and acceptance assumptions.
+- [x] Retain all 1,200 attempted centres per pair, rejected-draw reasons, accepted median values, source-field SHA-256/CRS/grid metadata, and comparison with published aggregate rows.
+- [x] Run on all five supplied processed-field GeoTIFFs without reading raw HDF5; observed crown median values round to published two-decimal values.
+- [x] Add deterministic and policy-validation regression tests and wire module/test into isolated CI.
+- [ ] Run predeclared policy sensitivity over plausible compact-region and acceptance choices; do not tune to obtain published percentiles.
+- [ ] Recover author draw-level implementation/output if available; otherwise retain independent-method-derived label and paper status PARTIAL.
+- [ ] Verify exact crown source-grid mask and run a separate terrain vertical-datum sensitivity before proceeding to preregistered multi-site validation.
