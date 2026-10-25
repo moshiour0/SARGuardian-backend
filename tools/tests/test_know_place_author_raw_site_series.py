@@ -325,7 +325,7 @@ def test_p2_projection_uses_per_pixel_dem_interpolated_geometry_not_crown_median
     assert np.ptp(projected["dN_m"]) > 0.01
 
 
-def test_p2_crown_r_is_cropped_from_contextual_r_raster_not_recomputed_on_crown():
+def test_p2_crown_r_uses_source_pixel_box_then_box_extent_for_crown():
     east, north, x, y = _halo_field_arrays()
     result = author_local_mean_reference_statistics(
         east, north, x, y, 32645,
@@ -340,13 +340,17 @@ def test_p2_crown_r_is_cropped_from_contextual_r_raster_not_recomputed_on_crown(
     full_r = residual_directional_coherence(
         residual_east, residual_north, window_size=5, local_support_fraction=0.15
     )
-    extent, (r_up,) = author_north_up(x, y, 32645, [full_r])
-    box_slice = author_crown_slice(r_up.shape, extent, AUTHOR_WIDE_BOUNDS)
-    crown_slice = author_crown_slice(r_up.shape, extent, AUTHOR_CROWN_BOUNDS)
-    box_r = r_up[box_slice]
-    crown_r = r_up[crown_slice]
-    expected_crown = float(np.median(crown_r[np.isfinite(crown_r)]))
-    expected_box = float(np.median(box_r[np.isfinite(box_r)]))
+    box_rows, box_cols = author_wide_window_slices(
+        x, y, 32645, wide_bounds_lonlat=AUTHOR_WIDE_BOUNDS
+    )
+    box_extent, (box_r,) = author_north_up(
+        x[box_cols], y[box_rows], 32645, [full_r[box_rows, box_cols]]
+    )
+    crown_slice = author_crown_slice(box_r.shape, box_extent, AUTHOR_CROWN_BOUNDS)
+    box_values = box_r[np.isfinite(box_r)]
+    crown_values = box_r[crown_slice]
+    crown_values = crown_values[np.isfinite(crown_values)]
     assert result["coherence_computed_before_spatial_cropping"] is True
-    assert result["P2_R_crown"] == pytest.approx(expected_crown, abs=1e-7)
-    assert result["P2_R_background"] == pytest.approx(expected_box, abs=1e-7)
+    assert result["author_spatial_selection_order"].startswith("residual coherence on halo")
+    assert result["P2_R_crown"] == pytest.approx(float(np.median(crown_values)), abs=1e-7)
+    assert result["P2_R_background"] == pytest.approx(float(np.median(box_values)), abs=1e-7)

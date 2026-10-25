@@ -314,14 +314,14 @@ def author_local_mean_reference_statistics(
     crown_bounds_lonlat: tuple[float, float, float, float] = (85.5245, 28.2847, 85.5400, 28.2970),
     box_bounds_lonlat: tuple[float, float, float, float] = (85.500, 28.265, 85.565, 28.318),
 ) -> dict[str, Any]:
-    """Compute P2 statistics before spatially cropping coherence.
+    """Compute P2 using the author's pixel-box crop then crown-extent crop.
 
-    The author full-footprint kernel computes the local mean, residual vectors,
-    and 5x5 coherence on the contextual field. It then samples the same R raster
-    with the source's endpoint-derived extent for the crown and the background
-    box. Recomputing R from a crown-only vector crop or reprojecting bounds
-    relative to an already-cropped box introduces artificial boundary/crop shifts.
-    Inputs must already use author-compatible float32 offsets and quality gates.
+    Residual coherence is computed on a contextual halo. The reported WIDE box
+    is then selected directly from the projected GOFF x/y axes, and the crown
+    mask is selected from that cropped box's endpoint-derived lon/lat extent,
+    matching the author site-series spatial selection order. This avoids
+    reflected-edge artifacts and the subtle crop shifts caused by applying the
+    crown mask to the halo's extent directly.
     """
     east, north = _pair(east_m, north_m)
     x = np.asarray(x_coordinates_m, dtype=float)
@@ -345,16 +345,28 @@ def author_local_mean_reference_statistics(
     full_r = residual_directional_coherence(
         residual_east, residual_north, window_size=5, local_support_fraction=0.15
     )
-    extent, oriented = author_north_up(x, y, int(epsg), [full_r])
-    r_up = np.asarray(oriented[0], dtype=float)
-    box_slice = author_crown_slice(r_up.shape, extent, box_bounds_lonlat)
-    crown_slice = author_crown_slice(r_up.shape, extent, crown_bounds_lonlat)
-    box_r = np.asarray(r_up[box_slice], dtype=float)
-    crown_r = np.asarray(r_up[crown_slice], dtype=float)
+
+    # Match make_pot_figure.read_pair(): select the box from projected x/y axes,
+    # not from a second interpolation of the halo's geographic extent.
+    box_rows, box_cols = author_wide_window_slices(
+        x, y, int(epsg), wide_bounds_lonlat=box_bounds_lonlat
+    )
+    box_r_source = np.asarray(full_r[box_rows, box_cols], dtype=np.float32)
+    box_x = x[box_cols]
+    box_y = y[box_rows]
+    box_extent, oriented = author_north_up(
+        box_x, box_y, int(epsg), [box_r_source]
+    )
+    box_r = np.asarray(oriented[0], dtype=float)
     box_finite = box_r[np.isfinite(box_r)]
-    crown_finite = crown_r[np.isfinite(crown_r)]
     if not box_finite.size:
         raise AuthorParityError("AUTHOR_P2_BOX_HAS_NO_VALID_R")
+
+    # Match make_fig_timeseries.crown_slice(): the crown is selected from the
+    # WIDE crop shape and that crop's own endpoint-derived extent.
+    crown_slice = author_crown_slice(box_r.shape, box_extent, crown_bounds_lonlat)
+    crown_r = np.asarray(box_r[crown_slice], dtype=float)
+    crown_finite = crown_r[np.isfinite(crown_r)]
     if not crown_finite.size:
         raise AuthorParityError("AUTHOR_P2_CROWN_HAS_NO_VALID_R")
 
@@ -370,14 +382,11 @@ def author_local_mean_reference_statistics(
         "required_halo_pixels_per_side": local_window // 2 + 2,
         "box_shape": [int(box_r.shape[0]), int(box_r.shape[1])],
         "box_slice_in_halo": {
-            "row_start": int(box_slice[0].start), "row_stop": int(box_slice[0].stop),
-            "col_start": int(box_slice[1].start), "col_stop": int(box_slice[1].stop)
-        },
-        "crown_slice_in_halo": {
-            "row_start": int(crown_slice[0].start), "row_stop": int(crown_slice[0].stop),
-            "col_start": int(crown_slice[1].start), "col_stop": int(crown_slice[1].stop)
+            "row_start": int(box_rows.start), "row_stop": int(box_rows.stop),
+            "col_start": int(box_cols.start), "col_stop": int(box_cols.stop)
         },
         "coherence_computed_before_spatial_cropping": True,
+        "author_spatial_selection_order": "residual coherence on halo -> WIDE box from projected x/y axes -> crown slice from WIDE endpoint extent",
     }
 
 
