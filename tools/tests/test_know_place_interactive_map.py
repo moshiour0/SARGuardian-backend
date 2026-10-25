@@ -82,6 +82,8 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     assert 'pair.high_magnitude_flagged_pixels==null?"—":String(pair.high_magnitude_flagged_pixels)' in rendered
     assert "Source measurement grid: " in rendered
     assert "PARTIAL — numeric checks match; original null-generator identity unverified" in rendered
+    assert 'id="transparency-note"' in rendered
+    assert "Transparent pixels mean no preview value, not zero motion." in rendered
     assert "P05023" in rendered
     assert payload["aoi_ring_lon_lat"][0] == [85.0, 28.0]
     assert payload["pairs"][0]["preview"]["bounds"] is not None
