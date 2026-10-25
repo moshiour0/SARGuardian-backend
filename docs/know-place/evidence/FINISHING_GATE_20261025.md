@@ -20,8 +20,8 @@ This report intentionally separates numerical agreement from source-code identit
 | Footprint candidate inventory / Table S7 | All 106 candidate rows and all 101 Table S7 numeric rows pass declared tolerances; 0 missing/extra rows, 0 numeric mismatches, 0 ranking inversions over 5,564 comparisons | Footprint parity report |
 | Retained crown-mask/source-provenance audit | Five pairs; 323-cell reconstructed mask each; XOR=0 for saved-mask/grid/endpoint checks; exact author editable-vector identity remains unverified | [Run 40200875570](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40200875570); [crown audit](CROWN_MASK_AUDIT_20261025.md) |
 | Displacement-null numeric output | 15/15 fields match at stored precision across five pairs: crown median, null median and percentile | [Run 40219393283](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283); [machine-readable artifact 12608431799](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283/artifacts/12608431799); [JSON summary](DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.json) |
-| Latest isolated code/workflow validation | **281 passed**; 11 Know Place workflows plus dispatcher parsed; pinned actionlint checksum and semantic validation passed | [Run 40220862376](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40220862376) |
-| Latest five-pair raw replay authorization gate | Consent-check job passed; expensive science job **SKIPPED**; this gate downloaded zero raw HDF5 | [Run 40220862382](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40220862382) |
+| Latest isolated code/workflow validation | **281 passed**; all 11 Know Place workflows plus dispatcher parsed; pinned actionlint checksum and semantic validation passed | [Run 40221064296](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40221064296) |
+| Latest five-pair raw replay authorization gate | Consent-check job passed; expensive science job **SKIPPED**; this gate downloaded zero raw HDF5 | [Run 40221064385](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40221064385) |
 | Repository isolation | Main SHA remains 2218dfeb73353080d8d94bd733d9e7bd9a848886; no merge/write to main | Rechecked at finish |
 
 ## Scientific status boundary
@@ -45,3 +45,11 @@ The five exact P05023 author input products were used in the previous explicitly
 - Do not treat the candidate screen, ranking percentile or post-hoc source measurements as an operational landslide/glacier-collapse alarm.
 - The source replay workflow remains fail-closed: without the explicit [run-know-place] authorization marker, GitHub Actions validates the gate and skips the expensive raw GOFF replay. The latest consent-gate result confirms that no new raw payloads were downloaded.
 - Keep all work on feat/know-place-analysis; do not merge to main as part of finishing documentation.
+
+
+## Branch-tip refresh — 2026-10-26 (Asia/Dhaka)
+
+- Latest isolated validation: [Run 40221064296](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40221064296), 281 tests passed with all 11 workflows plus dispatcher parsed, pinned actionlint checksum verified and semantic validation passed.
+- Latest raw-replay consent gate: [Run 40221064385](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40221064385), consent check passed and expensive analysis was skipped. No raw HDF5 payload was downloaded by the gate.
+- Main SHA remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; no changes to main.
+- Numeric Table S4 comparison is 95/95 at published precision when including the source-inspired displacement-null reconstruction. Original null-generator/draw identity, exact original crown mask, RGI 6.0 overlay and original terrain-byte provenance remain unverified. Full scientific reproduction is PARTIAL; hazard detection remains NOT_EVALUATED.
