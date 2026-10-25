@@ -51,7 +51,7 @@ jobs:
           python -m tools.know_place.displacement_null_archive_reconstruction --author-archive "$RUNNER_TEMP/author-archive.zip" --out "displacement-null-reconstruction.json"
       - name: Enforce output parity but preserve source-method caveat
         run: |
-          python - "$RUNNER_TEMP/displacement-null-reconstruction.json" <<'PY'
+          python - "displacement-null-reconstruction.json" <<'PY'
           import json, sys
           report=json.load(open(sys.argv[1],encoding="utf-8"))
           if report.get("status")!="PASS_AT_PUBLISHED_TABLE_PRECISION" or len(report.get("rows",[]))!=5:
