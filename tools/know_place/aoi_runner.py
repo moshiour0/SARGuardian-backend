@@ -345,9 +345,8 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         requested_maturities = tuple(request.allowed_maturities)
         # Query exact maturity-specific GOFF collections. Combining processingLevel
         # with dataMaturity can map both aliases to conflicting collection names.
-        short_name_filter: str | list[str]
-        short_names = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
-        short_name_filter = short_names[0] if len(short_names) == 1 else short_names
+        short_name_filter: list[str]
+        short_name_filter = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
         results = asf_search.search(
             # `shortName` is the exact collection selector; omit the dataset alias,
             # which also maps to shortName in this asf_search series.
