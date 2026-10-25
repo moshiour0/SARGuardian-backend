@@ -15,6 +15,7 @@ on:
       - ".github/workflows/know-place-dem-source-acquisition.yml"
       - ".github/workflows/know-place-terrain-datum-sensitivity.yml"
       - ".github/workflows/know-place-author-exact-replay.yml"
+      - ".github/workflows/know-place-author-exact-consent-bridge.yml"
       - ".github/workflows/know-place-author-dashboard.yml"
       - ".github/workflows/sarguardian-aoi-wkt-dispatcher.yml"
       - ".github/workflows/know-place-retained-crown-audit.yml"
@@ -63,7 +64,7 @@ jobs:
       - name: Compile every isolated analysis and datum-sensitivity module
         run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/author_dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py tools/know_place/author_exact_acquisition.py tools/know_place/author_exact_retention.py tools/know_place/author_raw_site_series.py tools/know_place/author_archive_raster_parity.py tools/know_place/author_footprint_replay.py tools/know_place/displacement_null.py tools/know_place/displacement_null_archive_reconstruction.py tools/know_place/crown_mask_audit.py tools/know_place/scientific_status.py
 
-      - name: Parse all nine Know Place workflows and the branch Run Workflow launcher as YAML
+      - name: Parse all isolated Know Place workflows and the branch Run Workflow launcher as YAML
         shell: bash
         run: |
           set -euo pipefail
@@ -78,6 +79,7 @@ jobs:
               Path(".github/workflows/know-place-dem-source-acquisition.yml"),
               Path(".github/workflows/know-place-terrain-datum-sensitivity.yml"),
               Path(".github/workflows/know-place-author-exact-replay.yml"),
+              Path(".github/workflows/know-place-author-exact-consent-bridge.yml"),
               Path(".github/workflows/know-place-author-dashboard.yml"),
               Path(".github/workflows/sarguardian-aoi-wkt-dispatcher.yml"),
               Path(".github/workflows/know-place-retained-crown-audit.yml"),
@@ -133,7 +135,7 @@ jobs:
           /tmp/actionlint -version
 
       - name: Run semantic GitHub Actions workflow validation
-        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml .github/workflows/know-place-author-exact-replay.yml .github/workflows/know-place-author-dashboard.yml .github/workflows/sarguardian-aoi-wkt-dispatcher.yml .github/workflows/know-place-retained-crown-audit.yml
+        run: /tmp/actionlint .github/workflows/know-place-analysis-validation.yml .github/workflows/know-place-analysis-run.yml .github/workflows/know-place-analysis-reanalysis.yml .github/workflows/know-place-aoi-analysis.yml .github/workflows/know-place-dem-source-acquisition.yml .github/workflows/know-place-terrain-datum-sensitivity.yml .github/workflows/know-place-author-exact-replay.yml .github/workflows/know-place-author-exact-consent-bridge.yml .github/workflows/know-place-author-dashboard.yml .github/workflows/sarguardian-aoi-wkt-dispatcher.yml .github/workflows/know-place-retained-crown-audit.yml
 
   live-asf-catalog-contract:
     name: Live ASF identity gates for historical and author-exact granules (no downloads)
