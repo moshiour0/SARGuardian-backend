@@ -58,7 +58,7 @@ def _make_artifact_root(root: Path) -> Path:
                 "secondary_date": b,
                 "granule_name": granule + ".h5",
                 "status": "METRICS_COMPUTED",
-                "crown_valid_pixels": "11",
+                "crown_valid_pixels": "2",
                 "crown_median_horizontal_magnitude_m": "0.7",
                 "source_sha256": digest,
             })
@@ -67,7 +67,11 @@ def _make_artifact_root(root: Path) -> Path:
             mag = np.full((3, 4), 0.7 + index * 0.1, dtype=np.float32)
             valid = np.ones((3, 4), dtype=np.uint8)
             valid[0, 0] = 0
-            crown = np.ones((3, 4), dtype=np.uint8)
+            valid[1, 2] = 0
+            crown = np.zeros((3, 4), dtype=np.uint8)
+            crown[1, 1] = 1
+            crown[1, 2] = 1
+            crown[2, 1] = 1
             payload = io.BytesIO()
             np.savez(
                 payload,
@@ -120,9 +124,15 @@ def test_build_author_map_report_is_exact_p05023_and_five_pairs(tmp_path: Path):
     assert [p["reference_date"] for p in report["pairs"]] == [p[0] for p in PAIRS]
     assert all(p["release_id"] == "P05023" for p in report["pairs"])
     assert all(p["support_region_label"] == "Valid crown-mask pixels" for p in report["pairs"])
-    assert all(p["valid_aoi_pixels"] == 11 and p["aoi_total_grid_cells"] == 12 for p in report["pairs"])
+    assert all(p["valid_aoi_pixels"] == 2 and p["aoi_total_grid_cells"] == 3 for p in report["pairs"])
     assert all(p.get("geotiff_file") is None and p.get("geotiff_href") is None for p in report["pairs"])
     assert all(p["map_preview"]["pixel_size_x_m"] == 80 for p in report["pairs"])
+    assert all(p["map_preview"]["support_mask_label"].startswith("Crown-mask only") for p in report["pairs"])
+    for pair in report["pairs"]:
+        values = pair["map_preview"]["values"]
+        assert values[0][1] is None  # valid scene pixel but outside the crown mask
+        assert values[1][1] is not None  # valid pixel inside the crown mask
+        assert values[1][2] is None  # invalid pixel inside the crown mask
 
 
 def test_map_renderer_writes_a_five_pair_map_and_provenance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
