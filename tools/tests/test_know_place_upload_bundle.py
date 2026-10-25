@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import zipfile
 
 import pytest
 
+from app.storage.drive_client import DriveClient, DriveClientError
 import tools.know_place.upload_bundle_to_drive as uploader
 
 
@@ -124,3 +126,40 @@ def test_drive_upload_fails_closed_for_wrong_storage_identity(tmp_path, monkeypa
     monkeypatch.setattr(uploader, "DriveClient", WrongIdentityDrive)
     with pytest.raises(uploader.BundleUploadError, match="DRIVE_STORAGE_ACCOUNT_IDENTITY_MISMATCH"):
         uploader.upload_and_verify(tmp_path / "unused.zip", folder_name="know-place-test-run")
+
+@pytest.mark.parametrize(
+    "refresh_secret, expected",
+    [
+        ("plain-refresh-token", "plain-refresh-token"),
+        (json.dumps("quoted-refresh-token"), "quoted-refresh-token"),
+        (json.dumps({"refresh_token": "object-refresh-token"}), "object-refresh-token"),
+    ],
+)
+def test_drive_client_accepts_supported_refresh_token_secret_formats(
+    monkeypatch, refresh_secret, expected
+):
+    monkeypatch.setenv(
+        "GOOGLE_DRIVE_OAUTH_CLIENT_JSON",
+        json.dumps({
+            "installed": {
+                "client_id": "test-client-id",
+                "client_secret": "test-client-secret",
+            }
+        }),
+    )
+    monkeypatch.setenv("GOOGLE_DRIVE_REFRESH_TOKEN", refresh_secret)
+
+    client = DriveClient.from_environment()
+
+    assert client.client_id == "test-client-id"
+    assert client.client_secret == "test-client-secret"
+    assert client.refresh_token == expected
+
+
+def test_drive_client_rejects_malformed_oauth_client_json(monkeypatch):
+    monkeypatch.setenv("GOOGLE_DRIVE_OAUTH_CLIENT_JSON", "{not-json")
+    monkeypatch.setenv("GOOGLE_DRIVE_REFRESH_TOKEN", "plain-refresh-token")
+
+    with pytest.raises(DriveClientError, match="DRIVE_CONFIGURATION_INVALID"):
+        DriveClient.from_environment()
+
