@@ -269,7 +269,7 @@ def build_author_map_report(artifact_root: str | Path, source_run_id: int) -> di
         "source_granules": 5,
         "map_pairs": len(pair_rows),
         "pairs": pair_rows,
-        "aoi_geometry_note": "Published-bounds rectangle approximation; not the original editable author crown vector.",
+        "aoi_geometry_note": "Author-script AOI rectangle: 85.5245–85.5400° E, 28.2847–28.2970° N; native-grid pixel-mask parity remains unverified.",
     }
 
 

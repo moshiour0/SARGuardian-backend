@@ -46,3 +46,8 @@ Within the downloaded Actions artifact:
 - `browser-smoke.json` SHA-256: `ca5aeb8c959aae3baace6da9c399b915cc240710b8c27a9d1c7dbd6fdd2653f2`
 - `browser-smoke-mobile.png` SHA-256: `882dc0013cc8fb3294e8e010e814ea428ab3cb8a790122ea22476d8c7115fd4f`
 - `browser-smoke-tablet.png` SHA-256: `0e1123bf0998af580136c04de5ddd4cfc9c9be73631fe9d098ed678a05b5d7a4`
+
+
+### Source AOI geometry note clarification
+
+The deposited author code defines the rectangular AOI extent as 85.5245–85.5400° E, 28.2847–28.2970° N (`code/make_pot_figure.py:45`) and uses an index crop for crown time-series statistics (`code/make_fig_timeseries.py:53–58`). The map now reports those exact author-script bounds; native-grid pixel-mask edge-inclusion parity is still explicitly unverified. This is a code-archive observation, not a completed mask-equivalence result.

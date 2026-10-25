@@ -120,6 +120,10 @@ def test_build_author_map_report_is_exact_p05023_and_five_pairs(tmp_path: Path):
     assert report["source_granules"] == 5
     assert report["map_pairs"] == 5
     assert report["hazard_detection_status"] == "NOT_EVALUATED"
+    assert report["aoi_geometry_note"] == (
+        "Author-script AOI rectangle: 85.5245–85.5400° E, 28.2847–28.2970° N; "
+        "native-grid pixel-mask parity remains unverified."
+    )
     assert report["raw_hdf5_read_or_downloaded"] is False
     assert [p["reference_date"] for p in report["pairs"]] == [p[0] for p in PAIRS]
     assert all(p["release_id"] == "P05023" for p in report["pairs"])

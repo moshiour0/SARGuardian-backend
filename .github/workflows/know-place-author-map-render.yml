@@ -201,7 +201,7 @@ jobs:
                 sourceGridLabelIsAccurate: state.gridLabel.startsWith("Source measurement grid: EPSG:32645"),
                 reproductionCaveatReadable: state.paperStatus.startsWith("PARTIAL — numeric checks match"),
                 hazardUnaudited: state.hazardStatus === "NOT_EVALUATED",
-                crownApproximationClearlyLabelled: state.geometryNote.toLowerCase().includes("rectangle approximation"),
+                authorRectangleGeometryClearlyDescribed: state.geometryNote.toLowerCase().includes("author-script aoi rectangle") && state.geometryNote.toLowerCase().includes("pixel-mask parity remains unverified"),
                 previewMaskedToCrownSupport: state.transparencyNote.toLowerCase().includes("crown-mask only"),
                 noFalseNativeGridLink: state.geotiffLinkHidden,
                 leafletLoaded: state.leafletLoaded,

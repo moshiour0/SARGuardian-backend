@@ -584,3 +584,13 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - Whole-paper status remains `PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`. Browser QA is presentation QA, not hazard validation.
 - The isolated validation for the same commit passed in run #40240016149, including scientific/unit/integration tests, live ASF identity gates with no downloads, exact-author CMR link checks without payload download and arbitrary-AOI catalog-only dry-run.
 - Remaining gates: physical-device mobile smoke; a browser test for a generic arbitrary-AOI **measurement** bundle; exact editable author crown geometry/RGI/terrain provenance and original null-generator identity; independent labelled multi-event/non-event hazard validation. Do not silently substitute historical `X05026` for `P05023` and do not call this hazard detection.
+
+
+## 44. 2026-10-26 — Author-deposited crown AOI source-code audit
+
+- Independently inspected the deposited CC BY 4.0 source/code archive (91 members; ZIP CRC test passed; no `.h5`/`.hdf5` members).
+- `code/make_pot_figure.py:45` defines `AOI = (85.5245, 28.2847, 85.5400, 28.2970)` and calls it the source AOI; `code/nhess_content.py:150–152` documents the same extent as the crown polygon. `code/make_fig_timeseries.py:53–58` applies `crown_slice` by deriving longitude/latitude axes and selecting row/column index ranges with `searchsorted`. Thus the deposited reference implementation defines a rectangular AOI window; no separate editable crown-vector file is present in the archive inventory.
+- Do **not** mistake `extent_CC-BY-NC-4.0/flow_extent.shp` for the source crown AOI: it is a separately licensed flow/runout extent (CC BY-NC 4.0), not the pre-event crown mask. `inventory/candidates_attributed.gpkg` and the associated shapefile are footprint-wide candidate inventory, not a dedicated crown vector.
+- Updated the interactive map note to show the exact author-script rectangle bounds and explicitly state that native-grid pixel-mask edge-inclusion parity is still unverified. This is more precise than saying the geographical bounds themselves are unknown, but does not claim a matching golden mask.
+- Remaining geometry validation: reproduce the author crop index semantics from `crown_slice` on the identical source geolocation arrays/grid, then compare the resulting selected-cell mask and all five per-pair valid-count/statistic outputs. Without those exact grids/masks the pixel support remains an unresolved source-parity gate.
+- Scientific status remains `PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED`; `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
