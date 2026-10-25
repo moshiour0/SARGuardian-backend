@@ -237,6 +237,7 @@ def build_author_map_report(artifact_root: str | Path, source_run_id: int) -> di
                 "valid_aoi_pixels": valid_crown,
                 "aoi_total_grid_cells": crown_cells,
                 "valid_aoi_fraction": valid_crown / crown_cells,
+                "support_region_label": "Valid crown-mask pixels",
                 "source_sha256": source_sha,
                 "statistics": {
                     "crown_median_horizontal_magnitude_m": median,
