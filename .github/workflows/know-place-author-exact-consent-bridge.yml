@@ -19,6 +19,7 @@ jobs:
     uses: ./.github/workflows/know-place-author-exact-replay.yml
     with:
       consent_marker: "[run-know-place]"
+      bridge_authorized: true
       geometry_height_m: "5151"
       control_draws: "1000"
       seed: "260826"
