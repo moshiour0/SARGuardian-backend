@@ -1,8 +1,10 @@
 name: Know Place Analysis - exact five-pair raw replay
 
-# This isolated feature-branch workflow does not exist on main.
-# It performs the expensive work only when the pushed commit message contains
-# the explicit marker [run-know-place]. Ordinary code/test pushes are cheap.
+# Historical replay only: its frozen manifest contains the older X05026 first pair.
+# It must never run from [run-know-place] alone, because that marker is used for
+# the author-exact P05023 path. This historical mixed-release replay requires BOTH
+# [run-know-place] and the separate [run-mixed-release-replay] marker.
+# Keep this workflow isolated to feat/know-place-analysis; main is untouched.
 on:
   push:
     branches:
@@ -30,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           should_run=false
-          if [[ "$EVENT_MESSAGE" == *"[run-know-place]"* ]]; then
+          if [[ "$EVENT_MESSAGE" == *"[run-know-place]"* && "$EVENT_MESSAGE" == *"[run-mixed-release-replay]"* ]]; then
             should_run=true
           fi
           echo "run_analysis=$should_run" >> "$GITHUB_OUTPUT"
@@ -41,7 +43,7 @@ jobs:
             {
               echo "## Know Place Analysis trigger gate"
               echo
-              echo "This feature-branch update did not include the [run-know-place] marker, so no analysis was requested."
+              echo "This feature-branch update did not include BOTH [run-know-place] and [run-mixed-release-replay]; the historical mixed-release replay is disabled."
               echo "No raw NISAR products were downloaded."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
