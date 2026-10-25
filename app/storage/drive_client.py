@@ -34,19 +34,27 @@ class DriveClient:
         raw_refresh = os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN", "").strip()
         if not raw_client or not raw_refresh:
             raise DriveClientError("DRIVE_CONFIGURATION_INVALID")
+        # Keep the OAuth client document strict, but accept a refresh token in
+        # the same three formats already supported by tools/drive_resumable_upload.py:
+        # plain text, a JSON string, or a JSON object containing refresh_token.
         try:
             document = json.loads(raw_client)
-            client = document.get("installed") or document.get("web") or document
-            parsed_refresh = json.loads(raw_refresh)
-            refresh_token = (
-                parsed_refresh.get("refresh_token")
-                if isinstance(parsed_refresh, dict)
-                else parsed_refresh if isinstance(parsed_refresh, str) else raw_refresh
-            )
         except (TypeError, json.JSONDecodeError):
             raise DriveClientError("DRIVE_CONFIGURATION_INVALID") from None
+        client = document.get("installed") or document.get("web") or document
         if not isinstance(client, dict):
             raise DriveClientError("DRIVE_CONFIGURATION_INVALID")
+        try:
+            parsed_refresh = json.loads(raw_refresh)
+        except json.JSONDecodeError:
+            # GitHub Actions secrets are commonly stored as the token's raw string.
+            parsed_refresh = raw_refresh
+        if isinstance(parsed_refresh, dict):
+            refresh_token = parsed_refresh.get("refresh_token")
+        elif isinstance(parsed_refresh, str):
+            refresh_token = parsed_refresh
+        else:
+            refresh_token = None
         client_id = client.get("client_id")
         client_secret = client.get("client_secret")
         if not all(isinstance(value, str) and value for value in (client_id, client_secret, refresh_token)):
