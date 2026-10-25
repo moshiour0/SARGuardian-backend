@@ -28,6 +28,7 @@ import numpy as np
 
 from .aoi_request import AOIRequest, AOIRequestError, validate_aoi_request
 from .dashboard import write_dashboard
+from .interactive_map import write_interactive_map
 from .geometry import build_analysis_roi, parse_polygon_wkt, project_wkt_ring
 from .goff_io import (
     GoffReadError,
@@ -831,6 +832,7 @@ def run_aoi_analysis(
                 encoding="utf-8",
             )
             write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+            write_interactive_map(result, run_dir / "visuals" / "interactive-map.html")
             output_files = sorted(
                 file for file in run_dir.rglob("*")
                 if file.is_file() and file.name != "manifest.json"
@@ -1303,6 +1305,7 @@ def run_aoi_analysis(
             encoding="utf-8",
         )
         write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+        write_interactive_map(result, run_dir / "visuals" / "interactive-map.html")
         output_files = sorted(
             path for path in run_dir.rglob("*")
             if path.is_file() and path.name != "manifest.json"
@@ -1315,6 +1318,7 @@ def run_aoi_analysis(
             encoding="utf-8",
         )
         write_dashboard(result, run_dir / "visuals" / "dashboard.html")
+        write_interactive_map(result, run_dir / "visuals" / "interactive-map.html")
         output_files = sorted(
             path for path in run_dir.rglob("*")
             if path.is_file() and path.name != "manifest.json"

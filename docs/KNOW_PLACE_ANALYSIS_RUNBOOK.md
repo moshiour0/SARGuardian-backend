@@ -185,6 +185,7 @@ The result also records `motion_dynamics` features. Changes in mean-vector rate 
 ### Dashboard outputs and scientific status
 
 - `visuals/dashboard.html`: offline HTML, no CDN; contains displacement trend, interval-average rates, gap-aware motion-dynamics table, AOI outline over a downsampled raster preview, source IDs/SHA-256, valid AOI pixel support, uncertainty interval and status gates. It is not a basemap or a substitute for full-resolution GIS rasters.
+- `visuals/interactive-map.html`: internet-enabled Leaflet/OpenStreetMap presentation with the WGS84 AOI boundary, selectable acquisition-pair magnitude preview, opacity control, zoom-to-AOI, quality-support metadata and a link to the native-grid GeoTIFF. The preview is an approximate geographic warp of the projected grid, so use the GeoTIFF for scientific analysis. The offline `dashboard.html` remains available if the basemap/CDN is inaccessible.
 - `maps/*_displacement.tif`: native-grid east/north/magnitude/coherence/valid-mask/high-magnitude-review flag/uncorrected-magnitude bands.
 - `diagnostics/*_arrays.npz`: derived arrays and AOI/reference masks for numerical reanalysis.
 - `timeseries.csv`: pairwise displacement metrics and interval-average magnitude rate. `motion-features.csv`: same-chain rates, gap/grid comparability, rate-change features, blocked reasons and the explicit uncalibrated risk-score status. `result.json` and `manifest.json` record request hash, runtime package versions, source checksums and derived-file checksums.
