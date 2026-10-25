@@ -77,6 +77,7 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     assert "show-aoi" in rendered
     assert "Zoom to AOI" in rendered
     assert "Download native-grid GeoTIFF" in rendered
+    assert "A native-grid GeoTIFF is available only if a link is shown" in rendered
     assert "P05023" in rendered
     assert payload["aoi_ring_lon_lat"][0] == [85.0, 28.0]
     assert payload["pairs"][0]["preview"]["bounds"] is not None
@@ -84,6 +85,20 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     assert payload["hazard_detection_status"] == "NOT_EVALUATED"
     target = write_interactive_map(report, tmp_path / "visuals" / "interactive-map.html")
     assert target.is_file() and target.read_text(encoding="utf-8") == rendered
+
+
+def test_geometry_note_is_visible_escaped_and_absent_note_is_hidden():
+    report = sample_report()
+    report["request"]["aoi"]["geometry_note"] = "Published-bounds rectangle approximation; not the author vector. <script>alert(1)</script>"
+    rendered = build_interactive_map_html(report)
+    assert 'id="geometry-note"' in rendered
+    assert "Published-bounds rectangle approximation; not the author vector." in rendered
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
+    assert "<script>alert(1)</script>" not in rendered
+
+    report["request"]["aoi"].pop("geometry_note")
+    hidden = build_interactive_map_html(report)
+    assert 'class="muted hidden" id="geometry-note"' in hidden
 
 
 def test_interactive_map_escapes_untrusted_html_and_script_payload():
