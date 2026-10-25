@@ -8,6 +8,10 @@ The strict raw-HDF5 reader, author-exact acquisition runner, source-byte hash/gr
 
 ## Run via GitHub Actions (current entry point)
 
+**Source-selection safety:** Use the dispatcher’s `author-exact-p05023` profile for the paper-matched five-product run. The push-only `.github/workflows/know-place-analysis-run.yml` is a historical mixed-release replay; its frozen first pair is `X05026`, not the author’s `P05023`. It now requires the separate extra marker `[run-mixed-release-replay]` as well as `[run-know-place]`. Do not use that historical workflow for author-exact results.
+
+Where a manual `workflow_dispatch` call is unavailable, the feature-only `.github/workflows/know-place-author-exact-consent-bridge.yml` calls the reusable author-exact workflow only when `docs/know-place/AUTHOR_EXACT_P05023_RUN_20261026.md` is changed and the commit message includes `[run-know-place]`. The child workflow receives the exact consent input, downloads only the five `P05023` sources, and retains derived outputs through the existing private Drive verification flow. This is a fallback trigger, not a relaxation of the source-identity gate.
+
 The branch-specific copy of `.github/workflows/sarguardian-aoi-wkt-dispatcher.yml` shares a workflow path already present on the default branch. From **Actions**, select **SARGuardian AOI WKT E2E (safe branch dispatcher)**, choose branch `feat/know-place-analysis` in the **Run workflow** branch selector, then choose one profile:
 
 - `author-exact-p05023`: exact five author pairs. Put `[run-know-place]` in the consent input. Defaults: geometry height 5151 m (exploratory constant; not a DEM/datum correction), 1000 control draws, seed 260826. Earthdata and Drive secrets must be configured.
