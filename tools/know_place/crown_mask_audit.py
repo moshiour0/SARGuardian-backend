@@ -40,13 +40,15 @@ def _mask(v: Any, shape: tuple[int,int], label: str) -> np.ndarray:
         raise CrownMaskAuditError(f"{label}_NOT_FINITE_BINARY")
     return a.astype(bool, copy=False)
 
-def geographic_mask(x: Any, y: Any, epsg: int = EPSG, bounds: Sequence[float] | None = None) -> np.ndarray:
+def geographic_mask(x: Any, y: Any, epsg: int | None = None, bounds: Sequence[float] | None = None) -> np.ndarray:
     """Independent mask from inverse-projected native-grid cell centres."""
     x,y=np.asarray(x,dtype=float),np.asarray(y,dtype=float)
     if x.ndim!=1 or y.ndim!=1 or not x.size or not y.size: raise CrownMaskAuditError("AXES_MUST_BE_NONEMPTY_1D")
     if not np.isfinite(x).all() or not np.isfinite(y).all(): raise CrownMaskAuditError("AXES_NONFINITE")
     if x.size>1 and not (np.all(np.diff(x)>0) or np.all(np.diff(x)<0)): raise CrownMaskAuditError("X_AXIS_NOT_STRICTLY_MONOTONIC")
     if y.size>1 and not (np.all(np.diff(y)>0) or np.all(np.diff(y)<0)): raise CrownMaskAuditError("Y_AXIS_NOT_STRICTLY_MONOTONIC")
+    if epsg is None:
+        epsg = EPSG
     if bounds is None:
         bounds = CROWN
     west,south,east,north=map(float,bounds)
