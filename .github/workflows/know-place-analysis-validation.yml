@@ -304,8 +304,12 @@ jobs:
               raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_SELECTED_RELEASE_MISMATCH")
           if catalog.get("query",{}).get("short_name_filter")!=["NISAR_L2_GOFF_PROVISIONAL_V1"]:
               raise SystemExit("ERROR=LIVE_AOI_COLLECTION_FILTER_NOT_RECORDED")
-          if any(row.get("maturity")!="PROVISIONAL" for row in catalog.get("candidates",[])):
-              raise SystemExit("ERROR=LIVE_AOI_CATALOG_INCLUDED_WRONG_MATURITY")
+          selected_names={pair.get("granule_name") for pair in pairs}
+          selected_rows=[row for row in catalog.get("candidates",[]) if row.get("granule_name") in selected_names]
+          if len(selected_rows)!=len(selected_names):
+              raise SystemExit("ERROR=LIVE_AOI_SELECTED_CANDIDATE_EVIDENCE_MISSING")
+          if any(row.get("maturity")!="PROVISIONAL" or row.get("release_id")!="P05023" for row in selected_rows):
+              raise SystemExit("ERROR=LIVE_AOI_SELECTED_CANDIDATE_RELEASE_OR_MATURITY_MISMATCH")
           for relative in ("visuals/dashboard.html","visuals/interactive-map.html"):
               if not (run_dir/relative).is_file():
                   raise SystemExit("ERROR=LIVE_AOI_EXPECTED_MAP_OUTPUT_MISSING")
