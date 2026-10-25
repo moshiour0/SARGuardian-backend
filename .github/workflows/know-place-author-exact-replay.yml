@@ -8,11 +8,18 @@ on:
       - feat/know-place-analysis
     paths:
       - "tools/know_place/author_exact_acquisition.py"
+      - "tools/know_place/author_raw_site_series.py"
+      - "tools/know_place/author_parity.py"
       - "tools/know_place/author_footprint_replay.py"
+      - "tools/know_place/author_archive_raster_parity.py"
+      - "tools/know_place/author_exact_retention.py"
+      - "tools/know_place/scientific_status.py"
+      - "tools/know_place/upload_bundle_to_drive.py"
       - "tools/know_place/footprint_geometry.py"
       - "tools/know_place/footprint_screen.py"
       - "tools/know_place/goff_io.py"
       - "docs/know-place/reference/author_benchmark_v1.json"
+      - "docs/know-place/evidence/P2_LOCAL_MEAN_REFERENCE_IMPLEMENTATION_20261025.md"
       - ".github/workflows/know-place-author-exact-replay.yml"
   workflow_dispatch:
     inputs:
