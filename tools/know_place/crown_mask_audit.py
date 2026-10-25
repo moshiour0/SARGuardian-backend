@@ -40,13 +40,15 @@ def _mask(v: Any, shape: tuple[int,int], label: str) -> np.ndarray:
         raise CrownMaskAuditError(f"{label}_NOT_FINITE_BINARY")
     return a.astype(bool, copy=False)
 
-def geographic_mask(x: Any, y: Any, epsg: int = EPSG, bounds: Sequence[float] = CROWN) -> np.ndarray:
+def geographic_mask(x: Any, y: Any, epsg: int = EPSG, bounds: Sequence[float] | None = None) -> np.ndarray:
     """Independent mask from inverse-projected native-grid cell centres."""
     x,y=np.asarray(x,dtype=float),np.asarray(y,dtype=float)
     if x.ndim!=1 or y.ndim!=1 or not x.size or not y.size: raise CrownMaskAuditError("AXES_MUST_BE_NONEMPTY_1D")
     if not np.isfinite(x).all() or not np.isfinite(y).all(): raise CrownMaskAuditError("AXES_NONFINITE")
     if x.size>1 and not (np.all(np.diff(x)>0) or np.all(np.diff(x)<0)): raise CrownMaskAuditError("X_AXIS_NOT_STRICTLY_MONOTONIC")
     if y.size>1 and not (np.all(np.diff(y)>0) or np.all(np.diff(y)<0)): raise CrownMaskAuditError("Y_AXIS_NOT_STRICTLY_MONOTONIC")
+    if bounds is None:
+        bounds = CROWN
     west,south,east,north=map(float,bounds)
     if not all(map(math.isfinite,(west,south,east,north))) or not (-180<=west<east<=180 and -90<=south<north<=90):
         raise CrownMaskAuditError("CROWN_BOUNDS_INVALID")
@@ -55,9 +57,11 @@ def geographic_mask(x: Any, y: Any, epsg: int = EPSG, bounds: Sequence[float] = 
     if not np.isfinite(lon).all() or not np.isfinite(lat).all(): raise CrownMaskAuditError("INVERSE_TRANSFORM_NONFINITE")
     return (lon>=west)&(lon<=east)&(lat>=south)&(lat<=north)
 
-def endpoint_crop(shape: Sequence[int], extent: Sequence[float], bounds: Sequence[float] = CROWN) -> np.ndarray:
+def endpoint_crop(shape: Sequence[int], extent: Sequence[float], bounds: Sequence[float] | None = None) -> np.ndarray:
     """Reproduce the published endpoint-linear extent and searchsorted crop."""
     if len(shape)!=2 or len(extent)!=4 or len(bounds)!=4: raise CrownMaskAuditError("CROP_SHAPE_OR_BOUNDS_INVALID")
+    if bounds is None:
+        bounds = CROWN
     h,w=map(int,shape); left,right,bottom,top=map(float,extent); west,south,east,north=map(float,bounds)
     if h<=0 or w<=0 or not (all(map(math.isfinite,(left,right,bottom,top,west,south,east,north))) and left<west<east<right and bottom<south<north<top):
         raise CrownMaskAuditError("CROWN_OUTSIDE_OR_INVALID_EXTENT")
