@@ -59,9 +59,9 @@ def geographic_mask(x: Any, y: Any, epsg: int = EPSG, bounds: Sequence[float] | 
 
 def endpoint_crop(shape: Sequence[int], extent: Sequence[float], bounds: Sequence[float] | None = None) -> np.ndarray:
     """Reproduce the published endpoint-linear extent and searchsorted crop."""
-    if len(shape)!=2 or len(extent)!=4 or len(bounds)!=4: raise CrownMaskAuditError("CROP_SHAPE_OR_BOUNDS_INVALID")
     if bounds is None:
         bounds = CROWN
+    if len(shape)!=2 or len(extent)!=4 or len(bounds)!=4: raise CrownMaskAuditError("CROP_SHAPE_OR_BOUNDS_INVALID")
     h,w=map(int,shape); left,right,bottom,top=map(float,extent); west,south,east,north=map(float,bounds)
     if h<=0 or w<=0 or not (all(map(math.isfinite,(left,right,bottom,top,west,south,east,north))) and left<west<east<right and bottom<south<north<top):
         raise CrownMaskAuditError("CROWN_OUTSIDE_OR_INVALID_EXTENT")
