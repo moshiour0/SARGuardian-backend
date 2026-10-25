@@ -98,3 +98,34 @@ def test_processed_grid_masks_recover_archive_crown_window_count():
     east[y, x] = np.nan
     result = displacement_null_for_pair(east, north, crown, wide, np.random.default_rng(3), candidate_centres=100)
     assert result["observed_crown_valid_pixels"] == 322
+
+def test_region_shape_policy_is_explicit_and_reproducible():
+    y, x = np.mgrid[:45, :45]
+    east = (x - 22) / 8.0
+    north = (y - 22) / 9.0
+    analysis = np.ones((45, 45), dtype=bool)
+    crown = np.zeros_like(analysis)
+    crown[18:25, 18:25] = True
+
+    results = {}
+    for region_shape in ("disk", "square", "diamond"):
+        first = displacement_null_for_pair(
+            east, north, crown, analysis, np.random.default_rng(9876),
+            candidate_centres=200, region_shape=region_shape,
+        )
+        second = displacement_null_for_pair(
+            east, north, crown, analysis, np.random.default_rng(9876),
+            candidate_centres=200, region_shape=region_shape,
+        )
+        assert first == second
+        assert first["region_shape"] == region_shape
+        assert first["candidate_centres_examined"] == 200
+        assert first["accepted_draws"] + first["rejected_draws"] == 200
+        results[region_shape] = first["observed_crown_percentile"]
+    assert len(set(results.values())) > 1
+
+    with pytest.raises(DisplacementNullError, match="DISPLACEMENT_NULL_REGION_SHAPE_INVALID"):
+        displacement_null_for_pair(
+            east, north, crown, analysis, np.random.default_rng(1), region_shape="ellipse",
+        )
+
