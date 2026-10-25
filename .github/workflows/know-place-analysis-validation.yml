@@ -104,6 +104,7 @@ jobs:
           tools/tests/test_know_place_aoi_runner_integration.py
           tools/tests/test_know_place_geotiff.py
           tools/tests/test_know_place_dashboard.py
+          tools/tests/test_know_place_interactive_map.py
           tools/tests/test_know_place_author_dashboard.py
           tools/tests/test_know_place_uncertainty.py
           tools/tests/test_know_place_upload_bundle.py

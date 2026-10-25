@@ -89,7 +89,7 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
 def test_interactive_map_escapes_untrusted_html_and_script_payload():
     report = sample_report()
     report["request"]["aoi"]["wkt"] = "POLYGON ((85 28, 86 28, 86 29, 85 29, 85 28)) </script><script>alert(1)</script>"
-    report["pairs"][0]["granule_name"] = "</script><script>alert(1)</script>"
+    report["pairs"][0]["release_id"] = "</script><script>alert(1)</script>"
     rendered = build_interactive_map_html(report)
     assert "</script><script>alert(1)" not in rendered
     assert "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
