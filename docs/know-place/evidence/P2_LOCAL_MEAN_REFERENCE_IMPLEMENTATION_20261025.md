@@ -1,6 +1,21 @@
 # P2/local-mean reference audit and correction — 2026-10-25
 
-## Latest raw-run finding
+## Historical failed replay (superseded by Run 40170290176)
+
+
+## Superseding successful exact-author replay — Run 40170290176
+
+The later, explicitly authorized [Run 40170290176](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40170290176) exercised the corrected path on all five exact P05023 inputs. Its retained artifact reports:
+
+- P1/site-series and post-hoc site/polygon checks: **65/65 PASS**, no mismatches.
+- P2/local-mean checks: **15/15 PASS**, no mismatches at archive rounding.
+- P2 method: per-pixel DEM-interpolated geometry; float32 SNR/magnitude-gated dE/dN; 41 × 41 local mean; 5 × 5 residual coherence calculated with a 22-pixel context halo before box/crown cropping.
+- Full-footprint path: **PASS_AUTHOR_AGGREGATE_RASTERS_AND_CANDIDATE_INVENTORY**. Three aggregate rasters, 106 candidate rows and 101 Table S7 numeric rows passed their declared comparisons.
+- Output-level limits: the exact RGI 6.0 glacier-class/nearest-glacier overlay columns were excluded because those polygon assets are not included in the author archive. The vertical-reference mismatch (prepared DEM EPSG:9518/Egm2008 height versus radarGrid HAE) was explicitly passed through to reproduce the deposited code; no datum correction was applied.
+
+The 3/15 P2 result documented below is preserved as a historical failure analysis, not the current result. Full comparison evidence is in [FOOTPRINT_SCREEN_PARITY_RUN17_20261025.md](FOOTPRINT_SCREEN_PARITY_RUN17_20261025.md), and the 95-cell accounting is in [TABLE_S4_COVERAGE_REGISTER_20261025.md](TABLE_S4_COVERAGE_REGISTER_20261025.md).
+
+
 
 The explicitly authorized exact-author run 40140476008 (https://github.com/moshiour0/SARGuardian-backend/actions/runs/40140476008) downloaded and verified all five P05023 sources (5/5 SHA-256 and grids) and completed the selected P1/site checks (65/65). The P2/local-mean comparison was 3/15, with 12 mismatches. The run did not execute full-footprint parity because the workflow tied the footprint step to the overall acquisition/site-analysis step outcome. Its run-level result was failure; green substeps for download and Google Drive retention are not scientific success.
 
@@ -22,8 +37,8 @@ The same run completed derived-only Drive retention and remote receipt verificat
 
 ## Verification boundary
 
-These are implementation corrections and synthetic contract tests, not a new raw-data result. The 3/15 P2 result describes the old code path and is not the status of the corrected implementation. Corrected P2 values, all 15 Table S4 cells, the three footprint aggregate rasters, 106 candidate inventory rows, 101 Table S7 zones, and score/rank order remain unverified until a new explicitly authorized raw run completes.
+The earlier 3/15 P2 result described the old code path. Run 40170290176 now verifies the corrected P2 values (15/15), the three aggregate footprint rasters, the 106-row candidate inventory, the 101-row Table S7 numeric comparison and score/rank order. The only Table S4 method-parity group still blocked is the 15-cell displacement-null group because its draw-level method evidence is absent.
 
 The archived displacement-null summary fields do not include the draw-level null-generation implementation, so those exact values remain independently unresolved. Even numerical parity would not establish detection skill. Event-wise precision/recall, false-alarm rates, lead time and independent geophysical validation are still unevaluated. hazard_detection_status must stay NOT_EVALUATED.
 
-No work in this patch changes main. Do not run another approximately 5.47 GB raw replay without a new explicit [run-know-place] authorization.
+No work in this patch changes main. Run 40170290176 is the completed consented replay referenced here; do not run another approximately 5.47 GB raw replay without a new explicit [run-know-place] authorization.
