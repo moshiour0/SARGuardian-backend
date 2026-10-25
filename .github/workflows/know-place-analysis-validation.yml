@@ -9,7 +9,8 @@ on:
       - "tools/tests/test_know_place_*.py"
       - "tools/requirements-retention.txt"
       - ".github/workflows/know-place-analysis-validation.yml"
-      - ".github/workflows/know-place-retained-crown-audit.yml .github/workflows/know-place-displacement-null-audit.yml"
+      - ".github/workflows/know-place-retained-crown-audit.yml"
+      - ".github/workflows/know-place-displacement-null-audit.yml"
       - ".github/workflows/know-place-analysis-run.yml"
       - ".github/workflows/know-place-analysis-reanalysis.yml"
       - ".github/workflows/know-place-aoi-analysis.yml"
@@ -35,6 +36,8 @@ on:
       - ".github/workflows/know-place-author-exact-replay.yml"
       - ".github/workflows/know-place-author-exact-consent-bridge.yml"
       - ".github/workflows/know-place-author-dashboard.yml"
+      - ".github/workflows/know-place-retained-crown-audit.yml"
+      - ".github/workflows/know-place-displacement-null-audit.yml"
       - ".github/workflows/sarguardian-aoi-wkt-dispatcher.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   workflow_dispatch:
