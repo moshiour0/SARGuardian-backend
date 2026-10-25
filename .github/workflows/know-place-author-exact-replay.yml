@@ -385,7 +385,9 @@ jobs:
 
       - name: Upload derived bundle and receipts to private Google Drive
         id: drive_upload
-        if: always() && steps.bundle.outcome == 'success' && steps.credentials.outputs.secrets_ready == 'true'
+        # Do not call the Drive client unless its Python dependencies installed successfully
+        # and the expected author archive step confirms the environment was usable.
+        if: always() && steps.author_archive.outcome == 'success' && steps.bundle.outcome == 'success' && steps.credentials.outputs.secrets_ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
