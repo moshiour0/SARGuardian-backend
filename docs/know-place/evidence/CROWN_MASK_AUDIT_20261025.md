@@ -32,3 +32,10 @@ The generic geometry test previously used smaller crown bounds 85.525000° E and
 **Original author-vector/mask parity remains UNVERIFIED.** The author archive lacks an editable original vector or golden pixel mask. The audit does not prove full-paper reproduction or hazard-detection skill. Paper status remains PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED; hazard detection remains NOT_EVALUATED.
 
 Reproduce with tools/know_place/crown_mask_audit.py, the retained source artifact, and the pinned author archive. Machine-readable summary is in CROWN_MASK_AUDIT_20261025.json.
+
+
+## Follow-up source-provenance gate — 2026-10-25
+
+The source manifest and post-delete cleanup receipt now have a dedicated fail-closed regression gate. It pins the five exact P05023 source identities, expected source byte counts and SHA-256 values; checks HH/layer2/native-grid and identity-validation fields; and ties the receipt's manifest hash and five deletion rows to the manifest. Adversarial fixtures cover missing/duplicate hashes, incorrect interval/grid/collection/byte count, an X05026 filename substitution and receipt tampering. Validation [40199955962](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40199955962) passed **276 tests**.
+
+Important scope limit: these are manifest/receipt consistency checks. The CI validation downloaded no raw HDF5 and does not re-hash bytes that were deleted after Drive-retention verification. Original author-vector/golden-mask parity remains unverified; paper reproduction remains partial; hazard detection remains not evaluated. Full evidence is recorded in [SOURCE_PROVENANCE_GATE_20261025.md](SOURCE_PROVENANCE_GATE_20261025.md).

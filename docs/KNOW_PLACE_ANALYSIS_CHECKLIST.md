@@ -384,3 +384,18 @@ Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.m
 - [x] Run isolated validation on source-geometry leads commit: [40198744624](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744624), 266 tests passed, all workflow YAML and pinned actionlint checks passed; live ASF/CMR metadata-only gates passed.
 - [x] Confirm linked raw-replay gate [40198744626](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40198744626) skipped analysis at the explicit consent guard. New raw NISAR GOFF downloads: 0.
 - [x] Confirm main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886.
+
+
+## Latest exact-source provenance and safety gate — 2026-10-25
+
+- [x] Strengthened `tools/know_place/crown_mask_audit.py` to pin and validate the five exact `P05023` identities, pair intervals, CMR concept IDs, byte counts, SHA-256 values, grid/HH/layer2 metadata, and all expected identity checks. Manifest product count alone is no longer accepted as provenance.
+- [x] Validate the exact manifest-byte SHA in the post-delete receipt and compare all five deleted-source filename/byte-count/SHA rows to the pinned source identities. The gate fails closed on missing/duplicate hashes, a wrong interval/grid/collection, zero bytes, `X05026` substitution, manifest-receipt SHA tampering, or a deletion-receipt hash mismatch. This is manifest/receipt consistency evidence—not a re-hash of deleted raw HDF5.
+- [x] Validation [40199955962](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40199955962), commit `27ecf27d290f3b0dd8c3c1a4da7df5f787924a94`: **276 tests passed in 4.80 s**, nine workflow YAML files plus branch dispatcher parsed, pinned actionlint v1.7.12 checksum and semantic checks passed, live ASF/CMR identity gates passed without payload download.
+- [x] Matching raw replay gate [40199956018](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40199956018) passed its consent check and skipped the expensive analysis job. No new raw GOFF payloads were downloaded.
+- [x] Independently re-checked `main` remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; all work remains on `feat/know-place-analysis`.
+- [ ] Original author editable crown geometry/golden mask and exact control sampler: still not supplied/verified.
+- [ ] Full-footprint raw-source regeneration and pixelwise comparison to author golden rasters: still not executed; it requires the explicit `[run-know-place]` authorization for any expensive raw replay.
+- [ ] Independent multi-site source outline hashes, exact pair IDs and pinned comparator versions: pending.
+- [ ] Hazard-labelled independent test set and out-of-sample event-detection metrics: pending; keep `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
+
+**Finishing rule:** engineering closure means deterministic artifacts, source/receipt integrity gates, passing CI and documented blockers. It does **not** mean scientific reproduction or hazard-detector validation until those remaining gates have their own independent evidence. See `docs/know-place/evidence/SOURCE_PROVENANCE_GATE_20261025.md`.
