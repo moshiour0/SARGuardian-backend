@@ -437,3 +437,14 @@ This section supersedes earlier interim status snapshots above where they say P2
 ## Displacement-null numeric reconciliation — 2026-10-25
 
 The former statement that all 15 displacement-null values were numerically blocked is superseded. A deterministic reconstruction of the deposited dE/dN fields now matches the five crown values, five null medians and five percentiles at archive precision. Numeric Table S4 coverage is 95/95, but the exact generator and original draw-level history are absent from the reviewed Zenodo archive. See docs/know-place/evidence/DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.md. Keep whole-paper status PARTIAL and hazard detection NOT_EVALUATED.
+
+
+## Engineering finishing gate — commit 5e442ace4c64 (2026-10-25)
+
+- Latest isolated validation: [Run 40220862376](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40220862376) — **281 passed**, all 11 Know Place workflows plus the dispatcher parsed, actionlint checksum verified and semantic workflow validation passed.
+- Latest paired raw-replay consent gate: [Run 40220862382](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40220862382) — consent-check job passed; raw five-pair analysis job was **SKIPPED**. No new raw HDF5 payloads were downloaded by this gate.
+- Derived-only displacement-null replay: [Run 40219393283](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283) — PASS at archived precision for all five pairs and all 15 numeric displacement-null outputs. Full JSON artifact: [ID 12608431799](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283/artifacts/12608431799); compact repository report: docs/know-place/evidence/DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.json.
+- Confirmed current main SHA remains 2218dfeb73353080d8d94bd733d9e7bd9a848886. All work and documentation remain isolated to feat/know-place-analysis; no merge to main was performed.
+- Engineering closure for the currently permitted derived-only scope: **PASS**. Scientific full-paper closure: **PARTIAL**, because original displacement-null generator/draw history, editable crown vector/golden mask, exact RGI 6.0 polygon overlay and original terrain byte provenance are not established. Hazard-detection skill remains NOT_EVALUATED, and an operational warning is NOT_IMPLEMENTED.
+
+See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated decision and remaining release gates.
