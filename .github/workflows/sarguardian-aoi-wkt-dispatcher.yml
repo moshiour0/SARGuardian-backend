@@ -12,6 +12,7 @@ on:
         options:
           - author-exact-p05023
           - generic-aoi-date
+          - render-author-dashboard
         default: author-exact-p05023
       consent_marker:
         description: "Required for raw source downloads: enter exactly [run-know-place]"
@@ -117,8 +118,19 @@ on:
         required: true
         type: string
         default: "260826"
+      source_run_id:
+        description: "Render from an existing successful author-exact run; no raw NISAR payload download"
+        required: true
+        type: string
+        default: "40170290176"
+      source_attempt:
+        description: "Attempt number of the retained source artifact"
+        required: true
+        type: string
+        default: "1"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -200,4 +212,14 @@ jobs:
       coherence_neighbours: ${{ inputs.coherence_neighbours }}
       consent_marker: ${{ inputs.consent_marker }}
       execute_downloads: ${{ inputs.execute_downloads }}
+    secrets: inherit
+
+  render_author_dashboard:
+    name: Render dashboard from retained author-exact evidence (no raw downloads)
+    needs: validate_consent
+    if: inputs.run_profile == 'render-author-dashboard' && needs.validate_consent.outputs.authorized == 'true'
+    uses: moshiour0/SARGuardian-backend/.github/workflows/know-place-author-dashboard.yml@feat/know-place-analysis
+    with:
+      source_run_id: ${{ inputs.source_run_id }}
+      source_attempt: ${{ inputs.source_attempt }}
     secrets: inherit
