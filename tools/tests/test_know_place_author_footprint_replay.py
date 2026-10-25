@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 from pathlib import Path
 import zipfile
@@ -13,6 +14,7 @@ from affine import Affine
 
 from tools.know_place.author_footprint_replay import (
     CANDIDATE_METRIC_COLUMNS,
+    _validate_source_manifest,
     _angle_difference_degrees,
     _candidate_table,
     _compare_raster_arrays,
@@ -233,3 +235,44 @@ def test_archived_candidate_inventory_comparison_covers_106_candidates_and_101_q
     assert score_contract["mismatch_count_by_metric"] == {"score": 106}
     assert score_contract["score_formula_audit"]["postprocessed_formula_matches"] == 0
     assert score_contract["score_formula_audit"]["status"] == "POSTPROCESSED_SCORE_FORMULA_MISMATCH"
+
+
+
+def test_source_manifest_accepts_ordered_iso_date_intervals_from_acquisition(tmp_path):
+    intervals = [
+        "2026-06-20/2026-07-02",
+        "2026-07-02/2026-07-14",
+        "2026-07-14/2026-07-26",
+        "2026-07-26/2026-08-19",
+        "2026-08-19/2026-08-31",
+    ]
+    products = []
+    for interval in intervals:
+        products.append({
+            "interval": interval,
+            "release_id": "P05023",
+            "download_status": "PASS",
+            "grid_validation_status": "PASS",
+            "source_bytes": 100,
+            "source_sha256": "a" * 64,
+            "grid_epsg": 32645,
+            "grid_width": 4311,
+            "grid_height": 4230,
+            "grid_x_posting_m": 80.0,
+            "grid_y_posting_m": -80.0,
+        })
+    manifest = {
+        "status": "PASS_FIVE_EXACT_HDF5_DOWNLOADED_HASHED_AND_GRID_VALIDATED",
+        "author_release_id": "P05023",
+        "source_downloads": 5,
+        "author_exact_source_sha256_count": 5,
+        "source_products_grid_validated": 5,
+        "expected_intervals": intervals,
+        "products": products,
+    }
+    path = tmp_path / "author-exact-source-manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    indexed = _validate_source_manifest(path)
+
+    assert list(indexed) == intervals
