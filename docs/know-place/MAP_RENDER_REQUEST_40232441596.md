@@ -17,3 +17,8 @@ Use the latest validated map renderer from the feature branch. Check visible lab
 ## Crown-mask overlay correction rerender — 2026-10-26
 
 Latest isolated CI [40237084749](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40237084749) passed after changing the author-map preview so valid surrounding-scene pixels outside the crown mask are transparent. Render the exact same retained measurement artifact #40232441596 and require the browser smoke to confirm the visible transparency note says the preview is crown-mask only. No raw HDF5 downloads or measurement rerun.
+
+
+## Responsive-browser QA rerender — 2026-10-26
+
+Re-render from the existing retained derived-only artifact from run #40232441596 using the responsive smoke-gate revision. In addition to the desktop assertions, test 360×800 and 390×844 mobile-emulated viewports, 768×1024 tablet, and 844×390 landscape. Each viewport must have no horizontal document/body overflow, a visible pair selector, a usable map size, and the 26 July–19 August pair available. Preserve mobile and tablet screenshots in the evidence ZIP. Recheck private Drive remote byte verification. This request is presentation QA only: no raw GOFF HDF5 download, no new measurement, no changes/merge to main, and no claim of physical-device verification.
