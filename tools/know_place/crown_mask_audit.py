@@ -163,13 +163,13 @@ def audit_crown_masks(run_artifact: str | Path, author_archive: str | Path) -> d
                 dm=_mask(z["crown_mask"],(yd.size,xd.size),"DIAGNOSTIC_CROWN_MASK")
                 if any(np.asarray(z[k]).shape!=dm.shape for k in ("east_m","north_m","horizontal_magnitude_m","directional_coherence_R","valid_mask")):
                     raise CrownMaskAuditError(f"DIAGNOSTIC_ARRAY_SHAPE_MISMATCH:{prefix}")
-                cf=(xd-X0)/DX-.5; rf=(yd-Y0)/DY-.5; cols,rows=np.rint(cf).astype(int),np.rint(rf).astype(int)
+                cf=(xd-X0)/DX-.5; rf=(yd-Y0)/DY-.5; cols,grid_rows=np.rint(cf).astype(int),np.rint(rf).astype(int)
                 if (np.max(np.abs(cf-cols))>1e-7 or np.max(np.abs(rf-rows))>1e-7
-                    or np.any(cols<0) or np.any(cols>=WIDTH) or np.any(rows<0) or np.any(rows>=HEIGHT)):
+                    or np.any(cols<0) or np.any(cols>=WIDTH) or np.any(grid_rows<0) or np.any(grid_rows>=HEIGHT)):
                     raise CrownMaskAuditError(f"DIAGNOSTIC_AXES_NOT_PINNED_GRID_CENTRES:{prefix}")
                 gdiag=geographic_mask(xd,yd)
                 globalsite={(int(r0+rr),int(c0+cc)) for rr,cc in np.argwhere(sm)}
-                globaldiag={(int(rows[rr]),int(cols[cc])) for rr,cc in np.argwhere(dm)}
+                globaldiag={(int(grid_rows[rr]),int(cols[cc])) for rr,cc in np.argwhere(dm)}
             sx=int(np.count_nonzero(sm^geo)); sc=int(np.count_nonzero(sm^crop)); dg=int(np.count_nonzero(dm^gdiag))
             cross=len(globalsite.symmetric_difference(globaldiag)); nc,nd=int(sm.sum()),int(dm.sum())
             a,b=interval.split("/")
