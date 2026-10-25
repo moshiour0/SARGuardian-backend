@@ -52,7 +52,7 @@ The earlier 65/65 workflow only covered its selected comparisons. After the late
 
 ## Superseding Run 40170290176 update — 2026-10-25
 
-P2 is no longer pending: the exact-author raw replay passed all 15 P2 fields (5 crown R, 5 background R, 5 resolved flags) at archived precision. The full-footprint runner also passed the three aggregate raster comparisons, all 106 candidate-inventory rows and all 101 Table S7 numeric rows under declared precision/tolerances. The 15 displacement-null cells remain blocked. Original source crown-vector identity and exact RGI 6.0 glacier overlay are separate remaining gates; see [the full evidence report](FOOTPRINT_SCREEN_PARITY_RUN17_20261025.md).
+P2 is no longer pending: the exact-author raw replay passed all 15 P2 fields (5 crown R, 5 background R, 5 resolved flags) at archived precision. The full-footprint runner also passed the three aggregate raster comparisons, all 106 candidate-inventory rows and all 101 Table S7 numeric rows under declared precision/tolerances. At the time of Run 40170290176 the 15 displacement-null numeric comparisons were still pending; that interim state is superseded by the derived-field replay in [Run 40219393283](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40219393283), which matches all 15 fields at archived precision. Original displacement-null generator/draw identity, source crown-vector identity and exact RGI 6.0 glacier overlay remain unresolved; see [the full evidence report](FOOTPRINT_SCREEN_PARITY_RUN17_20261025.md) and [the displacement-null replay report](DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.md).
 
 
 ## Displacement-null output replay — 2026-10-25
