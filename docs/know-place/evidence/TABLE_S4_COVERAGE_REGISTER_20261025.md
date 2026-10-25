@@ -19,9 +19,9 @@ This register is updated against the latest completed exact-author replay, [Run 
 | `polynull_crown_pctile` | 5 | **Verified** | Same archive comparison; preserve its specified strict percentile convention. |
 | `polynull_pct_beat_box` | 5 | **Verified** | Same archive comparison. |
 | `polynull_n_draw` | 5 | **Verified** | Accepted random-candidate count matched the archived table. |
-| `dispnull_crown_m` | 5 | **Blocked: missing draw-level method evidence** | The summary `tables/displacement_null.json` is available, but the Zenodo ZIP has no corresponding generator script or saved draw-level distribution. Do not copy the crown median into this separate table field by assumption. |
-| `dispnull_null_med_m` | 5 | **Blocked: missing draw-level method evidence** | The null median depends on the exact candidate-generation and acceptance algorithm, which cannot be established from the supplied package. |
-| `dispnull_pctile` | 5 | **Blocked: missing draw-level method evidence** | Exact percentile depends on the same absent draw-level method evidence. |
+| `dispnull_crown_m` | 5 | **Numeric output reproduced; generator identity unverified** | All five crown medians match `tables/displacement_null.json` at 0.01 m precision under a deterministic source-inspired reconstruction from deposited dE/dN fields. Exact source/draw identity is not claimed. |
+| `dispnull_null_med_m` | 5 | **Numeric output reproduced; generator identity unverified** | All five null medians match at 0.01 m precision under the declared random-disk/60%-support reconstruction; the exact original generator remains absent. |
+| `dispnull_pctile` | 5 | **Numeric output reproduced; generator identity unverified** | All five strict empirical percentiles match at 0.1 percentage-point precision. This is output-level parity, not a verified copy of the original draw sequence. |
 | `corescale_R_zone` | 5 | **Verified conditionally** | Recomputed at published precision from the run-derived raster, using the 0.19-km² candidate polygon supplied by the author archive. The screen selecting that polygon was not independently recreated. |
 | `corescale_zone_pctile` | 5 | **Verified conditionally** | Recomputed using the author's archived `reconcile_scalebias.py` procedure and archived selected polygon. This is a scale diagnostic, not an unbiased detection test. |
 | `corescale_npx` | 5 | **Verified conditionally** | All five source-archive zones contain 30 pixels for this diagnostic. Independent screen-selection parity remains unproven. |
@@ -34,15 +34,16 @@ This register is updated against the latest completed exact-author replay, [Run 
 | P1 booleans derived from already-verified P1 values | 5 |
 | Core-scale metrics independently recalculated, conditioned on archived candidate geometry | 15 |
 | P2/local-mean crown R, background R and resolved flags | 15 |
-| **Verified or conditionally verified** | **80 / 95** |
-| **Blocked displacement-null parity** | **15** |
-| **Total unverified** | **15 / 95** |
+| **Direct/conditional output fields matched before displacement-null replay** | **80 / 95** |
+| **Displacement-null numeric outputs reproduced at archived precision** | **15 / 15** |
+| **Table S4 numeric outputs matched at archived precision** | **95 / 95** |
+| **Exact displacement-null source/draw identity still unverified** | **15 / 95** |
 
-The 65/65 workflow result means only that its **selected 65 comparisons** passed. It is not a statement that all 95 Table S4 cells match.
+The earlier 65/65 workflow only covered its selected comparisons. After the later P2 replay and the separate displacement-null reconstruction, all 95 archived Table S4 numeric outputs match at stored precision. The remaining caveat is source-method/draw-history identity for the 15 displacement-null fields, not a numeric mismatch.
 
 ## Remaining gates
 
-1. **Displacement-null:** keep the 15 cells blocked until the author's exact generator or draw-level distribution/rejection history is retrieved. Do not tune the independent reconstruction to published numbers.
+1. **Displacement-null source identity:** all 15 output values now match at stored precision under the documented source-inspired reconstruction. Retrieve the original generator or draw/rejection history before asserting exact method/draw parity; do not present reconstructed accepted counts as the author's counts.
 2. **Original mask / geometry evidence:** recover the original editable crown vector or author golden mask if available. The published-bounds/native-grid mask is internally consistent, but that does not prove exact vector-file identity.
 3. **Glacier overlay:** obtain the exact RGI 6.0 polygon source assets and hashes before comparing `glacier`, `RGIId`, or `d_glac_m` columns for the 101 candidate zones.
 4. **Terrain provenance:** the footprint replay uses the author-deposited prepared DEM and deliberately preserves the author's no-datum-transformation code path; the physical DEM-to-radarGrid vertical-reference mismatch remains a caveat, not a correction.
@@ -52,3 +53,8 @@ The 65/65 workflow result means only that its **selected 65 comparisons** passed
 ## Superseding Run 40170290176 update — 2026-10-25
 
 P2 is no longer pending: the exact-author raw replay passed all 15 P2 fields (5 crown R, 5 background R, 5 resolved flags) at archived precision. The full-footprint runner also passed the three aggregate raster comparisons, all 106 candidate-inventory rows and all 101 Table S7 numeric rows under declared precision/tolerances. The 15 displacement-null cells remain blocked. Original source crown-vector identity and exact RGI 6.0 glacier overlay are separate remaining gates; see [the full evidence report](FOOTPRINT_SCREEN_PARITY_RUN17_20261025.md).
+
+
+## Displacement-null output replay — 2026-10-25
+
+The deterministic reconstruction in DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.md processes the five deposited displacement fields. All five crown medians, null medians and percentiles match the table at stored precision. Numeric Table S4 coverage is 95/95 when combined with the P1, P2 and conditional core checks. The exact displacement-null generator and original draw/rejection history remain unverified; that is a source-provenance caveat, not a numeric mismatch.

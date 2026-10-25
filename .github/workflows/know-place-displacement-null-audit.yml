@@ -48,7 +48,7 @@ jobs:
           echo "002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3  $RUNNER_TEMP/author-archive.zip" | sha256sum --check -
       - name: Reconstruct the five displacement-null table rows
         run: |
-          python -m tools.know_place.displacement_null_archive_reconstruction --author-archive "$RUNNER_TEMP/author-archive.zip" --out "$RUNNER_TEMP/displacement-null-reconstruction.json"
+          python -m tools.know_place.displacement_null_archive_reconstruction --author-archive "$RUNNER_TEMP/author-archive.zip" --out "displacement-null-reconstruction.json"
       - name: Enforce output parity but preserve source-method caveat
         run: |
           python - "$RUNNER_TEMP/displacement-null-reconstruction.json" <<'PY'
@@ -72,6 +72,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: know-place-displacement-null-archive-replay
-          path: \${{ runner.temp }}/displacement-null-reconstruction.json
+          path: displacement-null-reconstruction.json
           if-no-files-found: warn
           retention-days: 30

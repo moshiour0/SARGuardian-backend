@@ -61,3 +61,8 @@ The same fixed candidate-centre policy was rerun with three equally disclosed ra
 | Diamond | 918 | 0.144 | 93.0 |
 
 For the 26 Jul–19 Aug pair, the tested shape definitions yield 91.8–93.0 percentile. All remain below the published 94.7 in these runs. Since the author generator is missing, this spread illustrates a genuine unresolved policy choice; it does not identify which shape the author used.
+
+
+## Source-inspired archive reconstruction — 2026-10-25
+
+The follow-up replay documented in DISPLACEMENT_NULL_ARCHIVE_REPLAY_20261025.md matches all five archived crown medians, five null medians and five percentiles at stored precision (15/15 numeric fields). The sibling code/polygon_null.py supplies the seeded random-disk/60%-support pattern, but it is a directional-coherence null, not the missing displacement-null generator. Since the displacement-specific source and original draw/rejection history are absent, this establishes output-level numeric agreement, not exact author-code or original draw-sequence identity. Keep the full-paper status PARTIAL and hazard detection NOT_EVALUATED.
