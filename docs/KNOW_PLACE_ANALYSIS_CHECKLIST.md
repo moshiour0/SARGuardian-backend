@@ -304,13 +304,16 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [x] Include the dashboard renderer and tests in the isolated validation workflow.
 - [x] Add dashboard generation to the author-exact replay workflow and require a successful dashboard output in the final scientific/retention gate.
 - [x] Add a safe, separate workflow that renders from a prior retained Actions artifact without downloading raw NISAR payloads; add it to YAML/actionlint checks and path filters.
-- [ ] Run the dedicated safe renderer workflow on source run ID `40170290176`, attempt `1`; verify the artifact digest, dashboard output, Drive upload receipt and receipt-copy verification. This is a no-raw-download task.
+- [x] Run the dedicated safe renderer workflow on source run ID `40170290176`, attempt `1`; [Run #19](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766) verified source digest/ZIP integrity, rendered the dashboard, uploaded HTML + manifest to Drive, remotely verified both receipts, and published artifact [12596788838](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766/artifacts/12596788838). Raw HDF5 downloads in this render run: 0.
 - [ ] Inspect the rendered dashboard on mobile and desktop, especially satellite-image attribution, source/map distinctions, status badges, accessibility and complete source provenance.
 - [ ] Reproduce the displacement-null draw-level calculation; until it is available and verified, keep the paper status partial.
 - [ ] Verify exact crown geometry and source-grid mask parity.
 - [ ] Run separately labelled vertical-datum sensitivity analysis; do not silently change source-faithful geometry.
 - [ ] Complete preregistered multi-event and non-event validation before estimating detection skill, false alarms, or lead time.
 - [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and scientific acceptance gates are independently reviewed.
+
+- [x] Safe dashboard E2E completed in [Run #19](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766); Drive remote verification passed for dashboard + manifest, receipt copy passed, and GitHub artifact [12596788838](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766/artifacts/12596788838) was published.
+- [ ] Next scientific gate: recover/reproduce displacement-null draw-level sampling and percentiles. Do not replace this with the polygon-null coherence percentile.
 
 ## Local Run #17 dashboard package and source-image correction — 2026-10-25
 
@@ -320,7 +323,7 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [x] Add provenance manifest and package the standalone HTML plus scientific preview PNGs for review.
 - [x] Replace the old Geopera cover imagery with the corrected WorldView-3 stereo-elevation-change image and document the original article's explicit retraction.
 - [x] Run isolated CI after the image-source correction: [40187665186](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40187665186) passed 256 tests, all nine workflow YAML checks and pinned actionlint.
-- [ ] Dispatch `render-author-dashboard` through the shared branch dispatcher and verify the new workflow's dashboard artifact, Drive HTML/manifest upload, and remote receipt-copy verification. No raw NISAR download is needed.
+- [x] Dispatch `render-author-dashboard` through the shared branch dispatcher. [Run #19](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766) confirms dashboard artifact [12596788838](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766/artifacts/12596788838), Drive HTML/manifest upload and remote receipt-copy verification; no raw NISAR download occurred.
 - [ ] Finish displacement-null draw-level parity and exact crown/source-grid mask verification before declaring complete paper reproduction.
 - [ ] Keep hazard detection `NOT_EVALUATED` until independent held-out event/non-event evaluation is complete.
 - [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and separate scientific acceptance gates pass.

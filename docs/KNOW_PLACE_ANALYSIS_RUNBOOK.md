@@ -241,3 +241,19 @@ The external Geopera image is now the corrected 1 September WorldView-3 stereo-e
 Latest CI after the renderer-image change: [run 40187665186](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40187665186), **256 passed**, all nine workflow YAMLs parsed, actionlint passed. The safe workflow remains pending manual dispatch via the shared branch dispatcher: `run_profile=render-author-dashboard`, `source_run_id=40170290176`, `source_attempt=1`. This route requires no `[run-know-place]` marker because it downloads no raw NISAR products.
 
 Paper status remains partial until displacement-null and exact geometry/mask parity are resolved; hazard detection remains not evaluated. Main is untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
+
+## Latest run verified — safe dashboard render E2E (Run #19, 2026-10-25)
+
+The safe retained-artifact path is no longer pending. [Run #19](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766) completed successfully on `feat/know-place-analysis` at `ddab6dfa17b9a8b3d8cda31fbca11e5121c0f7f2`.
+
+- Selected source Run #17, attempt 1; matched exactly one isolated-branch artifact; verified GitHub SHA-256 and both ZIP CRCs; rejected raw HDF5 (0 in outer artifact, 0 in nested derived bundle).
+- Renderer generated `dashboard.html` (81,214 bytes) and `dashboard-run-manifest.json`. Dashboard SHA-256: `f41ce20cf797df5b447edce42359f0a395ec26691bea61f9c1db7c073021b34c`.
+- Private Drive remote verification passed for the HTML and manifest. The primary receipt was then uploaded and independently verified; `DASHBOARD_DRIVE_RETENTION=PASS`, `RAW_PRODUCT_UPLOADED=false`.
+- Published Actions artifact: [know-place-author-dashboard, artifact 12596788838](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189992766/artifacts/12596788838). Run #19’s raw author-exact and generic AOI/date jobs were skipped by design.
+- Post-fix isolated validation [Run #417](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40189684104) passed 257 tests, nine workflow YAML checks, pinned actionlint, and live ASF/CMR identity/link checks without downloading source payloads.
+
+### What remains
+
+The next task is not a dashboard rerun. Begin a source-level audit/reproduction of the paper’s size-matched displacement-null draw process. The article describes placing compact regions with the crown’s own valid-pixel count at random valid-ground positions inside the fixed 6 km box, rejecting placements with too few valid pixels, and comparing the crown median displacement against the accepted null draws (857–996 accepted draws per pair). The published 94.7th-percentile result is not independently reproduced by the current Run #17 site/footprint parity checks. The new implementation must preserve the author’s acceptance/rejection rules, mask, random-seed/RNG behavior if recoverable, and draw-level outputs; if any parameter cannot be recovered, label the result an independent sensitivity, not exact reproduction.
+
+After that: (1) acquire/verify the exact author crown geometry and quantify pixel-mask parity, (2) compare the current source-faithful EGM2008/HAE path with explicitly named datum-sensitivity variants, and (3) run preregistered held-out event/non-event site validation before any detection/false-alarm/lead-time claims. Keep paper status partial and hazard detection not evaluated until the relevant gate passes. Main remains untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
