@@ -149,8 +149,8 @@ jobs:
           python-version: "3.13"
           check-latest: false
 
-      - name: Install pinned catalog-only dependencies
-        run: python -m pip install --disable-pip-version-check --no-cache-dir numpy==2.4.6 h5py==3.16.0 asf_search==13.0.0
+      - name: Install pinned Know Place catalog and dry-run runtime dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir -r tools/know_place/requirements.txt
 
       - name: Query ASF for the five exact candidate granules without downloading them
         shell: bash
@@ -238,5 +238,86 @@ jobs:
         with:
           name: know-place-author-exact-live-cmr-access-evidence
           path: ${{ runner.temp }}/know-place-author-exact-catalog/author-exact-catalog-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Run the failing arbitrary-AOI catalog-only request against live ASF (no raw downloads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "${RUNNER_TEMP}/know-place-live-aoi-request.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          request = {
+              "schema_version": "know-place-aoi-request/1.0",
+              "aoi": {
+                  "type": "Polygon",
+                  "crs": "EPSG:4326",
+                  "wkt": "POLYGON ((85.5245 28.2847, 85.5400 28.2847, 85.5400 28.2970, 85.5245 28.2970, 85.5245 28.2847))",
+              },
+              "date_range": {"start":"2026-06-20","end":"2026-08-31","inclusive":True},
+              "hazard_mode": "ice_rock_avalanche",
+              "analysis_mode": "exploratory",
+              "source_adapters": ["NISAR_GOFF"],
+              "polarization": "HH",
+              "product_selection": {
+                  "allowed_maturities": ["PROVISIONAL"],
+                  "preferred_granules": [],
+                  "track": "098",
+                  "direction": "A",
+              },
+              "quality_policy": {
+                  "minimum_snr": 5.0,
+                  "maximum_horizontal_magnitude_m": 10.0,
+                  "magnitude_policy": "flag_above_threshold_keep",
+              },
+              "coherence_policy": {"window_size": 5, "minimum_valid_neighbours": 1},
+              "geometry_policy": {},
+          }
+          Path(sys.argv[1]).write_text(json.dumps(request,indent=2)+"\n",encoding="utf-8")
+          PY
+          python -m tools.know_place.aoi_runner \
+            --request "${RUNNER_TEMP}/know-place-live-aoi-request.json" \
+            --out "${RUNNER_TEMP}/know-place-live-aoi-output" \
+            --dry-run
+          python - "${RUNNER_TEMP}/know-place-live-aoi-output" <<'PY'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          run_dirs=[p for p in root.iterdir() if p.is_dir()]
+          if len(run_dirs)!=1:
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_OUTPUT_DIRECTORY_COUNT")
+          run_dir=run_dirs[0]
+          result=json.loads((run_dir/"result.json").read_text(encoding="utf-8"))
+          catalog=json.loads((run_dir/"source-evidence"/"catalog-manifest.json").read_text(encoding="utf-8"))
+          manifest=json.loads((run_dir/"manifest.json").read_text(encoding="utf-8"))
+          if result.get("status")!="CATALOG_AND_SERIES_PLAN_READY":
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_STATUS_INVALID")
+          if result.get("measurement_status")!="NOT_RUN_DRY_RUN":
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_MUST_NOT_COMPUTE_MEASUREMENTS")
+          if int(result.get("source_candidates",0))<1:
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_NO_PROVISIONAL_CANDIDATES")
+          if catalog.get("query",{}).get("data_maturity_filter")!=["PROVISIONAL"]:
+              raise SystemExit("ERROR=LIVE_AOI_MATURITY_FILTER_NOT_RECORDED")
+          if any(row.get("maturity")!="PROVISIONAL" for row in catalog.get("candidates",[])):
+              raise SystemExit("ERROR=LIVE_AOI_CATALOG_INCLUDED_WRONG_MATURITY")
+          for relative in ("visuals/dashboard.html","visuals/interactive-map.html"):
+              if not (run_dir/relative).is_file():
+                  raise SystemExit("ERROR=LIVE_AOI_EXPECTED_MAP_OUTPUT_MISSING")
+          if manifest.get("dry_run") is not True or manifest.get("sources")!=[]:
+              raise SystemExit("ERROR=LIVE_AOI_DRY_RUN_SOURCE_EVIDENCE_INVALID")
+          print("LIVE_ARBITRARY_AOI_CATALOG_DRY_RUN=PASS")
+          print("PROVISIONAL_CANDIDATES={}".format(result["source_candidates"]))
+          print("INTERACTIVE_MAP_OUTPUT=PASS")
+          print("RAW_HDF5_DOWNLOADS=0")
+          print("MEASUREMENT_STATUS=NOT_RUN_DRY_RUN")
+          PY
+
+      - name: Preserve live arbitrary-AOI catalog dry-run evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: know-place-live-arbitrary-aoi-dry-run
+          path: |
+            ${{ runner.temp }}/know-place-live-aoi-request.json
+            ${{ runner.temp }}/know-place-live-aoi-output/**
           if-no-files-found: error
           retention-days: 14
