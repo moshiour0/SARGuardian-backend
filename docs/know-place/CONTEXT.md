@@ -472,3 +472,14 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - Added a deterministic regression test proving reproducibility per shape and a distinct result when the spatial statistic varies.
 - Ran a predeclared shape comparison at seed 20261025, minimum-valid fraction 0.6 and 1,200 candidate centres per pair. On the 26 Jul–19 Aug pair: disk 92.2nd percentile (835 accepted), square 91.8 (807 accepted), diamond 93.0 (918 accepted). Full five-pair table is `docs/know-place/evidence/DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv`.
 - None is selected by proximity to published 94.7. These are method-derived sensitivity analyses because exact author source remains unavailable. Paper reproduction remains partial; hazard detection remains not evaluated.
+
+
+## 34. 2026-10-25 — Crown/source-grid mask consistency audit
+
+- Added the crown-mask audit module, regression tests, and evidence on the isolated branch.
+- Source artifact SHA-256: a25bb86069585b2cb023f5fbe889e160ae1749b0b61172ce4f8d1d9953c76682; author archive SHA-256: 002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3. Outer and nested ZIP CRC passed; raw HDF5 member count is zero.
+- Each of the five site and halo masks contains 323 cells. Independent inverse-projection against the published WGS84 rectangle, saved endpoint/searchsorted crop, and cross-array source-grid mapping all have zero XOR cells.
+- Displacement-valid counts [283, 294, 296, 292, 195] match series table n; distinct coherence-valid counts [302, 299, 302, 298, 202] match polygon-null n_px.
+- Corrected a stale generic test fixture whose smaller bounds dropped 17 western-edge cells on the pinned crop. The published exact bounds are now used.
+- The audit is saved-mask/published-bounds consistency, not proof of original author-vector parity; the archive contains no editable vector or golden pixel mask. Paper status remains PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED; hazard detection remains NOT_EVALUATED.
+- No raw replay was run. All modifications remain on feat/know-place-analysis; main remains 2218dfeb73353080d8d94bd733d9e7bd9a848886.

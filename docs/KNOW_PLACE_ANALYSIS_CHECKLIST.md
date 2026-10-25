@@ -347,3 +347,20 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Recover author draw-level implementation/output if available; otherwise retain independent-method-derived label and paper status PARTIAL.
 - [ ] Verify exact crown source-grid mask and run a separate terrain vertical-datum sensitivity before proceeding to preregistered multi-site validation.
 - [x] Test alternate compact-region geometries (disk, square, diamond) at fixed seed/fraction and preserve the five-pair results in DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv; no geometry was selected by result closeness.
+
+
+## Current scientific gate update — crown/source-grid mask audit (2026-10-25)
+
+- [x] Add a deterministic audit for the retained Run #17 derived-only artifact and SHA-256-pinned Zenodo archive; ZIP integrity passes and no raw HDF5 members are present.
+- [x] Compare the published WGS84 rectangle using independent native-grid cell-centre inverse projection, the saved endpoint/searchsorted crop, and the halo diagnostic mask.
+- [x] All five pairs have 323 crown-mask cells; every mask XOR comparison is zero after mapping the arrays to global source-grid row/column coordinates.
+- [x] Confirm displacement-valid crown counts 283/294/296/292/195 against series-table n and coherence-valid counts 302/299/302/298/202 against polygon-null n_px. These are separate estimands.
+- [x] Correct the stale generic geometry test fixture; old bounds selected 306 cells and omitted 17 west-edge cells, while the exact published bounds select 323.
+- [x] Wire the new audit module and tests into isolated CI.
+- [ ] Obtain the original editable author crown vector or golden source-grid mask. Current PASS proves saved-mask/published-bounds consistency, not independent source-vector parity.
+- [ ] Reproduce the displacement-null draw-level generator; do not substitute coherence polygon-null values.
+- [ ] Run separately labelled vertical-datum sensitivity, then preregistered held-out multi-site event/non-event validation.
+- [ ] Keep overall paper status partial and hazard detection NOT_EVALUATED until distinct acceptance gates pass.
+- [ ] Do not merge to or edit main without review and explicit approval.
+
+Evidence: docs/know-place/evidence/CROWN_MASK_AUDIT_20261025.md and CROWN_MASK_AUDIT_20261025.json.

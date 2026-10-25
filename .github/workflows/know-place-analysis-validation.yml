@@ -59,7 +59,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check numpy pytest h5py scipy pyproj pyyaml rasterio affine
 
       - name: Compile every isolated analysis and datum-sensitivity module
-        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/author_dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py tools/know_place/author_exact_acquisition.py tools/know_place/author_exact_retention.py tools/know_place/author_raw_site_series.py tools/know_place/author_archive_raster_parity.py tools/know_place/author_footprint_replay.py tools/know_place/displacement_null.py tools/know_place/scientific_status.py
+        run: python -m py_compile tools/know_place/paper_method.py tools/know_place/goff_io.py tools/know_place/geometry.py tools/know_place/analyze.py tools/know_place/catalog.py tools/know_place/reanalyse_saved_arrays.py tools/know_place/aoi_request.py tools/know_place/series.py tools/know_place/aoi_runner.py tools/know_place/dashboard.py tools/know_place/author_dashboard.py tools/know_place/uncertainty.py tools/know_place/upload_bundle_to_drive.py tools/know_place/event_validation.py tools/know_place/select_threshold.py tools/know_place/motion_features.py tools/know_place/author_catalog.py tools/know_place/author_parity.py tools/know_place/verify_author_fields.py tools/know_place/footprint_screen.py tools/know_place/footprint_geometry.py tools/know_place/terrain_vertical_datum.py tools/know_place/author_exact_acquisition.py tools/know_place/author_exact_retention.py tools/know_place/author_raw_site_series.py tools/know_place/author_archive_raster_parity.py tools/know_place/author_footprint_replay.py tools/know_place/displacement_null.py tools/know_place/crown_mask_audit.py tools/know_place/scientific_status.py
 
       - name: Parse all nine Know Place workflows and the branch Run Workflow launcher as YAML
         shell: bash
@@ -114,7 +114,7 @@ jobs:
           tools/tests/test_know_place_author_exact_acquisition.py
           tools/tests/test_know_place_author_exact_retention.py
           tools/tests/test_know_place_multisite_benchmark.py
-          tools/tests/test_know_place_author_raw_site_series.py tools/tests/test_know_place_author_archive_raster_parity.py tools/tests/test_know_place_author_footprint_replay.py tools/tests/test_know_place_scientific_status.py tools/tests/test_know_place_author_footprint_workflow.py tools/tests/test_know_place_displacement_null.py
+          tools/tests/test_know_place_author_raw_site_series.py tools/tests/test_know_place_author_archive_raster_parity.py tools/tests/test_know_place_author_footprint_replay.py tools/tests/test_know_place_scientific_status.py tools/tests/test_know_place_author_footprint_workflow.py tools/tests/test_know_place_displacement_null.py tools/tests/test_know_place_crown_mask_audit.py
 
       - name: Install pinned actionlint binary and verify its checksum
         shell: bash
