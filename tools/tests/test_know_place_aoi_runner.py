@@ -59,7 +59,10 @@ def product(name, *, maturity="PROVISIONAL", polarization="HH", bytes_size=101):
 
 def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch):
     calls = {}
-    fake = SimpleNamespace(search=lambda **kwargs: (calls.update(kwargs) or [product(n) for n in PAIR_NAMES]))
+    fake = SimpleNamespace(
+        ASFSearchOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        search=lambda **kwargs: (calls.update(vars(kwargs["opts"])) or [product(n) for n in PAIR_NAMES]),
+    )
     monkeypatch.setitem(sys.modules, "asf_search", fake)
 
     products, manifest = discover_nisar_goff(request())
@@ -84,7 +87,10 @@ def test_catalog_excludes_unexpected_product_type_without_aborting(monkeypatch):
         properties={"granuleName": wrong_name},
         get_urls=lambda: [f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/{wrong_name}"],
     )
-    fake = SimpleNamespace(search=lambda **kwargs: [wrong_product])
+    fake = SimpleNamespace(
+        ASFSearchOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        search=lambda **kwargs: [wrong_product],
+    )
     monkeypatch.setitem(sys.modules, "asf_search", fake)
 
     products, manifest = discover_nisar_goff(request())
@@ -95,7 +101,10 @@ def test_catalog_excludes_unexpected_product_type_without_aborting(monkeypatch):
     assert manifest["candidates"][0]["expected_product_type"] == "NISAR_L2_PR_GOFF"
 
 def test_catalog_maturity_allowlist_excludes_unselected_variants(monkeypatch):
-    fake = SimpleNamespace(search=lambda **kwargs: [product(PAIR_NAMES[0], maturity="BETA")])
+    fake = SimpleNamespace(
+        ASFSearchOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        search=lambda **kwargs: [product(PAIR_NAMES[0], maturity="BETA")],
+    )
     monkeypatch.setitem(sys.modules, "asf_search", fake)
 
     products, manifest = discover_nisar_goff(request())
@@ -111,13 +120,17 @@ def test_catalog_uses_singleton_maturity_filter_when_asf_omits_property(monkeypa
         properties={"granuleName": name, "mainBandPolarization": "HH", "fileSizeBytes": 101},
         get_urls=lambda: [f"https://nisar.asf.earthdatacloud.nasa.gov/data/{name}"],
     )
-    fake = SimpleNamespace(search=lambda **kwargs: (calls.update(kwargs) or [result]))
+    fake = SimpleNamespace(
+        ASFSearchOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        search=lambda **kwargs: (calls.update(vars(kwargs["opts"])) or [result]),
+    )
     monkeypatch.setitem(sys.modules, "asf_search", fake)
 
     products, manifest = discover_nisar_goff(request())
 
     assert calls["shortName"] == ["NISAR_L2_GOFF_PROVISIONAL_V1"]
-    assert "dataset" not in calls
+    assert calls["dataset"] == "NISAR"
+    assert calls["collectionAlias"] is False
     assert len(products) == 1
     assert products[0]["maturity"] == "PROVISIONAL"
     assert products[0]["maturity_evidence"] == "authoritative_asf_search_filter:shortName=NISAR_L2_GOFF_PROVISIONAL_V1"

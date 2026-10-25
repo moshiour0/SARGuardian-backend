@@ -347,10 +347,9 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         # with dataMaturity can map both aliases to conflicting collection names.
         short_name_filter: list[str]
         short_name_filter = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
-        results = asf_search.search(
-            # NISAR CMR supports limited searchable attributes. Search by both
-            # dataset and exact collection, but disable v13 collection aliasing
-            # so "dataset=NISAR" cannot overwrite the GOFF shortName selector.
+        # NISAR CMR supports limited searchable attributes. Query a collection and
+        # dataset together, while explicitly disabling v13 collection aliasing.
+        options = asf_search.ASFSearchOptions(
             dataset="NISAR",
             shortName=short_name_filter,
             collectionAlias=False,
@@ -360,6 +359,7 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             mainBandPolarization=request.polarization,
             maxResults=2000,
         )
+        results = asf_search.search(opts=options)
     except Exception as exc:
         raise AOIRunError(
             "ASF_CATALOG_QUERY_FAILED",
