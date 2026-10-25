@@ -207,13 +207,15 @@ The scientific claim remains `PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_D
 
 ### Render the current result without re-downloading raw NISAR data
 
-1. In GitHub Actions, select the branch `feat/know-place-analysis`.
-2. Select workflow **Know Place Analysis - render dashboard from retained evidence**.
-3. Use source run ID `40170290176` and source attempt `1`.
-4. The workflow verifies the source artifact's published SHA-256 digest and ZIP integrity, rejects HDF5 members, extracts only the derived result bundle, and runs `tools/know_place/author_dashboard.py`.
-5. It uploads `dashboard.html` and `dashboard-run-manifest.json` to private Google Drive and verifies both the upload receipt and the receipt copy. It also publishes an Actions artifact for quick retrieval.
+The safe-render child workflow is on the feature branch, but a workflow that exists only on a non-default branch may not expose its own **Run workflow** UI entry. To make this usable without editing `main`, call it through the shared dispatcher path that already exists on the default branch:
 
-This workflow does not authenticate to Earthdata or download raw GOFF. It is a dashboard-rendering E2E, not a replay of the scientific processing. Its own CI/actionlint run must be green before dispatch. In a future explicitly authorized author-exact replay, the replay workflow also generates the dashboard and the final gate requires it.
+1. Open [SARGuardian AOI WKT E2E (safe branch dispatcher)](https://github.com/moshiour0/SARGuardian-backend/actions/workflows/sarguardian-aoi-wkt-dispatcher.yml).
+2. Select branch `feat/know-place-analysis`.
+3. Set `run_profile=render-author-dashboard`. This profile does **not** require `[run-know-place]` and does not query Earthdata or download raw NISAR payloads.
+4. Set `source_run_id=40170290176` and `source_attempt=1`.
+5. The dispatcher calls `.github/workflows/know-place-author-dashboard.yml` as a reusable workflow. It verifies the source artifact digest and nested ZIP integrity, rejects HDF5 members, renders `dashboard.html`, creates a render manifest, uploads the dashboard/manifest to private Google Drive, verifies the Drive receipt and receipt copy, and emits a short-lived Actions artifact.
+
+Validation run [#409](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40174655179) passed 255 tests, all nine workflow YAML parses and pinned actionlint, including the dashboard renderer and the shared dispatcher route. The dashboard profile has **not yet been manually dispatched**; its Drive receipt and final artifact therefore remain pending.
 
 ### Dashboard interpretation and unresolved work
 
