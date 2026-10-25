@@ -99,10 +99,10 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" \
             --output know-place-dashboard/source/artifacts.json
-          python - know-place-dashboard/source/artifacts.json "$SOURCE_RUN_ID" "$SOURCE_ATTEMPT" "$GITHUB_ENV" <<'PY'
+          python - know-place-dashboard/source/artifacts.json "$SOURCE_RUN_ID" "$SOURCE_ATTEMPT" know-place-dashboard/source/artifact-metadata.txt <<'PY'
           import json,sys
           from pathlib import Path
-          catalog_path,run_id,attempt,github_env=sys.argv[1:]
+          catalog_path,run_id,attempt,metadata_path=sys.argv[1:]
           catalog=json.loads(Path(catalog_path).read_text(encoding="utf-8"))
           expected=f"know-place-author-exact-{run_id}-{attempt}"
           matches=[a for a in catalog.get("artifacts",[]) if a.get("name")==expected]
@@ -116,13 +116,28 @@ jobs:
           digest=str(item.get("digest") or "")
           if not digest.startswith("sha256:"):
               raise SystemExit("ERROR=SOURCE_ARTIFACT_SHA256_DIGEST_MISSING")
-          with open(github_env,"a",encoding="utf-8") as stream:
-              stream.write("ARTIFACT_ID="+str(item["id"])+"\n")
-              stream.write("EXPECTED_ARTIFACT_SHA256="+digest.split(":",1)[1]+"\n")
+          artifact_id=str(item.get("id") or "")
+          if not artifact_id.isdigit():
+              raise SystemExit("ERROR=SOURCE_ARTIFACT_ID_INVALID")
+          digest_value=digest.split(":",1)[1]
+          if len(digest_value)!=64 or any(c not in "0123456789abcdef" for c in digest_value):
+              raise SystemExit("ERROR=SOURCE_ARTIFACT_SHA256_INVALID")
+          Path(metadata_path).write_text(artifact_id+"\n"+digest_value+"\n",encoding="utf-8")
           print("SOURCE_ARTIFACT_NAME="+expected)
           print("SOURCE_ARTIFACT_BRANCH=PASS")
           print("SOURCE_ARTIFACT_DIGEST=AVAILABLE")
           PY
+          mapfile -t artifact_metadata < know-place-dashboard/source/artifact-metadata.txt
+          if [[ "${#artifact_metadata[@]}" -ne 2 ]]; then
+            echo "ERROR=SOURCE_ARTIFACT_METADATA_INCOMPLETE"
+            exit 1
+          fi
+          ARTIFACT_ID="${artifact_metadata[0]}"
+          EXPECTED_ARTIFACT_SHA256="${artifact_metadata[1]}"
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]] || { echo "ERROR=SOURCE_ARTIFACT_ID_INVALID"; exit 1; }
+          [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[a-f0-9]{64}$ ]] || { echo "ERROR=SOURCE_ARTIFACT_SHA256_INVALID"; exit 1; }
+          echo "SOURCE_ARTIFACT_ID_VALIDATED=PASS"
+          echo "SOURCE_ARTIFACT_SHA256_VALIDATED=PASS"
           curl --fail --location --silent --show-error \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
