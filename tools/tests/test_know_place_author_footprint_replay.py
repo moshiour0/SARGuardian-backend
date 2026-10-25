@@ -20,7 +20,18 @@ from tools.know_place.author_footprint_replay import (
     _compare_raster_arrays,
     compare_candidate_inventory,
     compare_validated_zone_table,
+    _validated_quality_zone_count,
 )
+
+
+
+def test_validated_zone_summary_uses_actual_table_s7_schema_key():
+    assert _validated_quality_zone_count({
+        "computed_quality_zone_count": 101,
+        "matched_centroid_count": 101,
+    }) == 101
+    with pytest.raises(ValueError, match="VALIDATED_QUALITY_ZONE_COUNT_MISSING"):
+        _validated_quality_zone_count({"computed_directional_zone_count": 101})
 
 
 def test_raster_comparison_requires_finite_mask_and_numeric_parity():
