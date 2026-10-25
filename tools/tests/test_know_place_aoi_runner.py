@@ -69,6 +69,7 @@ def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch
     assert manifest["query"]["start_utc"] == "2026-06-20T00:00:00Z"
     assert manifest["query"]["end_utc"] == "2026-07-14T23:59:59Z"
     assert calls["processingLevel"] == "GOFF"
+    assert calls["dataMaturity"] == "PROVISIONAL"
     assert calls["intersectsWith"].startswith("POLYGON ((")
     assert calls["mainBandPolarization"] == "HH"
     assert all(row["decision"] == "ELIGIBLE_CATALOG_CANDIDATE" for row in manifest["candidates"])
@@ -82,6 +83,38 @@ def test_catalog_maturity_allowlist_excludes_unselected_variants(monkeypatch):
     assert products == []
     assert manifest["eligible_count"] == 0
     assert manifest["candidates"][0]["decision"] == "EXCLUDED_MATURITY_NOT_ALLOWED"
+
+def test_catalog_uses_singleton_maturity_filter_when_asf_omits_property(monkeypatch):
+    calls = {}
+    name = PAIR_NAMES[0]
+    result = SimpleNamespace(
+        properties={"granuleName": name, "mainBandPolarization": "HH", "fileSizeBytes": 101},
+        get_urls=lambda: [f"https://nisar.asf.earthdatacloud.nasa.gov/data/{name}"],
+    )
+    fake = SimpleNamespace(search=lambda **kwargs: (calls.update(kwargs) or [result]))
+    monkeypatch.setitem(sys.modules, "asf_search", fake)
+
+    products, manifest = discover_nisar_goff(request())
+
+    assert calls["dataMaturity"] == "PROVISIONAL"
+    assert len(products) == 1
+    assert products[0]["maturity"] == "PROVISIONAL"
+    assert products[0]["maturity_evidence"] == "authoritative_asf_search_filter:dataMaturity=PROVISIONAL"
+    assert manifest["query"]["data_maturity_filter"] == ["PROVISIONAL"]
+
+
+def test_unknown_explicit_maturity_fails_closed_even_if_query_is_singleton():
+    known_url = f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/{PAIR_NAMES[0]}"
+    with pytest.raises(AOIRunError) as exc_info:
+        _maturity({"dataMaturity": "UNRECOGNIZED"}, [known_url], ("PROVISIONAL",))
+    assert exc_info.value.code == "CATALOG_MATURITY_INVALID"
+
+
+def test_multiple_allowed_maturities_cannot_be_inferred_when_asf_omits_metadata():
+    with pytest.raises(AOIRunError) as exc_info:
+        _maturity({}, ["https://nisar.asf.earthdatacloud.nasa.gov/unknown/a.h5"], ("BETA", "PROVISIONAL"))
+    assert exc_info.value.code == "CATALOG_MATURITY_UNRESOLVED"
+
 
 def test_catalog_product_identity_and_trusted_host_gates():
     good_url = f"https://nisar.asf.earthdatacloud.nasa.gov/NISAR/NISAR_L2_GOFF_PROVISIONAL_V1/{PAIR_NAMES[0]}"

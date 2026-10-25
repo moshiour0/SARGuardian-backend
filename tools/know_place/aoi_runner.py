@@ -274,19 +274,48 @@ def _product_urls(product: Any, properties: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
-def _maturity(properties: dict[str, Any], urls: list[str]) -> tuple[str, str]:
+def _maturity(
+    properties: dict[str, Any],
+    urls: list[str],
+    requested_maturities: tuple[str, ...] | list[str] | None = None,
+) -> tuple[str, str]:
+    """Resolve maturity only from metadata, collection path, or an exact ASF filter.
+
+    If ASF omits maturity metadata and the request filters to exactly one
+    maturity, the result's membership in that server-side query is authoritative
+    evidence. A multi-maturity query cannot identify which processing chain a
+    result belongs to, so it fails closed rather than merging chains.
+    """
     for key in ("dataMaturity", "maturity", "data_maturity"):
         raw = properties.get(key)
-        value = str(raw or "").strip().upper()
+        if raw is None or not str(raw).strip():
+            continue
+        value = str(raw).strip().upper()
         if value in {"PROVISIONAL", "BETA"}:
             return value, f"catalog_property:{key}"
+        raise AOIRunError(
+            "CATALOG_MATURITY_INVALID",
+            "Catalog returned an explicit but unsupported maturity value",
+        )
+
     paths = [urlparse(url).path.upper() for url in urls]
     for path in paths:
         if "/NISAR_L2_GOFF_PROVISIONAL_V1/" in path:
             return "PROVISIONAL", "trusted_source_url_collection_path"
         if "/NISAR_L2_GOFF_BETA_V1/" in path:
             return "BETA", "trusted_source_url_collection_path"
-    raise AOIRunError("CATALOG_MATURITY_UNRESOLVED", "Catalog returned a product with unresolved maturity")
+
+    allowed = tuple(dict.fromkeys(
+        str(value).strip().upper()
+        for value in (requested_maturities or ())
+        if str(value).strip()
+    ))
+    if len(allowed) == 1 and allowed[0] in {"PROVISIONAL", "BETA"}:
+        return allowed[0], f"authoritative_asf_search_filter:dataMaturity={allowed[0]}"
+    raise AOIRunError(
+        "CATALOG_MATURITY_UNRESOLVED",
+        "Catalog omitted maturity metadata and the authoritative search filter does not identify a single maturity",
+    )
 
 
 def _product_name(properties: dict[str, Any], urls: list[str]) -> str:
@@ -313,12 +342,24 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         raise AOIRunError("ASF_SEARCH_DEPENDENCY_MISSING", "Install the pinned asf_search runtime to query NISAR products") from exc
 
     try:
+        requested_maturities = tuple(request.allowed_maturities)
+        # ASF supports dataMaturity as a server-side filter. Pass a scalar for a
+        # single requested chain, or a list for explicit multi-maturity queries.
+        # This avoids accepting unrelated catalog products and supports exact
+        # maturity evidence when ASF omits the field from returned properties.
+        maturity_filter: str | list[str]
+        maturity_filter = (
+            requested_maturities[0]
+            if len(requested_maturities) == 1
+            else list(requested_maturities)
+        )
         results = asf_search.search(
             dataset="NISAR",
             intersectsWith=request.aoi_wkt,
             start=f"{request.start_date.isoformat()}T00:00:00Z",
             end=f"{request.end_date.isoformat()}T23:59:59Z",
             processingLevel="GOFF",
+            dataMaturity=maturity_filter,
             mainBandPolarization=request.polarization,
             maxResults=2000,
         )
@@ -344,7 +385,7 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         if not trusted_urls:
             raise AOIRunError("ASF_DOWNLOAD_HOST_UNTRUSTED", "Catalog returned no trusted HTTPS ASF download URL")
         identity = parse_granule_identity(name)
-        maturity, maturity_evidence = _maturity(properties, trusted_urls)
+        maturity, maturity_evidence = _maturity(properties, trusted_urls, request.allowed_maturities)
         raw_pol = str(
             properties.get("mainBandPolarization")
             or properties.get("polarization")
@@ -407,6 +448,8 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             "main_band_polarization": request.polarization,
             "polarization_evidence_policy": "query filter is recorded; exact HDF5 polarization group must be validated before measurement",
             "allowed_maturities": list(request.allowed_maturities),
+            "data_maturity_filter": list(request.allowed_maturities),
+            "maturity_evidence_policy": "returned metadata or trusted collection path; when omitted, singleton server-side dataMaturity filter; multi-maturity unresolved results fail closed",
         },
         "result_count": len(all_rows),
         "eligible_count": len(accepted),
