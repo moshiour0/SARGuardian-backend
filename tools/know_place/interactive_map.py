@@ -97,6 +97,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
     request = report.get("request", {}) if isinstance(report, dict) else {}
     aoi = request.get("aoi", {}) if isinstance(request, dict) else {}
     wkt = aoi.get("wkt", "") if isinstance(aoi, dict) else ""
+    geometry_note_raw = str(aoi.get("geometry_note", ""))[:500] if isinstance(aoi, dict) else ""
     try:
         ring = [[float(lon), float(lat)] for lon, lat in parse_polygon_wkt(wkt)]
         aoi_error = None
@@ -155,6 +156,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
         "schema_version": "know-place-interactive-map/1.0",
         "aoi_ring_lon_lat": ring,
         "aoi_error": aoi_error,
+        "aoi_geometry_note": geometry_note_raw,
         "start_date": str(dates.get("start", "?")) if isinstance(dates, dict) else "?",
         "end_date": str(dates.get("end", "?")) if isinstance(dates, dict) else "?",
         "structural_status": str(report.get("structural_status", "UNKNOWN")),
@@ -172,6 +174,9 @@ def build_interactive_map_html(report: dict[str, Any]) -> str:
     dates = request.get("date_range", {}) if isinstance(request, dict) else {}
     aoi = request.get("aoi", {}) if isinstance(request, dict) else {}
     aoi_label = html.escape(str(aoi.get("wkt", "not provided"))[:220]) if isinstance(aoi, dict) else "not provided"
+    geometry_note_raw = str(aoi.get("geometry_note", ""))[:500] if isinstance(aoi, dict) else ""
+    geometry_note = html.escape(geometry_note_raw)
+    geometry_note_class = "" if geometry_note_raw else "hidden"
     start = html.escape(str(dates.get("start", "?"))) if isinstance(dates, dict) else "?"
     end = html.escape(str(dates.get("end", "?"))) if isinstance(dates, dict) else "?"
     template = """<!doctype html>
@@ -189,7 +194,7 @@ header{display:flex;align-items:end;justify-content:space-between;gap:16px;flex-
 button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radius:7px;padding:9px;cursor:pointer}button:hover{background:#214a68}.check{display:flex;gap:8px;align-items:center}.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.status{border:1px solid var(--line);border-radius:8px;padding:8px;overflow-wrap:anywhere}.status small{display:block;color:var(--muted);font-size:11px}.status strong{font-size:12px}.warn{border-left:3px solid var(--warn);padding:8px 10px;margin-top:12px}.legendbar{height:10px;border-radius:99px;background:linear-gradient(90deg,#274c77,#38b2ac,#f6d365,#d73027);margin:6px 0}.hidden{display:none!important}
 @media(max-width:920px){main{padding:12px}.layout{grid-template-columns:1fr}#map{height:55vh;min-height:340px}}
 </style></head><body><main>
-<header><div><div class="eyebrow">SARGuardian / Know Place Analysis</div><h1>Interactive AOI map</h1><p>AOI: <strong>__AOI__</strong></p><p>Inclusive UTC window: __START__ → __END__</p></div><div class="muted">Map preview is for presentation and quality review, not scientific remeasurement.</div></header>
+<header><div><div class="eyebrow">SARGuardian / Know Place Analysis</div><h1>Interactive AOI map</h1><p>AOI: <strong>__AOI__</strong></p><p class="muted __GEOMETRY_NOTE_CLASS__" id="geometry-note">__GEOMETRY_NOTE__</p><p>Inclusive UTC window: __START__ → __END__</p></div><div class="muted">Map preview is for presentation and quality review, not scientific remeasurement.</div></header>
 <div class="status-grid">
 <div class="status"><small>Structural status</small><strong id="structural-status"></strong></div>
 <div class="status"><small>Measurement status</small><strong id="measurement-status"></strong></div>
@@ -198,7 +203,7 @@ button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radi
 <div class="layout"><section class="panel">
 <div id="map" role="application" aria-label="Interactive basemap with AOI and displacement preview"></div>
 <p id="map-message" class="warn">Loading interactive map…</p>
-<p class="muted">Basemap © OpenStreetMap contributors. The coloured image is a downsampled preview warped to a geographic rectangle; use the native-grid GeoTIFF for scientific analysis.</p></section>
+<p class="muted">Basemap © OpenStreetMap contributors. The coloured image is a downsampled preview warped to a geographic rectangle, for visual review only. A native-grid GeoTIFF is available only if a link is shown for the selected pair; otherwise this map contains the preview and its recorded summary metrics, not a downloadable native-grid raster.</p></section>
 <aside class="panel controls">
 <div class="field"><label for="pair-select">Acquisition pair</label><select id="pair-select"></select></div>
 <div class="field"><label for="opacity">Displacement overlay opacity</label><input id="opacity" type="range" min="0" max="1" step="0.05" value="0.72"><span id="opacity-value" class="muted">72%</span></div>
@@ -309,8 +314,15 @@ if (typeof L === "undefined") {
   if(mapData.pairs.length){pairSelect.value="0";renderPair(0);}
 }
 </script></body></html>"""
-    replacements = {"__MAP_DATA__": data, "__AOI__": aoi_label, "__START__": start, "__END__": end}
-    return re.sub(r"__(?:MAP_DATA|AOI|START|END)__", lambda match: replacements[match.group(0)], template)
+    replacements = {
+        "__MAP_DATA__": data,
+        "__AOI__": aoi_label,
+        "__GEOMETRY_NOTE__": geometry_note,
+        "__GEOMETRY_NOTE_CLASS__": geometry_note_class,
+        "__START__": start,
+        "__END__": end,
+    }
+    return re.sub(r"__(?:MAP_DATA|AOI|GEOMETRY_NOTE|GEOMETRY_NOTE_CLASS|START|END)__", lambda match: replacements[match.group(0)], template)
 
 
 def write_interactive_map(report: dict[str, Any], output_path: str | Path) -> Path:
