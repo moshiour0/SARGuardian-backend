@@ -51,10 +51,12 @@ jobs:
             echo "ERROR=DRIVE_SECRETS_REQUIRED_BEFORE_DASHBOARD_UPLOAD"
             exit 1
           fi
-          echo "SOURCE_RUN_ID=$SOURCE_RUN_ID_INPUT" >> "$GITHUB_ENV"
-          echo "SOURCE_ATTEMPT=$SOURCE_ATTEMPT_INPUT" >> "$GITHUB_ENV"
-          echo "SOURCE_ARTIFACT_NAME=know-place-author-exact-$SOURCE_RUN_ID_INPUT-$SOURCE_ATTEMPT_INPUT" >> "$GITHUB_ENV"
-          echo "DASHBOARD_RUN_NAME=KnowPlaceDashboard-$SOURCE_RUN_ID_INPUT-$SOURCE_ATTEMPT_INPUT" >> "$GITHUB_ENV"
+          {
+            echo "SOURCE_RUN_ID=$SOURCE_RUN_ID_INPUT"
+            echo "SOURCE_ATTEMPT=$SOURCE_ATTEMPT_INPUT"
+            echo "SOURCE_ARTIFACT_NAME=know-place-author-exact-$SOURCE_RUN_ID_INPUT-$SOURCE_ATTEMPT_INPUT"
+            echo "DASHBOARD_RUN_NAME=KnowPlaceDashboard-$SOURCE_RUN_ID_INPUT-$SOURCE_ATTEMPT_INPUT"
+          } >> "$GITHUB_ENV"
           echo "RAW_SOURCE_DOWNLOADS=0"
           echo "DRIVE_CREDENTIAL_PREFLIGHT=PASS"
 
