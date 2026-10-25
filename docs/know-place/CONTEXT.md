@@ -465,3 +465,10 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - A fixed, reported 35-row sensitivity matrix has been run over minimum valid fraction 0.4, 0.5, 0.6, 0.7, 0.8 at seed 20261025 and seeds 20261026/20261027 at the 0.6 default. Full rows: `docs/know-place/evidence/DISPLACEMENT_NULL_SENSITIVITY_20261025.csv`.
 - For the 26 Jul–19 Aug pair, the tested acceptance fractions yield 91.4–93.8 percentile; three seeds at 0.6 yield 92.2–93.5. That range shows sampling-policy dependence; no setting was selected to match the published 94.7.
 - Remaining sensitivity: alternate region geometry (disk vs another explicitly specified compact shape). The method-derived default remains unchanged. Paper status remains partial and hazard detection not evaluated.
+
+### 33. 2026-10-25 — Compact-region shape sensitivity completed
+
+- Extended the independent null module to support three explicitly named raster-index shapes: disk (default), square and diamond. All three policies are written into the report; an invalid shape fails closed.
+- Added a deterministic regression test proving reproducibility per shape and a distinct result when the spatial statistic varies.
+- Ran a predeclared shape comparison at seed 20261025, minimum-valid fraction 0.6 and 1,200 candidate centres per pair. On the 26 Jul–19 Aug pair: disk 92.2nd percentile (835 accepted), square 91.8 (807 accepted), diamond 93.0 (918 accepted). Full five-pair table is `docs/know-place/evidence/DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv`.
+- None is selected by proximity to published 94.7. These are method-derived sensitivity analyses because exact author source remains unavailable. Paper reproduction remains partial; hazard detection remains not evaluated.

@@ -277,3 +277,7 @@ Results are explicitly `INDEPENDENT_METHOD_DERIVED_NOT_AUTHOR_SAMPLER_PARITY`: t
 ### Sensitivity checkpoint — 2026-10-25
 
 The default disk policy was not tuned. A 35-row acceptance/seed sensitivity report is checked in at `docs/know-place/evidence/DISPLACEMENT_NULL_SENSITIVITY_20261025.csv`. With seed 20261025 the target percentile is 93.8, 93.3, 92.2, 91.4, 92.6 for minimum valid fractions 0.4–0.8 respectively; seed changes at 0.6 give 92.2, 92.7, 93.5. This confirms policy sensitivity without achieving the published 94.7 percentile. Next sensitivity must vary region shape under a declared rule, not select a configuration based on result closeness.
+
+### Compact-region geometry sensitivity — completed diagnostic
+
+The module and CLI now accept explicit region-shape policies `disk`, `square`, and `diamond`; default remains disk. All shapes have deterministic, version-visible rules and regression coverage. The shape sensitivity matrix is `docs/know-place/evidence/DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv`. For the target pair, percentiles were disk 92.2, square 91.8, and diamond 93.0 (published 94.7). Do not select shape by closeness. Recovering the original generator or per-draw author output is still required for exact parity.

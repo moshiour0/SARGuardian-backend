@@ -47,3 +47,15 @@ For the target pair 26 Jul–19 Aug:
 | fraction 0.6, seed 20261027 | 846 | 0.137 | 93.5 |
 
 The target-pair percentile varies by 2.4 points across the tested acceptance fractions and by 1.3 points across the tested seeds. None of these runs reaches 94.7, and no setting was selected based on proximity to the published figure. This confirms the reconstructed ranking is policy-dependent. Region-shape sensitivity, author-source recovery, exact crown mask parity, and a fully specified independent-label validation remain outstanding.
+
+## Compact-region shape sensitivity (seed 20261025, valid fraction 0.6)
+
+The same fixed candidate-centre policy was rerun with three equally disclosed raster-index footprints; all five pairs were processed in the same chronological RNG stream. These are sensitivity variants, not candidates from which to choose the best published match. Full 15-row results are in DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv.
+
+| Region shape | Accepted draws | Null median (m) | Crown percentile |
+|---|---:|---:|---:|
+| Disk | 835 | 0.144 | 92.2 |
+| Square | 807 | 0.144 | 91.8 |
+| Diamond | 918 | 0.144 | 93.0 |
+
+For the 26 Jul–19 Aug pair, the tested shape definitions yield 91.8–93.0 percentile. All remain below the published 94.7 in these runs. Since the author generator is missing, this spread illustrates a genuine unresolved policy choice; it does not identify which shape the author used.
