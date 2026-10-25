@@ -1,11 +1,16 @@
-"""Author-compatible five-pair site-series replay from verified raw GOFF inputs.
+"""Author-compatible five-pair site-series metrics from verified raw GOFF inputs.
 
-This is deliberately separate from analyze.py's exploratory fixed-height path.
-It follows the supplied Zenodo archive's site-series conventions: crown-local
-height-axis-median radar geometry, SNR/magnitude-only source mask, conditional
-ring reference, north-up extent, crown-cropped coherence, and the archive's
-post-hoc polygon-null statistics. It does not implement the full-footprint
-screen or certify hazard-detection skill.
+This runner is separate from analyze.py's exploratory fixed-height path.
+P1/site-series fields use the archived crown-local height-axis-median geometry,
+SNR/magnitude gate, conditional ring reference, north-up extent and
+post-hoc polygon-null statistics. P2/local-mean reference is a distinct path:
+it builds per-pixel projection coefficients from the pinned author DEM and
+radarGrid geometry, computes the source-compatible local-mean residual
+coherence on a context halo, then selects the WIDE pixel box and crown using
+the archived spatial-selection order. The prepared DEM's height values are
+used directly against the radarGrid HAE axis without a vertical transformation;
+the mismatch is explicitly reported. This is not the full-footprint screen
+and does not certify hazard-detection skill.
 """
 from __future__ import annotations
 
