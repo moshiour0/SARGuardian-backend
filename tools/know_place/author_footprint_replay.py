@@ -371,6 +371,14 @@ def compare_footprint_outputs_to_author_archive(
     }
 
 
+def _validated_quality_zone_count(comparison: dict[str, Any]) -> int:
+    """Read the computed final-quality zone count from the Table S7 comparison schema."""
+    value = comparison.get("computed_quality_zone_count")
+    if not isinstance(value, int):
+        raise FootprintReplayError("VALIDATED_QUALITY_ZONE_COUNT_MISSING")
+    return value
+
+
 def _angle_difference_degrees(a: float, b: float) -> float:
     return float(abs((float(a) - float(b) + 180.0) % 360.0 - 180.0))
 
@@ -1033,7 +1041,7 @@ def run_author_footprint_replay(
     print(f"CANDIDATE_ZONES_PRE_DIRECTION={len(candidate_rows)}")
     print(f"CANDIDATE_ZONES_DIRECTIONAL_PASS={len(directional_rows)}")
     print("AUTHOR_INVENTORY_COUNT=" + str(inventory_comparison["computed_candidate_count"]))
-    print("AUTHOR_VALIDATED_ZONE_COUNT=" + str(validated_zone_comparison["computed_directional_zone_count"]))
+    print("AUTHOR_VALIDATED_ZONE_COUNT=" + str(_validated_quality_zone_count(validated_zone_comparison)))
     print("PAPER_REPRODUCTION_STATUS=" + report["paper_reproduction_status"])
     print("HAZARD_DETECTION_STATUS=NOT_EVALUATED")
     print("REPORT=" + str(report_path))
