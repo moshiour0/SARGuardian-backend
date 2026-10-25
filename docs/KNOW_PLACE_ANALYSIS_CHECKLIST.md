@@ -327,3 +327,12 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Finish displacement-null draw-level parity and exact crown/source-grid mask verification before declaring complete paper reproduction.
 - [ ] Keep hazard detection `NOT_EVALUATED` until independent held-out event/non-event evaluation is complete.
 - [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and separate scientific acceptance gates pass.
+
+## Source-code audit: displacement-null gap — 2026-10-25
+
+- [x] Inspected all Zenodo archive members and searched all bundled Python scripts for the displacement-null generator.
+- [x] Confirmed `tables/displacement_null.json` is a five-row summary only; the source archive has no draw-level records or displacement-null sampling script. `polygon_null.py` is a coherence-R null and is not a substitute.
+- [x] Reconciled 292 versus 298: displacement-valid `n=292` and coherence-valid `n_px=298` are separate metrics for 26 July–19 August 2026.
+- [ ] Implement a separate method-derived displacement-null reconstruction on archived offset fields, retain every draw and rejection reason, pin seed/PRNG and all sampling policy choices, and compare the five aggregate rows without tuning to force agreement.
+- [ ] If the exact author draw generator cannot be recovered, label outputs independent/method-derived and keep whole-paper status partial; never call the 94.7th percentile a detection.
+- [ ] After null work, verify exact crown polygon/source-grid mask parity, then run a separate vertical-datum sensitivity. Multi-site event/non-event validation remains required before any hazard-detection claim.
