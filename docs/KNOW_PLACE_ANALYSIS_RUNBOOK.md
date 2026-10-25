@@ -286,3 +286,17 @@ The default disk policy was not tuned. A 35-row acceptance/seed sensitivity repo
 ### Compact-region geometry sensitivity — completed diagnostic
 
 The module and CLI now accept explicit region-shape policies `disk`, `square`, and `diamond`; default remains disk. All shapes have deterministic, version-visible rules and regression coverage. The shape sensitivity matrix is `docs/know-place/evidence/DISPLACEMENT_NULL_SHAPE_SENSITIVITY_20261025.csv`. For the target pair, percentiles were disk 92.2, square 91.8, and diamond 93.0 (published 94.7). Do not select shape by closeness. Recovering the original generator or per-draw author output is still required for exact parity.
+
+
+## Current live measurement result — 26 October 2026
+
+The authorized exact-author run is complete: [GitHub Actions #40232441596](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40232441596). Read `docs/know-place/evidence/AUTHOR_EXACT_P05023_MEASUREMENT_20261026.md` first for the source hashes, pair-level table, verified Drive-retention receipt, dashboard, and scientific caveats. The user does not need to download the raw HDF5 files again for this existing result.
+
+The critical 2026-07-26 → 2026-08-19 pair produced an exploratory median horizontal displacement of 0.96606 m from 292 valid crown pixels and a median descriptive rate of 4.0253 cm/day. The author-compatible site-series path reports 0.96451 m and 4.01879 cm/day. These are close to the deposited summary, but the exact author editable crown geometry is unavailable; do not call this exact-mask reproduction or a validated warning.
+
+The run matched site-series (65/65), P2 (15/15), full-footprint aggregate rasters (3/3), candidate inventory (106/106), and validated zones (101/101), at published/archive precision. The derived-only null-table reconstruction [run #40233222258](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222258) additionally matched all 15 published crown/null median and percentile values, while explicitly retaining `UNVERIFIED_NO_ORIGINAL_DRAW_OR_REJECTION_HISTORY`. The original null sampler is not included in the reviewed author archive, so whole-paper status remains partial.
+
+Private Drive remote verification passed before all five temporary raw HDF5 files were deleted; cleanup and the post-delete receipt were verified. The current Actions artifact includes `dashboard.html`, the raw-site-series CSV, five pair diagnostic arrays, source/cleanup manifests, footprint rasters and reports; raw HDF5 is not present in the derived artifact. Artifact: [ID 12613577460](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40232441596/artifacts/12613577460). The separately generated null audit artifact is [ID 12613704622](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222258/artifacts/12613704622).
+
+Current status labels remain `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED`, `HAZARD_DETECTION_STATUS=NOT_EVALUATED`, and `OPERATIONAL_WARNING_STATUS=NOT_IMPLEMENTED`. Exact crown vector/mask, RGI 6.0 overlay and HAE/DEM datum parity are unresolved. No changes were made to main (baseline SHA `2218dfeb73353080d8d94bd733d9e7bd9a848886`).
+
