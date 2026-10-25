@@ -121,7 +121,7 @@ def test_build_author_map_report_is_exact_p05023_and_five_pairs(tmp_path: Path):
     assert all(p["release_id"] == "P05023" for p in report["pairs"])
     assert all(p["support_region_label"] == "Valid crown-mask pixels" for p in report["pairs"])
     assert all(p["valid_aoi_pixels"] == 11 and p["aoi_total_grid_cells"] == 12 for p in report["pairs"])
-    assert all(p["geotiff_file"] is None for p in report["pairs"])
+    assert all(p.get("geotiff_file") is None and p.get("geotiff_href") is None for p in report["pairs"])
     assert all(p["map_preview"]["pixel_size_x_m"] == 80 for p in report["pairs"])
 
 
