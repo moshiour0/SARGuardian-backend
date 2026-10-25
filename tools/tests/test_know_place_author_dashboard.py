@@ -200,3 +200,16 @@ def test_shared_dispatcher_exposes_retained_dashboard_without_raw_download_conse
     assert "render-author-dashboard" not in dispatcher["jobs"]["author_exact_p05023"]["if"]
     assert "render-author-dashboard" not in dispatcher["jobs"]["generic_aoi_date"]["if"]
 
+def test_dashboard_workflow_reads_artifact_metadata_in_the_current_shell():
+    repo_root = Path(__file__).resolve().parents[2]
+    workflow_path = repo_root / ".github" / "workflows" / "know-place-author-dashboard.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    # GITHUB_ENV only affects later steps; this step must read its own validated values locally.
+    assert 'artifact-metadata.txt' in workflow
+    assert 'mapfile -t artifact_metadata < know-place-dashboard/source/artifact-metadata.txt' in workflow
+    assert 'ARTIFACT_ID="${artifact_metadata[0]}"' in workflow
+    assert 'EXPECTED_ARTIFACT_SHA256="${artifact_metadata[1]}"' in workflow
+    assert 'stream.write("ARTIFACT_ID="' not in workflow
+    assert 'stream.write("EXPECTED_ARTIFACT_SHA256="' not in workflow
+    assert 'echo "$EXPECTED_ARTIFACT_SHA256  know-place-dashboard/source/source-artifact.zip" | sha256sum --check -' in workflow
