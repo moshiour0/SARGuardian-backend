@@ -145,6 +145,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
             "valid_pixels": valid_pixels if isinstance(valid_pixels, (int, float)) else None,
             "total_pixels": total_pixels if isinstance(total_pixels, (int, float)) else None,
             "valid_fraction": _finite_number(pair.get("valid_aoi_fraction")),
+            "support_region_label": str(pair.get("support_region_label", "Valid AOI pixels")),
             "median_magnitude_m": median,
             "median_rate_m_per_day": rate,
             "high_magnitude_flagged_pixels": pair.get("high_magnitude_flagged_pixels"),
@@ -210,7 +211,7 @@ button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radi
 <label class="check"><input id="show-aoi" type="checkbox" checked> Show AOI boundary</label><button id="fit-aoi" type="button">Zoom to AOI</button>
 <div><h2>Magnitude preview</h2><div class="legendbar"></div><div id="raster-range" class="muted">No raster selected</div><p>Transparent pixels mean no preview value, not zero motion.</p></div>
 <div><h2>Selected interval</h2><p id="pair-label">No pair selected</p><p id="pair-status" class="muted"></p><div class="status-grid">
-<div class="status"><small>Valid AOI pixels</small><strong id="valid-pixels">—</strong></div>
+<div class="status"><small id="valid-pixels-label">Valid AOI pixels</small><strong id="valid-pixels">—</strong></div>
 <div class="status"><small>Median magnitude</small><strong id="median-magnitude">Unavailable</strong></div>
 <div class="status"><small>Interval-average rate</small><strong id="median-rate">Unavailable</strong></div>
 <div class="status"><small>High-motion review pixels</small><strong id="high-pixels">—</strong></div></div>
@@ -225,7 +226,10 @@ const mapData = __MAP_DATA__;
 const el = (id) => document.getElementById(id);
 el("structural-status").textContent = mapData.structural_status;
 el("measurement-status").textContent = mapData.measurement_status;
-el("paper-status").textContent = mapData.paper_reproduction_status;
+const paperStatusDisplay = {
+  "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED": "PARTIAL — numeric checks match; original null-generator identity unverified"
+};
+el("paper-status").textContent = paperStatusDisplay[mapData.paper_reproduction_status] || mapData.paper_reproduction_status;
 el("hazard-status").textContent = mapData.hazard_detection_status;
 el("map-message").textContent = mapData.aoi_error || "Choose an acquisition pair to inspect its preview.";
 
@@ -281,12 +285,13 @@ if (typeof L === "undefined") {
     el("pair-label").textContent=pair.reference_date+" → "+pair.secondary_date;
     el("pair-status").textContent=pair.status+" | Release "+(pair.release_id||"unknown");
     const valid=pair.valid_pixels,total=pair.total_pixels,fraction=pair.valid_fraction;
+    el("valid-pixels-label").textContent=pair.support_region_label || "Valid AOI pixels";
     el("valid-pixels").textContent=(valid===null?"—":String(valid))+" / "+(total===null?"—":String(total))+(typeof fraction==="number"?" ("+(fraction*100).toFixed(1)+"%)":"");
     el("median-magnitude").textContent=typeof pair.median_magnitude_m==="number"?pair.median_magnitude_m.toFixed(3)+" m":"Unavailable";
     el("median-rate").textContent=typeof pair.median_rate_m_per_day==="number"?pair.median_rate_m_per_day.toFixed(4)+" m/day":"Unavailable";
-    el("high-pixels").textContent=pair.high_magnitude_flagged_pixels===undefined?"—":String(pair.high_magnitude_flagged_pixels);
+    el("high-pixels").textContent=pair.high_magnitude_flagged_pixels==null?"—":String(pair.high_magnitude_flagged_pixels);
     el("source-hash").textContent="Source SHA-256: "+pair.source_sha256;
-    el("grid-epsg").textContent="Native raster CRS: "+(pair.epsg?"EPSG:"+pair.epsg:"unknown");
+    el("grid-epsg").textContent="Source measurement grid: "+(pair.epsg?"EPSG:"+pair.epsg:"unknown");
     const link=el("geotiff-link");
     if(pair.geotiff_href){link.href=pair.geotiff_href;link.classList.remove("hidden");}
     else{link.removeAttribute("href");link.classList.add("hidden");}
