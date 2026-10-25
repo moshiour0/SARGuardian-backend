@@ -457,7 +457,7 @@ See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated dec
 - [x] Explicitly add `tools/tests/test_know_place_interactive_map.py` to the isolated validation workflow's test list.
 - [x] CI [run 40224867156](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867156): 287 tests passed; compile, YAML parsing, actionlint and metadata-only catalog gates passed.
 - [x] Push replay gate [run 40224867157](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40224867157) skipped the raw analysis job because no `[run-know-place]` marker was present.
-- [ ] Browser/device smoke test with a newly generated arbitrary-AOI result bundle; not performed in this patch. Confirm relative GeoTIFF links work from the fully extracted artifact directory.
+- [x] Real measurement result browser smoke passed in Chromium from the retained exact-author derived-only artifact: [map render run 40236685200](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40236685200), artifact [12615685808](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40236685200/artifacts/12615685808). All 15 checks passed; five pair controls and 26 Jul–19 Aug selection tested; zero page errors; screenshot recorded.
 - [ ] Full scientific measurement, paper-method reproduction and event-level detector skill are separate gates; `HAZARD_DETECTION_STATUS=NOT_EVALUATED` remains unchanged.
 
 
@@ -483,6 +483,6 @@ See docs/know-place/evidence/FINISHING_GATE_20261025.md for the consolidated dec
 - [x] Run source-inspired displacement-null reconstruction from deposited derived GeoTIFFs only: [run 40233222258](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222258), all five published crown/null medians and percentiles matched at table precision (15/15 numeric fields). See `docs/know-place/evidence/DISPLACEMENT_NULL_ARCHIVE_RECONSTRUCTION_20261026.md`.
 - [x] Validate current source/dependency and workflow paths: [run 40233222222](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40233222222) passed.
 - [ ] Original displacement-null generator/draw identity, author editable crown vector/golden mask, exact RGI 6.0 polygon overlay and DEM-to-radar-grid vertical-datum transformation remain unverified. Keep whole-paper reproduction `PARTIAL`.
-- [ ] Inspect the real-measurement output in the interactive arbitrary-AOI map and complete mobile/desktop browser visual smoke test; the existing catalog-only arbitrary-AOI smoke is not enough.
+- [x] Inspect the real-measurement output through the interactive map and complete headless Chromium desktop/browser smoke: run 40236685200, artifact 12615685808; all 15 assertions pass. [ ] Manual mobile-device smoke and browser testing of a generic arbitrary-AOI measurement bundle remain pending.
 - [ ] Independent labelled multi-event/non-event validation remains pending. `HAZARD_DETECTION_STATUS=NOT_EVALUATED`; operational warning remains `NOT_IMPLEMENTED`.
 - Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; no main edits or merges.
