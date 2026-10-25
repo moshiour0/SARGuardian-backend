@@ -22,3 +22,8 @@ Latest isolated CI [40237084749](https://github.com/moshiour0/SARGuardian-backen
 ## Responsive-browser QA rerender — 2026-10-26
 
 Re-render from the existing retained derived-only artifact from run #40232441596 using the responsive smoke-gate revision. In addition to the desktop assertions, test 360×800 and 390×844 mobile-emulated viewports, 768×1024 tablet, and 844×390 landscape. Each viewport must have no horizontal document/body overflow, a visible pair selector, a usable map size, and the 26 July–19 August pair available. Preserve mobile and tablet screenshots in the evidence ZIP. Recheck private Drive remote byte verification. This request is presentation QA only: no raw GOFF HDF5 download, no new measurement, no changes/merge to main, and no claim of physical-device verification.
+
+
+## Mobile intrinsic-width regression fix — 2026-10-26
+
+The first responsive browser smoke exposed a real small-screen overflow: at 360 px and 390 px emulated mobile widths, the acquisition-pair select imposed an intrinsic minimum width of 589 px, expanding the layout viewport to 618/619 CSS px. The tablet and landscape probes passed. The interactive map CSS now explicitly constrains controls and field grid items with `min-width:0` and `max-width:100%`; a regression test checks this contract. Re-run the same four-viewports smoke and retain screenshots. This remains presentation QA only; no new raw HDF5 access or measurement is allowed.

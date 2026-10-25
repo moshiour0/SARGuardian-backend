@@ -93,6 +93,14 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     assert target.is_file() and target.read_text(encoding="utf-8") == rendered
 
 
+def test_form_controls_are_constrained_to_the_mobile_panel_width():
+    rendered = build_interactive_map_html(sample_report())
+    assert ".controls{display:grid;gap:12px;align-content:start;min-width:0}" in rendered
+    assert ".field{display:grid;gap:5px;min-width:0}" in rendered
+    assert "select,input[type=range]{width:100%;min-width:0;max-width:100%}" in rendered
+    assert "@media(max-width:920px){main{padding:12px}.layout{grid-template-columns:1fr}#map{height:55vh;min-height:340px}}" in rendered
+
+
 def test_geometry_note_is_visible_escaped_and_absent_note_is_hidden():
     report = sample_report()
     report["request"]["aoi"]["geometry_note"] = "Published-bounds rectangle approximation; not the author vector. <script>alert(1)</script>"
