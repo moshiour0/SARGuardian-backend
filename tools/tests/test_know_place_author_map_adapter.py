@@ -136,7 +136,6 @@ def test_map_renderer_writes_a_five_pair_map_and_provenance(tmp_path: Path, monk
         return target
 
     monkeypatch.setattr(adapter, "write_interactive_map", fake_renderer)
-    assert adapter.main() == 0 if False else True
     # Exercise the CLI path without requiring a real command-line invocation.
     monkeypatch.setattr(
         "sys.argv",
