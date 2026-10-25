@@ -349,7 +349,8 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         short_names = [f"NISAR_L2_GOFF_{value}_V1" for value in requested_maturities]
         short_name_filter = short_names[0] if len(short_names) == 1 else short_names
         results = asf_search.search(
-            dataset="NISAR",
+            # `shortName` is the exact collection selector; omit the dataset alias,
+            # which also maps to shortName in this asf_search series.
             intersectsWith=request.aoi_wkt,
             start=f"{request.start_date.isoformat()}T00:00:00Z",
             end=f"{request.end_date.isoformat()}T23:59:59Z",

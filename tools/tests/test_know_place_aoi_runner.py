@@ -69,6 +69,7 @@ def test_asf_catalog_contract_preserves_exact_ids_and_query_evidence(monkeypatch
     assert manifest["query"]["start_utc"] == "2026-06-20T00:00:00Z"
     assert manifest["query"]["end_utc"] == "2026-07-14T23:59:59Z"
     assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
+    assert "dataset" not in calls
     assert "processingLevel" not in calls
     assert "dataMaturity" not in calls
     assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
@@ -99,6 +100,7 @@ def test_catalog_uses_singleton_maturity_filter_when_asf_omits_property(monkeypa
     products, manifest = discover_nisar_goff(request())
 
     assert calls["shortName"] == "NISAR_L2_GOFF_PROVISIONAL_V1"
+    assert "dataset" not in calls
     assert len(products) == 1
     assert products[0]["maturity"] == "PROVISIONAL"
     assert products[0]["maturity_evidence"] == "authoritative_asf_search_filter:shortName=NISAR_L2_GOFF_PROVISIONAL_V1"
