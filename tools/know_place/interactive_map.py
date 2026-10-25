@@ -126,6 +126,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
                 safe_preview = {
                     "values": [[_finite_number(value) for value in row] for row in values],
                     "bounds": _preview_bounds_wgs84(preview, pair.get("epsg")),
+                    "support_mask_label": str(preview.get("support_mask_label", ""))[:200],
                 }
         geotiff = pair.get("geotiff_file")
         geotiff_href = None
@@ -209,7 +210,7 @@ button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radi
 <div class="field"><label for="pair-select">Acquisition pair</label><select id="pair-select"></select></div>
 <div class="field"><label for="opacity">Displacement overlay opacity</label><input id="opacity" type="range" min="0" max="1" step="0.05" value="0.72"><span id="opacity-value" class="muted">72%</span></div>
 <label class="check"><input id="show-aoi" type="checkbox" checked> Show AOI boundary</label><button id="fit-aoi" type="button">Zoom to AOI</button>
-<div><h2>Magnitude preview</h2><div class="legendbar"></div><div id="raster-range" class="muted">No raster selected</div><p>Transparent pixels mean no preview value, not zero motion.</p></div>
+<div><h2>Magnitude preview</h2><div class="legendbar"></div><div id="raster-range" class="muted">No raster selected</div><p id="transparency-note">Transparent pixels mean no preview value, not zero motion.</p></div>
 <div><h2>Selected interval</h2><p id="pair-label">No pair selected</p><p id="pair-status" class="muted"></p><div class="status-grid">
 <div class="status"><small id="valid-pixels-label">Valid AOI pixels</small><strong id="valid-pixels">—</strong></div>
 <div class="status"><small>Median magnitude</small><strong id="median-magnitude">Unavailable</strong></div>
@@ -295,6 +296,8 @@ if (typeof L === "undefined") {
     const link=el("geotiff-link");
     if(pair.geotiff_href){link.href=pair.geotiff_href;link.classList.remove("hidden");}
     else{link.removeAttribute("href");link.classList.add("hidden");}
+    const transparencyNote=el("transparency-note");
+    transparencyNote.textContent=(pair.preview&&pair.preview.support_mask_label)||"Transparent pixels mean no preview value, not zero motion.";
     const image=imageData(pair.preview);
     if(image){
       rasterLayer=L.imageOverlay(image.url,pair.preview.bounds,{opacity:Number(el("opacity").value),interactive:false}).addTo(map);
