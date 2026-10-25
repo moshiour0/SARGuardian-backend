@@ -7,6 +7,7 @@ on:
     paths:
       - "tools/know_place/**"
       - "tools/tests/test_know_place_*.py"
+      - "tools/requirements-retention.txt"
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-retained-crown-audit.yml .github/workflows/know-place-displacement-null-audit.yml"
       - ".github/workflows/know-place-analysis-run.yml"
@@ -26,6 +27,7 @@ on:
     paths:
       - "tools/know_place/**"
       - "tools/tests/test_know_place_*.py"
+      - "tools/requirements-retention.txt"
       - ".github/workflows/know-place-analysis-validation.yml"
       - ".github/workflows/know-place-analysis-run.yml"
       - ".github/workflows/know-place-analysis-reanalysis.yml"
@@ -58,6 +60,34 @@ jobs:
         with:
           python-version: "3.13"
           check-latest: false
+
+      - name: Enforce one authoritative ASF client pin across dependency files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          def requirements(path):
+              lines = Path(path).read_text(encoding="utf-8").splitlines()
+              return [
+                  line.strip()
+                  for line in lines
+                  if line.strip() and not line.lstrip().startswith("#")
+              ]
+          runtime = requirements("tools/know_place/requirements.txt")
+          retention = requirements("tools/requirements-retention.txt")
+          pattern = re.compile(r"^asf[-_]search(?:\s*([<>=!~]+)\s*([^;\s]+))?", re.I)
+          runtime_pins = [line for line in runtime if pattern.match(line)]
+          retention_pins = [line for line in retention if pattern.match(line)]
+          if runtime_pins != ["asf_search==13.0.1"]:
+              raise SystemExit(f"ERROR=KNOW_PLACE_ASF_CLIENT_PIN_NOT_AUTHORITATIVE:{runtime_pins}")
+          if retention_pins:
+              raise SystemExit(f"ERROR=RETENTION_REQUIREMENTS_MUST_NOT_REPIN_ASF_CLIENT:{retention_pins}")
+          print("DEPENDENCY_ASF_CLIENT_SINGLE_PIN=PASS")
+          print("KNOW_PLACE_ASF_CLIENT=13.0.1")
+          print("RETENTION_ASF_CLIENT_PINS=0")
+          PY
 
       - name: Install test/runtime requirements
         run: python -m pip install --disable-pip-version-check numpy pytest h5py scipy pyproj pyyaml rasterio affine
