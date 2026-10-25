@@ -346,3 +346,4 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 - [ ] Run predeclared policy sensitivity over plausible compact-region and acceptance choices; do not tune to obtain published percentiles.
 - [ ] Recover author draw-level implementation/output if available; otherwise retain independent-method-derived label and paper status PARTIAL.
 - [ ] Verify exact crown source-grid mask and run a separate terrain vertical-datum sensitivity before proceeding to preregistered multi-site validation.
+- [ ] Test a separately declared alternate compact-region geometry (for example, disk versus square) and report percentile/acceptance sensitivity without selecting a best-match configuration.

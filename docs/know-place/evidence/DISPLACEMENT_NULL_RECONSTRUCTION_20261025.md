@@ -29,3 +29,21 @@ The computed crown medians round to the published crown values at two decimals. 
 Status: INDEPENDENT_METHOD_DERIVED_NOT_AUTHOR_SAMPLER_PARITY. Exact author-code parity remains unverifiable from the supplied archive. The 94.7th percentile is a published ranking against a null distribution, not a calibrated hazard probability or proof of early-warning capability.
 
 The next scientific iteration is a predeclared sensitivity matrix over plausible compact-region and acceptance choices, with no result-driven tuning. If further author source or draw-level output is found, compare it directly. Then verify the exact crown geometry/source-grid mask, and run a separately named vertical-datum sensitivity. Keep whole-paper status PARTIAL and hazard detection NOT_EVALUATED.
+
+## Sensitivity diagnostic (not a search for a matching answer)
+
+A 35-row grid varied minimum valid fraction across 0.4, 0.5, 0.6, 0.7, 0.8 at seed 20261025, and then tested seeds 20261026 and 20261027 at fraction 0.6. Candidate count stayed fixed at 1,200, region shape remained the default raster-index disk, and each setting was rerun across the five pairs with a new shared PCG64 stream. Full numerical results are archived in DISPLACEMENT_NULL_SENSITIVITY_20261025.csv.
+
+For the target pair 26 Jul–19 Aug:
+
+| Setting | Accepted draws | Null median (m) | Crown percentile |
+|---|---:|---:|---:|
+| fraction 0.4, seed 20261025 | 1,117 | 0.144 | 93.8 |
+| fraction 0.5, seed 20261025 | 1,022 | 0.145 | 93.3 |
+| fraction 0.6, seed 20261025 (default) | 835 | 0.144 | 92.2 |
+| fraction 0.7, seed 20261025 | 685 | 0.144 | 91.4 |
+| fraction 0.8, seed 20261025 | 443 | 0.127 | 92.6 |
+| fraction 0.6, seed 20261026 | 838 | 0.139 | 92.7 |
+| fraction 0.6, seed 20261027 | 846 | 0.137 | 93.5 |
+
+The target-pair percentile varies by 2.4 points across the tested acceptance fractions and by 1.3 points across the tested seeds. None of these runs reaches 94.7, and no setting was selected based on proximity to the published figure. This confirms the reconstructed ranking is policy-dependent. Region-shape sensitivity, author-source recovery, exact crown mask parity, and a fully specified independent-label validation remain outstanding.

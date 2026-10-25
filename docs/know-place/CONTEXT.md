@@ -459,3 +459,9 @@ All changes in this continuation are confined to `feat/know-place-analysis`. Bac
 - The full run report, including every draw and reject reason, is locally packaged for review. Its source TIFF hashes are recorded in the report and it was generated with zero raw-HDF5 reads.
 - Next: run a predeclared sensitivity matrix over plausible compact-region and acceptance choices, record variation rather than select the best-looking setting, and keep paper reproduction partial. Crown source-grid mask parity and vertical-datum sensitivity follow.
 - Main remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; no main edits or raw replay.
+
+### 32. 2026-10-25 — Displacement-null seed / acceptance sensitivity completed
+
+- A fixed, reported 35-row sensitivity matrix has been run over minimum valid fraction 0.4, 0.5, 0.6, 0.7, 0.8 at seed 20261025 and seeds 20261026/20261027 at the 0.6 default. Full rows: `docs/know-place/evidence/DISPLACEMENT_NULL_SENSITIVITY_20261025.csv`.
+- For the 26 Jul–19 Aug pair, the tested acceptance fractions yield 91.4–93.8 percentile; three seeds at 0.6 yield 92.2–93.5. That range shows sampling-policy dependence; no setting was selected to match the published 94.7.
+- Remaining sensitivity: alternate region geometry (disk vs another explicitly specified compact shape). The method-derived default remains unchanged. Paper status remains partial and hazard detection not evaluated.
