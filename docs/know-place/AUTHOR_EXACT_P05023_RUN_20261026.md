@@ -9,3 +9,5 @@
 **Required outputs:** Exact source granule identities and SHA-256 hashes for all five products; per-pair exploratory displacement metrics; raw quality/support counts; report and provenance; interactive dashboard/map if emitted by the author workflow; successful private Google Drive upload and remote receipt verification; raw-file cleanup only after those checks.
 
 **Claims boundary:** This run is exploratory measurement, not a calibrated landslide/glacier-collapse detector. Keep paper-reproduction status blocked unless the remaining exact-crown and method-parity gates are proven, and keep hazard detection `NOT_EVALUATED` unless an independent validation protocol is completed.
+
+**Execution note:** The first bridge attempt was fail-closed and performed no download because the reusable child saw the caller's push event. The consent bridge now passes a dedicated `bridge_authorized: true` input after verifying the commit marker and request-file path; the child workflow still independently requires the exact `[run-know-place]` token. This retrigger is for the same authorized P05023 run only.
