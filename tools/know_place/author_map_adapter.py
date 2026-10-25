@@ -287,7 +287,10 @@ def main() -> int:
             "paper_reproduction_status": report["paper_reproduction_status"],
             "hazard_detection_status": "NOT_EVALUATED",
             "request": {
-                "aoi": {"wkt": _read_json(args.artifact_root / "know-place-analysis-report.json")["run_scope"]["crown_wkt"]},
+                "aoi": {
+                    "wkt": _read_json(args.artifact_root / "know-place-analysis-report.json")["run_scope"]["crown_wkt"],
+                    "geometry_note": report["aoi_geometry_note"],
+                },
                 "date_range": {"start": "2026-06-20", "end": "2026-08-31"},
             },
             "pairs": report["pairs"],
