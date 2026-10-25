@@ -399,6 +399,15 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             raise AOIRunError("ASF_DOWNLOAD_HOST_UNTRUSTED", "Catalog returned no trusted HTTPS ASF download URL")
         identity = parse_granule_identity(name)
         maturity, maturity_evidence = _maturity(properties, trusted_urls, request.allowed_maturities)
+        if request.allowed_release_ids and identity.release_id not in request.allowed_release_ids:
+            all_rows.append({
+                "granule_name": name,
+                "release_id": identity.release_id,
+                "maturity": maturity,
+                "decision": "EXCLUDED_RELEASE_NOT_ALLOWED",
+                "allowed_release_ids": list(request.allowed_release_ids),
+            })
+            continue
         raw_pol = str(
             properties.get("mainBandPolarization")
             or properties.get("polarization")
@@ -461,6 +470,7 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             "main_band_polarization": request.polarization,
             "polarization_evidence_policy": "query filter is recorded; exact HDF5 polarization group must be validated before measurement",
             "allowed_maturities": list(request.allowed_maturities),
+            "allowed_release_ids": list(request.allowed_release_ids),
             "short_name_filter": [f"NISAR_L2_GOFF_{value}_V1" for value in request.allowed_maturities],
             "maturity_evidence_policy": "returned metadata or trusted collection path; when omitted, singleton exact GOFF collection shortName filter; multi-maturity unresolved results fail closed",
         },
@@ -867,6 +877,7 @@ def run_aoi_analysis(
         catalog_manifest["selected_count"] = len(selected_names)
         catalog_manifest["selection_policy"] = {
             "preferred_granules": list(request.preferred_granules),
+            "allowed_release_ids": list(request.allowed_release_ids),
             "selected_granule_names": sorted(selected_names),
             "unselected_candidates": "recorded but never silently substituted",
             "series_plan_schema": plan["schema_version"],

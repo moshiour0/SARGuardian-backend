@@ -35,7 +35,7 @@ PAIR_NAMES = [
     "NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001.h5",
 ]
 
-def request():
+def request(allowed_release_ids=()):
     return validate_aoi_request({
         "schema_version": REQUEST_SCHEMA,
         "aoi": {"type": "Polygon", "wkt": "POLYGON ((85.52 28.28, 85.54 28.28, 85.54 28.30, 85.52 28.30, 85.52 28.28))", "crs": "EPSG:4326"},
@@ -43,7 +43,7 @@ def request():
         "hazard_mode": "landslide",
         "analysis_mode": "retrospective_validation",
         "source_adapters": ["NISAR_GOFF"],
-        "product_selection": {"allowed_maturities": ["PROVISIONAL"]},
+        "product_selection": {"allowed_maturities": ["PROVISIONAL"], "allowed_release_ids": list(allowed_release_ids)},
     })
 
 def product(name, *, maturity="PROVISIONAL", polarization="HH", bytes_size=101):
@@ -109,6 +109,24 @@ def test_catalog_excludes_unexpected_product_type_without_aborting(monkeypatch):
     assert manifest["result_count"] == 1
     assert manifest["candidates"][0]["decision"] == "EXCLUDED_PRODUCT_TYPE_MISMATCH"
     assert manifest["candidates"][0]["expected_product_type"] == "NISAR_L2_PR_GOFF"
+
+def test_explicit_release_allowlist_excludes_other_release_variants(monkeypatch):
+    historical = PAIR_NAMES[0]
+    preferred = historical.replace("_X05026_", "_P05023_")
+    products_from_catalog = [product(historical), product(preferred)]
+    fake = SimpleNamespace(
+        ASFSearchOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+        search=lambda **kwargs: products_from_catalog,
+    )
+    monkeypatch.setitem(sys.modules, "asf_search", fake)
+
+    products, manifest = discover_nisar_goff(request(["P05023"]))
+
+    assert [item["granule_name"] for item in products] == [preferred]
+    excluded = next(row for row in manifest["candidates"] if row["granule_name"] == historical)
+    assert excluded["decision"] == "EXCLUDED_RELEASE_NOT_ALLOWED"
+    assert excluded["release_id"] == "X05026"
+    assert manifest["query"]["allowed_release_ids"] == ["P05023"]
 
 def test_catalog_maturity_allowlist_excludes_unselected_variants(monkeypatch):
     fake = SimpleNamespace(
