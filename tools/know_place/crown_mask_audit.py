@@ -170,7 +170,7 @@ def audit_crown_masks(run_artifact: str | Path, author_archive: str | Path) -> d
                 raise CrownMaskAuditError(f"PUBLISHED_INTERVAL_MISMATCH:{prefix}")
             if int(series[i].get("n",-1))!=want_disp or int(nulls[i].get("n_px",-1))!=want_r:
                 raise CrownMaskAuditError(f"PUBLISHED_COUNT_FIXTURE_MISMATCH:{prefix}")
-            pm=nc==nd==323 and sx==sc==dg==cross==0
+            pm=nc==nd==EXPECTED_CROWN_CELLS and sx==sc==dg==cross==0
             pc=disp==want_disp==int(series[i]["n"]) and rc==want_r==int(nulls[i]["n_px"])
             sh,dh=_mask_hash(sm),_mask_hash(dm); common.add(sh)
             rows.append({"interval":interval,"site_cells":nc,"diagnostic_cells":nd,"site_mask_sha256":sh,
