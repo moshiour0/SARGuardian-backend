@@ -21,6 +21,7 @@ from tools.know_place.author_raw_site_series import (
 )
 from tools.know_place.author_parity import (
     AuthorParityError, author_crown_slice, author_local_mean_reference_statistics, author_north_up,
+    author_wide_window_slices,
 )
 from tools.know_place.footprint_screen import local_nanmean, residual_directional_coherence
 
