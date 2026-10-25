@@ -193,3 +193,33 @@ The result also records `motion_dynamics` features. Changes in mean-vector rate 
 - Constant HAE is still an approximation, not DEM-derived per-pixel terrain height. Operational monitoring remains blocked until terrain-dependent geometry and independent validation are implemented and tested.
 
 For event-level thresholds and a separate multi-event holdout strategy see [MULTI_EVENT_VALIDATION_PLAN.md](know-place/validation/MULTI_EVENT_VALIDATION_PLAN.md). Current author-supplement and method-parity blockers are documented in [AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md](know-place/evidence/AUTHOR_SUPPLEMENT_RETRIEVAL_AUDIT_20261024.md) and the later [Zenodo archive/method audit](know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md).
+
+
+## Latest author-exact result and dashboard path — 25 October 2026
+
+### Current evidence (not a complete-paper claim)
+
+Source run: [SARGuardian AOI WKT E2E, Run #17](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40170290176), backend revision `417cc2f0156bb310f933b72edb9ecd359812f623`.
+
+Five exact author P05023 GOFF pairs were downloaded, hash-verified and grid-validated; selected site-series archive comparisons passed 65/65, P2/local-mean comparisons passed 15/15, and the full-footprint comparison matched 3/3 aggregate rasters, 106 candidate rows and 101 validated Table S7 rows. Derived-only Drive retention and post-delete cleanup receipts passed.
+
+The scientific claim remains `PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED`. Hazard detection is `NOT_EVALUATED`. The generic AOI/date engine was skipped by this author-exact run.
+
+### Render the current result without re-downloading raw NISAR data
+
+1. In GitHub Actions, select the branch `feat/know-place-analysis`.
+2. Select workflow **Know Place Analysis - render dashboard from retained evidence**.
+3. Use source run ID `40170290176` and source attempt `1`.
+4. The workflow verifies the source artifact's published SHA-256 digest and ZIP integrity, rejects HDF5 members, extracts only the derived result bundle, and runs `tools/know_place/author_dashboard.py`.
+5. It uploads `dashboard.html` and `dashboard-run-manifest.json` to private Google Drive and verifies both the upload receipt and the receipt copy. It also publishes an Actions artifact for quick retrieval.
+
+This workflow does not authenticate to Earthdata or download raw GOFF. It is a dashboard-rendering E2E, not a replay of the scientific processing. Its own CI/actionlint run must be green before dispatch. In a future explicitly authorized author-exact replay, the replay workflow also generates the dashboard and the final gate requires it.
+
+### Dashboard interpretation and unresolved work
+
+Use the author-compatible raw site-series CSV for the main 26 July–19 August value (median displacement about 0.965 m over a 24-day interval; interval-average rate about 4.02 cm/day). Do not substitute the exploratory report's different R estimate or mean statistics for P1/P2. P1 and P2 are distinct estimators; the polygon-null percentile is not the paper's size-matched displacement-null test.
+
+The dashboard keeps publisher-linked optical images separate from NISAR-derived scientific maps. The crown boundary in previews is still a rectangular approximation, not a verified editable source polygon. The source-method terrain path does not apply a vertical datum correction. Full-paper reproduction is partial until displacement-null and geometry/method parity are resolved. Hazard-detection metrics require a separate held-out multi-event/non-event validation design.
+
+Main remains untouched at `2218dfeb73353080d8d94bd733d9e7bd9a848886`.
+

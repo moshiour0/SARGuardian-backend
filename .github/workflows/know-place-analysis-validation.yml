@@ -14,6 +14,7 @@ on:
       - ".github/workflows/know-place-dem-source-acquisition.yml"
       - ".github/workflows/know-place-terrain-datum-sensitivity.yml"
       - ".github/workflows/know-place-author-exact-replay.yml"
+      - ".github/workflows/know-place-author-dashboard.yml"
       - ".github/workflows/sarguardian-aoi-wkt-dispatcher.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   pull_request:
@@ -27,6 +28,7 @@ on:
       - ".github/workflows/know-place-analysis-reanalysis.yml"
       - ".github/workflows/know-place-aoi-analysis.yml"
       - ".github/workflows/know-place-author-exact-replay.yml"
+      - ".github/workflows/know-place-author-dashboard.yml"
       - ".github/workflows/sarguardian-aoi-wkt-dispatcher.yml"
       - "docs/KNOW_PLACE_ANALYSIS_*.md"
   workflow_dispatch:

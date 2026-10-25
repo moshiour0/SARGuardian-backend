@@ -373,3 +373,40 @@ Failed run [40107037642](https://github.com/moshiour0/SARGuardian-backend/action
 - These archive-only checks prove derived-field post-processing reproducibility, not raw HDF5-to-field parity or full-footprint screen parity. The five exact P05023 input files were previously downloaded and hash-pinned in run 40114703362, but the newly added author-compatible raw runner has not yet been exercised against them in a fresh run.
 - Validation of the author-compatible runner and integration at run 40126196592: 229 tests passed; all eight workflow YAMLs and the dispatcher parsed; pinned actionlint passed; live ASF/CMR found exact author links 5/5, with raw downloads = 0. Subsequent edits after this validation are documentation-only; raw workflow gates have also skipped acquisition as expected.
 - Next gate: an explicitly consented author-exact workflow run must actually process the five P05023 HDF5 files through both profiles, then compare 65 archived Table S4 metrics. Do not infer consent from a continuation request. Full footprint screen parity, terrain vertical-datum sensitivity, and hazard-detection skill remain unverified; main baseline is still 2218dfeb73353080d8d94bd733d9e7bd9a848886.
+
+
+## 27. 2026-10-25 — Run #17 source of truth, author dashboard, and safe render path
+
+This section supersedes earlier status descriptions where the five exact author P05023 products were still described as unavailable. It does not erase the historical notes: previous X05026 observations remain historical-only, not author-exact inputs.
+
+### Verified scientific result (run 40170290176, workflow run number 17)
+
+- Source workflow: [SARGuardian AOI WKT E2E, Run #17](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40170290176), on `feat/know-place-analysis` at backend commit `417cc2f0156bb310f933b72edb9ecd359812f623`.
+- Exact product identity: five author-selected NISAR L2 PR GOFF P05023, ascending T098, L-SAR HH, layer 2, 20 June–31 August 2026. All five payload SHA-256 values are in `author-exact-source-manifest.json`; HDF5 identity, byte count, grid shape and EPSG were validated.
+- Site series: selected author-table checks 65/65 at archive rounding. P2/local-mean checks 15/15 at archive rounding.
+- Full-footprint screen: three aggregate raster comparisons passed; the 106-row candidate inventory and 101-row Table S7 validated-zone table matched the archive.
+- Retention: a derived-only result bundle and its receipts were uploaded and remotely verified in private Google Drive; five raw HDF5 files were deleted after the cleanup gate, and the post-delete receipt was remotely verified.
+- Final scientific status remains `PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED`; `hazard_detection_status=NOT_EVALUATED`. Do not turn processing success into a complete-paper or hazard-detection claim.
+- The arbitrary AOI/date measurement-engine job was skipped in Run #17 because its selected profile was the exact-author replay. This run therefore does not prove the generic AOI/date path or a website-to-dashboard product integration.
+
+### Dashboard implementation
+
+- New renderer: `tools/know_place/author_dashboard.py`. It consumes the author-exact derived result directory, not raw files. It draws embedded PNG previews from the saved author-compatible site arrays and the three footprint GeoTIFFs, and presents the five-interval displacement table, exact source hashes, P1/P2 comparisons, the author-table parity counts, the unresolved displacement-null status, and a Bengali plain-language explanation.
+- Optical satellite images from The Business Standard and Geopera are linked to their publishers and explicitly labelled contextual; they are not registered to the crown mask and are not used in the displacement calculation. NISAR scientific maps are generated only from saved derived arrays/rasters. The rectangular crown outline remains an approximation, not an author-supplied editable polygon.
+- New tests: `tools/tests/test_know_place_author_dashboard.py`; the isolated validation suite includes the dashboard module and tests. Validation run [#407](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40174209941) passed 255 tests and actionlint before the safe retained-artifact renderer was added.
+- The author-exact replay workflow now has a dashboard-generation step and the final gate requires `dashboard.html`. This will be exercised only on a future explicitly authorized raw replay; that replay has not been run as part of this documentation/code change.
+- New safe renderer workflow: `.github/workflows/know-place-author-dashboard.yml`. It takes an existing source Run ID/attempt, verifies the GitHub artifact digest and both ZIP integrity levels, rejects any HDF5 member, renders the HTML from the retained derived-only bundle, then uploads the HTML/manifest to Drive with remote receipts and publishes a short-lived Actions artifact. Default source is Run ID `40170290176`, attempt `1`. It downloads no NISAR raw payloads. Before using it, require its dedicated branch-validation run to pass; a green run from an older commit does not validate a new workflow definition.
+- The safe renderer is intended to avoid a redundant five-product raw replay merely to render the current dashboard. The new dashboard workflow has not yet been manually dispatched; Drive receipt and artifact output from that workflow are therefore still pending.
+
+### Next scientific acceptance gates
+
+1. Render the existing Run #17 bundle using the safe dashboard workflow, then inspect the standalone HTML, image provenance, mobile layout, and Drive upload receipts. No raw replay is needed for this step.
+2. Investigate the missing displacement-null draw-level generator / author sampling implementation. Until that comparison is reproduced, keep the paper reproduction status partial; never substitute the polygon-null percentile for the displacement-null result.
+3. Obtain and verify the exact author crown vector or mask and quantify source-grid pixel-mask parity.
+4. Keep the source-faithful EGM2008-versus-ellipsoidal-height behaviour explicitly disclosed. Any datum correction is a separate, named sensitivity experiment with its own manifest and comparison—not a silent edit to the author method.
+5. Continue the six-site / event and non-event validation plan with frozen event-level splits, exact product identities, independent labels, held-out thresholds, and false-alarm / lead-time metrics. Only after this can detection or early-warning performance be evaluated.
+
+### Branch safety
+
+All changes in this continuation are confined to `feat/know-place-analysis`. Backend `main` remains `2218dfeb73353080d8d94bd733d9e7bd9a848886`; do not merge, cherry-pick, or edit main until the dashboard-bearing E2E gate and a separately reviewed scientific acceptance gate pass. No new raw NISAR downloads were authorized or performed in this continuation.
+

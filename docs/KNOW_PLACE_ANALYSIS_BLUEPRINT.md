@@ -197,3 +197,21 @@ The isolated validation workflow passed 46 tests, parsed all three feature workf
 ## Archive recovery update — 2026-10-24
 
 The user supplied the Zenodo README and main CC BY 4.0 ZIP. Byte integrity and in-ZIP manifest-listed payloads passed verification; exact archive hashes, five processed fields, author-source method differences, README/GeoTIFF profile inconsistency, and remaining raw-source/full-footprint blockers are recorded in [the Zenodo audit](know-place/evidence/ZENODO_AUTHOR_ARCHIVE_AUDIT_20261024.md). Archive retrieval is no longer a blocker; implementation parity and exact raw GOFF bytes are.
+
+
+## Current execution gate — author-exact reproduction to evidence dashboard (2026-10-25)
+
+The near-term deliverable is an inspectable dashboard built from the already-retained Run #17 derived bundle, not another raw-data download. Keep the pipeline split into three claims:
+
+1. **Operational integrity:** exact product IDs, maturity, byte/hash checks, grid identity, source manifests, derived bundle, Drive remote verification and post-cleanup receipt.
+2. **Paper-method reproduction:** selected author P1 and P2 table fields, full-footprint aggregate rasters, candidate inventory and Table S7 comparison. Current Run #17 passed these selected gates, while the displacement-null draw-level implementation remains missing; the overall paper status is therefore partial.
+3. **Hazard/early-warning performance:** not implemented/evaluated yet. This requires event-level labelled cases and non-event controls, preregistered held-out splits, frozen thresholds, independent reference evidence, and measured detection/false-alarm/lead-time performance.
+
+The author-specific renderer (`tools/know_place/author_dashboard.py`) reads the verified derived result package and embeds scientific previews from saved NPZ/GeoTIFF outputs. Optical imagery is linked to publishers as contextual evidence only. It must not be described as a NISAR-derived raster, a georeferenced crown validation layer, or a hazard alarm.
+
+A safe retained-artifact workflow (`.github/workflows/know-place-author-dashboard.yml`) renders the source Run #17 artifact without acquiring new raw GOFF, verifies the artifact digest and nested ZIPs, prohibits HDF5 files, and uploads the dashboard + manifest to Drive with remote receipts. The author-exact raw workflow also includes dashboard creation as a required final gate for future explicitly authorized replays.
+
+**Acceptance criterion:** one safe render run must end with a downloadable dashboard artifact and verifiable Drive receipt; the dashboard must correctly show the author-compatible 0.965 m / 4.02 cm/day 24-day pair, selected site/P2/footprint comparisons, exact source hashes, contextual-image attribution, and the explicit partial-paper / not-evaluated-hazard statuses. This accepts the dashboard as a reproduction viewer only, not a validated predictor.
+
+No main-branch changes or merges are permitted until a separately reviewed, dashboard-bearing E2E and scientific acceptance gate pass.
+

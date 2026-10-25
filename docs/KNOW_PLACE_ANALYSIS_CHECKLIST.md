@@ -294,3 +294,21 @@ Current scientific status: `PAPER_REPRODUCTION_STATUS=PARTIAL_AUTHOR_SITE_SERIES
 
 - [x] Split comparison status into `PASS`, definitive `MISMATCH`, and `INCOMPLETE`. Missing processing outputs or missing/partial comparison sets no longer get mislabeled as a scientific parity mismatch.
 - [x] Added synthetic regression tests for absent footprint outputs and incomplete site comparison reports. Actual source replay remains a separate consent-gated validation; no raw payloads were downloaded for this code change.
+
+
+## Dashboard-bearing reproduction milestone — 2026-10-25
+
+- [x] Add an author-exact dashboard renderer fed by the retained derived Run #17 bundle, with embedded scientific previews and publisher-attributed optical context images.
+- [x] Keep author P1 and P2 values separate; show the selected archive comparison counts, exact source SHA-256 values, crown-geometry caveat, datum caveat, and unresolved displacement-null status.
+- [x] Add regression tests for the standalone HTML, five embedded PNG previews, run/source provenance, status labels, and Bengali plain-language explanation.
+- [x] Include the dashboard renderer and tests in the isolated validation workflow.
+- [x] Add dashboard generation to the author-exact replay workflow and require a successful dashboard output in the final scientific/retention gate.
+- [x] Add a safe, separate workflow that renders from a prior retained Actions artifact without downloading raw NISAR payloads; add it to YAML/actionlint checks and path filters.
+- [ ] Run the dedicated safe renderer workflow on source run ID `40170290176`, attempt `1`; verify the artifact digest, dashboard output, Drive upload receipt and receipt-copy verification. This is a no-raw-download task.
+- [ ] Inspect the rendered dashboard on mobile and desktop, especially satellite-image attribution, source/map distinctions, status badges, accessibility and complete source provenance.
+- [ ] Reproduce the displacement-null draw-level calculation; until it is available and verified, keep the paper status partial.
+- [ ] Verify exact crown geometry and source-grid mask parity.
+- [ ] Run separately labelled vertical-datum sensitivity analysis; do not silently change source-faithful geometry.
+- [ ] Complete preregistered multi-event and non-event validation before estimating detection skill, false alarms, or lead time.
+- [ ] Do not merge to or edit `main` until the dashboard-bearing E2E and scientific acceptance gates are independently reviewed.
+
