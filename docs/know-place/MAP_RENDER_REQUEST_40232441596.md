@@ -27,3 +27,8 @@ Re-render from the existing retained derived-only artifact from run #40232441596
 ## Mobile intrinsic-width regression fix — 2026-10-26
 
 The first responsive browser smoke exposed a real small-screen overflow: at 360 px and 390 px emulated mobile widths, the acquisition-pair select imposed an intrinsic minimum width of 589 px, expanding the layout viewport to 618/619 CSS px. The tablet and landscape probes passed. The interactive map CSS now explicitly constrains controls and field grid items with `min-width:0` and `max-width:100%`; a regression test checks this contract. Re-run the same four-viewports smoke and retain screenshots. This remains presentation QA only; no new raw HDF5 access or measurement is allowed.
+
+
+## Second mobile layout correction — 2026-10-26
+
+The next browser run confirmed the 360 px / 390 px overflow persisted despite input-level max-width: the grid/container intrinsic sizing still allowed a 589 px controls column. Constrain the outer map grid and panel, explicitly set the controls/field width to 100%, and use `minmax(0,1fr)` for the narrow-screen grid track. The viewport smoke report should additionally retain the measured grid/control widths to make any remaining failure diagnosable. No raw input download or measurement rerun.
