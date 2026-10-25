@@ -13,3 +13,7 @@ The map is a presentation layer: its preview is downsampled/warped and must not 
 ## Re-render after verified display refinements — 2026-10-26
 
 Use the latest validated map renderer from the feature branch. Check visible label "Valid crown-mask pixels", readable partial paper-reproduction status, null high-motion count shown as an em dash, source grid terminology, crown-rectangle approximation note, and no native-grid GeoTIFF link unless a real file exists. Reuse source run #40232441596, attempt 1. No raw HDF5 download or measurement rerun.
+
+## Crown-mask overlay correction rerender — 2026-10-26
+
+Latest isolated CI [40237084749](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40237084749) passed after changing the author-map preview so valid surrounding-scene pixels outside the crown mask are transparent. Render the exact same retained measurement artifact #40232441596 and require the browser smoke to confirm the visible transparency note says the preview is crown-mask only. No raw HDF5 downloads or measurement rerun.
