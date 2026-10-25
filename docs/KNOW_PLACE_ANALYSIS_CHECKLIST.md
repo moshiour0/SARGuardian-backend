@@ -399,3 +399,16 @@ Evidence: docs/know-place/evidence/MULTISITE_REFERENCE_GEOMETRY_AUDIT_20261025.m
 - [ ] Hazard-labelled independent test set and out-of-sample event-detection metrics: pending; keep `HAZARD_DETECTION_STATUS=NOT_EVALUATED`.
 
 **Finishing rule:** engineering closure means deterministic artifacts, source/receipt integrity gates, passing CI and documented blockers. It does **not** mean scientific reproduction or hazard-detector validation until those remaining gates have their own independent evidence. See `docs/know-place/evidence/SOURCE_PROVENANCE_GATE_20261025.md`.
+
+
+## Latest real retained-artifact audit — 2026-10-25
+
+- [x] Added `.github/workflows/know-place-retained-crown-audit.yml` to retrieve and audit the existing derived-only Run #17 artifact; its CI job downloads no raw HDF5. The workflow verifies the frozen 183,389,034-byte, SHA-256-pinned Zenodo archive, re-packs the retained Run #17 files only to run the existing ZIP auditor, and preserves a JSON report.
+- [x] Real retained-artifact audit [Run #40200875570](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40200875570): **PASS**, 5/5 intervals, all four mask-XOR comparisons zero, valid displacement counts and coherence counts match the two respective published fields for all five pairs, and raw HDF5 members are 0 in both outer and nested archives. Machine-readable output is retained as artifact `know-place-real-retained-crown-audit` (ID `12601033322`).
+- [x] The paper's published crown rectangle has computed WGS84 geodesic area 2.072644 km² and EPSG:32645 planar area 2.072046 km²; both round to its stated 2.07 km². This supports the published-bounds rectangle interpretation but does not claim original author-vector/golden-mask identity.
+- [x] Validation [Run #40200875500](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40200875500): **276 tests passed in 2.69 s**, ten workflow YAML files plus branch dispatcher parsed, actionlint v1.7.12 checksum/semantic checks passed, and live ASF/CMR metadata-only identity gates passed.
+- [x] Raw replay gate [Run #40200875484](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40200875484) skipped the five-pair analysis job; no raw GOFF payloads downloaded.
+- [ ] Exact displacement-null generator/sampling-policy parity and independently verified author golden mask/vector remain unresolved; full-footprint numeric replay still requires explicit `[run-know-place]` authorization.
+- [ ] Paper reproduction remains **PARTIAL**; hazard detection remains `NOT_EVALUATED`. `main` remains unchanged.
+
+See `docs/know-place/evidence/RETAINED_RUN17_CROWN_AUDIT_20261025.md` for the actual artifact hashes and all five per-pair outcomes.

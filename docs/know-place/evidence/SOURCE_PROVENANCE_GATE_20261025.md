@@ -37,3 +37,11 @@ The matching consent gate [run 40199956018](https://github.com/moshiour0/SARGuar
 - Hazard detection: **NOT_EVALUATED**.
 - Repository `main` remains at `2218dfeb73353080d8d94bd733d9e7bd9a848886`; no merge or write to main.
 
+
+
+## Real retained-artifact verification — 2026-10-25
+
+- Actual retrospective audit [Run #40200875570](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40200875570) completed **PASS** against the real Run #17 artifact plus the author archive with frozen byte count/SHA-256. The five product rows, source-manifest hash, five deletion-receipt rows and retention conditions are consistent.
+- The derived-only artifact contains 0 raw HDF5 members in both outer and nested bundles. The audit's five-pair grid/mask checks and matching displacement/coherence counts passed. It did not re-read or re-hash deleted raw HDF5 bytes.
+- Full report: `docs/know-place/evidence/RETAINED_RUN17_CROWN_AUDIT_20261025.md`; JSON output is stored as workflow artifact `know-place-real-retained-crown-audit` (ID 12601033322).
+- Paper reproduction remains partial, the original editable author-vector/golden-mask match remains unverified, displacement-null sampler parity remains unverified, and hazard detection remains `NOT_EVALUATED`.
