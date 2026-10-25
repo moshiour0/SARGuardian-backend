@@ -61,6 +61,27 @@ def _disk(shape: tuple[int, int], row: int, col: int, radius: float) -> np.ndarr
     return (rows - row) ** 2 + (cols - col) ** 2 <= radius * radius
 
 
+def _region_mask(shape: tuple[int, int], row: int, col: int, target_n: int, region_shape: str) -> np.ndarray:
+    """Build an explicit compact region with approximately target_n cells of area."""
+    if region_shape == "disk":
+        return _disk(shape, row, col, math.sqrt(target_n / math.pi))
+    if region_shape == "square":
+        side = max(1, int(round(math.sqrt(target_n))))
+        r0, c0 = row - side // 2, col - side // 2
+        r1, c1 = r0 + side, c0 + side
+        result = np.zeros(shape, dtype=bool)
+        rr0, cc0 = max(0, r0), max(0, c0)
+        rr1, cc1 = min(shape[0], r1), min(shape[1], c1)
+        if rr0 < rr1 and cc0 < cc1:
+            result[rr0:rr1, cc0:cc1] = True
+        return result
+    if region_shape == "diamond":
+        rows, cols = np.ogrid[:shape[0], :shape[1]]
+        radius = math.sqrt(target_n / 2.0)
+        return np.abs(rows - row) + np.abs(cols - col) <= radius
+    raise DisplacementNullError("DISPLACEMENT_NULL_REGION_SHAPE_INVALID")
+
+
 def displacement_null_for_pair(
     east_m: Any,
     north_m: Any,
@@ -70,6 +91,7 @@ def displacement_null_for_pair(
     *,
     candidate_centres: int = DEFAULT_CANDIDATE_CENTRES,
     minimum_valid_fraction: float = DEFAULT_MIN_VALID_FRACTION,
+    region_shape: str = "disk",
     pair: str = "unspecified",
     include_draws: bool = True,
 ) -> dict[str, Any]:
@@ -88,6 +110,8 @@ def displacement_null_for_pair(
         raise DisplacementNullError("DISPLACEMENT_NULL_CANDIDATE_CENTRES_INVALID")
     if not math.isfinite(float(minimum_valid_fraction)) or not 0 < float(minimum_valid_fraction) <= 1:
         raise DisplacementNullError("DISPLACEMENT_NULL_VALID_FRACTION_INVALID")
+    if region_shape not in {"disk", "square", "diamond"}:
+        raise DisplacementNullError("DISPLACEMENT_NULL_REGION_SHAPE_INVALID")
 
     crown = _mask(crown_mask, east.shape, "crown")
     analysis = _mask(analysis_mask, east.shape, "analysis")
@@ -104,13 +128,12 @@ def displacement_null_for_pair(
         raise DisplacementNullError("DISPLACEMENT_NULL_NO_VALID_CENTRE_CANDIDATES")
 
     selected = rng.choice(ys.size, size=min(candidate_centres, int(ys.size)), replace=False)
-    radius = math.sqrt(target_n / math.pi)
     required_n = int(math.ceil(minimum_valid_fraction * target_n))
     accepted_values: list[float] = []
     diagnostics: list[dict[str, Any]] = []
     for draw_index, selected_index in enumerate(selected):
         row, col = int(ys[int(selected_index)]), int(xs[int(selected_index)])
-        sample_mask = _disk(east.shape, row, col, radius) & valid
+        sample_mask = _region_mask(east.shape, row, col, target_n, region_shape) & valid
         valid_n = int(sample_mask.sum())
         if valid_n < required_n:
             diagnostics.append({
@@ -143,7 +166,8 @@ def displacement_null_for_pair(
         "rejected_draws": int(len(selected) - values.size),
         "minimum_valid_fraction": float(minimum_valid_fraction),
         "minimum_valid_cells_per_region": required_n,
-        "region_shape": "raster-index disk; radius=sqrt(crown valid-pixel count/pi)",
+        "region_shape": region_shape,
+        "region_area_policy": "disk area ~= n; square side=round(sqrt(n)); diamond L1 radius=sqrt(n/2)",
         "centre_population": "finite east/north displacement cells inside analysis mask",
         "centre_sampling": "uniform without replacement from valid cell centres",
         "rank_definition": "100 * mean(null draw median < observed crown median); ties count as not below",
@@ -208,6 +232,7 @@ def run_archive_fields(
     seed: int = DEFAULT_SEED,
     candidate_centres: int = DEFAULT_CANDIDATE_CENTRES,
     minimum_valid_fraction: float = DEFAULT_MIN_VALID_FRACTION,
+    region_shape: str = "disk",
 ) -> dict[str, Any]:
     """Run on the five processed-field GeoTIFFs; never downloads or opens HDF5."""
     try:
@@ -246,6 +271,7 @@ def run_archive_fields(
             east, north, crown_mask, analysis_mask, rng,
             candidate_centres=candidate_centres,
             minimum_valid_fraction=minimum_valid_fraction,
+            region_shape=region_shape,
             pair=pair,
             include_draws=True,
         )
@@ -282,7 +308,8 @@ def run_archive_fields(
             "candidate_centres_per_pair_max": candidate_centres,
             "candidate_centres_sampled_without_replacement": True,
             "minimum_valid_fraction": minimum_valid_fraction,
-            "region_shape": "raster-index disk; radius=sqrt(crown valid displacement-pixel count/pi)",
+            "region_shape": region_shape,
+            "region_area_policy": "disk area ~= n; square side=round(sqrt(n)); diamond L1 radius=sqrt(n/2)",
             "geometry": "inclusive WGS84 bounding-box masks tested against processed-grid cell centres",
             "rank_ties": "ties do not count as below the observed crown statistic",
             "unrecovered_author_choices": [
@@ -323,11 +350,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--candidate-centres", type=int, default=DEFAULT_CANDIDATE_CENTRES)
     parser.add_argument("--minimum-valid-fraction", type=float, default=DEFAULT_MIN_VALID_FRACTION)
+    parser.add_argument("--region-shape", choices=("disk", "square", "diamond"), default="disk")
     args = parser.parse_args()
     result = run_archive_fields(
         args.fields_dir, args.output, seed=args.seed,
         candidate_centres=args.candidate_centres,
         minimum_valid_fraction=args.minimum_valid_fraction,
+        region_shape=args.region_shape,
     )
     print("DISPLACEMENT_NULL_STATUS=" + result["overall_status"])
     print("PAIR_COUNT=" + str(len(result["pairs"])))
