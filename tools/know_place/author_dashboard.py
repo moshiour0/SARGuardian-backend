@@ -211,7 +211,7 @@ def outline_polygon(image: np.ndarray, points: list[tuple[float, float]], transf
         pixels = []
         for lon, lat in points:
             x, y = converter.transform(lon, lat)
-            col, row = (~transform) * (x, y)
+            col, row = (~transform) @ (x, y)
             pixels.append((int(col / raster_width * image.shape[1]), int(row / raster_height * image.shape[0])))
         for first, second in zip(pixels[:-1], pixels[1:]):
             draw_line(image, *first, *second, (65, 215, 165), 2)
@@ -219,7 +219,7 @@ def outline_polygon(image: np.ndarray, points: list[tuple[float, float]], transf
         crown_pixels = []
         for lon, lat in wkt_ring(CROWN_BOX_WKT):
             x, y = converter.transform(lon, lat)
-            col, row = (~transform) * (x, y)
+            col, row = (~transform) @ (x, y)
             crown_pixels.append((int(col / raster_width * image.shape[1]), int(row / raster_height * image.shape[0])))
         for first, second in zip(crown_pixels[:-1], crown_pixels[1:]):
             draw_line(image, *first, *second, (255, 241, 118), 2)
