@@ -329,7 +329,7 @@ jobs:
           {
             echo "## Author-exact evidence dashboard"
             echo
-            echo "Generated `dashboard.html` from the run's saved site-series arrays and footprint GeoTIFFs."
+            echo "Generated dashboard.html from the run's saved site-series arrays and footprint GeoTIFFs."
             echo "The HTML embeds the scientific previews; external satellite-context images are linked to their publishers."
             echo "Paper reproduction remains partial while displacement-null and exact crown-geometry/method parity are unresolved."
             echo "Hazard detection remains NOT_EVALUATED."
