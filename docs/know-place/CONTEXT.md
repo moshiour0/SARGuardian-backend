@@ -1,6 +1,7 @@
 # Know Place Analysis — Living Context (read first)
 
 **Last reviewed:** 2026-10-26  
+**Explicit raw-replay authorization:** On 2026-10-26, the user explicitly authorized one Bhote Koshi five-pair replay using the exact author `P05023` release and supplied `[run-know-place]`. Scope is limited to `feat/know-place-analysis`: download the required exact raw GOFF inputs, compute the exploratory displacement metrics, and use the workflow's existing private Drive retention/verification path. This is not authorization to edit or merge `main`. The new execution remains unverified until its run logs and outputs are inspected.
 **Repository:** [moshiour0/SARGuardian-backend](https://github.com/moshiour0/SARGuardian-backend)  
 **Working branch:** feat/know-place-analysis  
 **Latest CI-validated code/test/workflow baseline:** `a5fa40ad51a8fa46d70b57430940586b38c52179` (validation run [40228894456](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40228894456): 294 tests passed; live arbitrary-AOI catalogue/series/map-output smoke test passed with explicit P05023 selection)
