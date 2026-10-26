@@ -1,4 +1,5 @@
 name: SARGuardian AOI WKT E2E + Dashboard
+run-name: ${{ inputs.job_id && format('Displacement {0}', inputs.job_id) || format('SARGuardian AOI {0}', github.run_id) }}
 
 # Separate workflow: the existing streaming source-AOI workflow is intentionally untouched.
 on:
@@ -29,6 +30,21 @@ on:
         description: "derived-only or full-lossless."
         required: true
         type: string
+      job_id:
+        description: "Optional account-owned displacement job UUID."
+        required: false
+        type: string
+        default: ''
+      callback_url:
+        description: "Optional trusted SARGuardian Dynamic API base URL for signed job callbacks."
+        required: false
+        type: string
+        default: ''
+      request_fingerprint:
+        description: "Optional immutable account request fingerprint."
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       aoi_wkt:
@@ -70,6 +86,21 @@ on:
           - derived-only
           - full-lossless
         default: derived-only
+      job_id:
+        description: "Leave blank for a manual AOI run; set only for an account-owned Dynamic job."
+        required: false
+        type: string
+        default: ''
+      callback_url:
+        description: "Optional trusted SARGuardian Dynamic API base URL. Required with job_id."
+        required: false
+        type: string
+        default: ''
+      request_fingerprint:
+        description: "Immutable account request fingerprint. Required with job_id."
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -80,9 +111,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  report-running:
+    name: Bind account job to this workflow run
+    runs-on: ubuntu-24.04
+    outputs:
+      reported: ${{ steps.callback.outputs.reported }}
+    steps:
+      - name: Check out the signed-callback contract
+        if: inputs.job_id != ''
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian_Dynamic
+          ref: bb178c59f1d004eac23ce349ea6afc5e8b57cb40
+          path: dynamic-api
+
+      - name: Report running state to the account API
+        id: callback
+        env:
+          CALLBACK_SECRET: ${{ secrets.DISPLACEMENT_CALLBACK_SECRET }}
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          JOB_ID: ${{ inputs.job_id }}
+          REQUEST_FINGERPRINT: ${{ inputs.request_fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$JOB_ID" && -z "$CALLBACK_URL" && -z "$REQUEST_FINGERPRINT" ]]; then
+            echo "reported=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -z "$JOB_ID" || -z "$CALLBACK_URL" || -z "$REQUEST_FINGERPRINT" || -z "$CALLBACK_SECRET" ]]; then
+            echo "ERROR=ACCOUNT_CALLBACK_CONFIGURATION_INCOMPLETE"
+            exit 1
+          fi
+          if [[ ! "$REQUEST_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "ERROR=ACCOUNT_REQUEST_FINGERPRINT_INVALID"
+            exit 1
+          fi
+          PYTHONPATH="$GITHUB_WORKSPACE/dynamic-api/Backend" python -m science_adapter.dynamic_callback \
+            --state running --stage initializing --sequence 1 \
+            --callback-url "$CALLBACK_URL" --callback-secret "$CALLBACK_SECRET" \
+            --job-id "$JOB_ID" --request-fingerprint "$REQUEST_FINGERPRINT" \
+            --github-run-id "$GITHUB_RUN_ID" \
+            --github-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo "reported=true" >> "$GITHUB_OUTPUT"
+
   manifest:
     name: Discover exact AOI/date product baseline
     runs-on: ubuntu-24.04
+    needs: report-running
     outputs:
       matrix: ${{ steps.discover.outputs.matrix }}
       product_count: ${{ steps.discover.outputs.product_count }}
@@ -365,17 +441,6 @@ jobs:
             echo "Dashboard generation failed; inspect job logs and available artifacts." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload offline HTML dashboard and result files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sarguardian-aoi-dashboard-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/sarguardian-aoi/dashboard
-            ${{ runner.temp }}/sarguardian-aoi/dashboard-build.log
-          if-no-files-found: warn
-          retention-days: 30
-
       - name: Upload dashboard bundle and summary to private Drive
         if: always()
         shell: bash
@@ -395,3 +460,103 @@ jobs:
             --files "$root/drive-dashboard-upload-receipt.json" \
             --out "$root/drive-dashboard-receipt-upload.json"
           echo "PRIVATE_DRIVE_DASHBOARD_UPLOAD=PASS"
+
+      - name: Upload offline HTML dashboard and result files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-aoi-dashboard-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/sarguardian-aoi/dashboard
+            ${{ runner.temp }}/sarguardian-aoi/dashboard-build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  report-terminal:
+    name: Report validated terminal state
+    needs: [report-running, manifest, process-products, retry-plan, retry-products, dashboard]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check out the signed-callback contract
+        if: inputs.job_id != ''
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian_Dynamic
+          ref: bb178c59f1d004eac23ce349ea6afc5e8b57cb40
+          path: dynamic-api
+
+      - name: Download the assembled AOI dashboard and Drive receipt
+        if: inputs.job_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-aoi-dashboard-*
+          path: ${{ runner.temp }}/sarguardian-account-result/dashboard
+          merge-multiple: true
+
+      - name: Download the selected-product manifest
+        if: inputs.job_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-aoi-run-manifest
+          path: ${{ runner.temp }}/sarguardian-account-result/dashboard/manifest
+
+      - name: Report validated terminal state
+        if: inputs.job_id != ''
+        env:
+          CALLBACK_SECRET: ${{ secrets.DISPLACEMENT_CALLBACK_SECRET }}
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          JOB_ID: ${{ inputs.job_id }}
+          REQUEST_FINGERPRINT: ${{ inputs.request_fingerprint }}
+          PIPELINE_RESULT: ${{ needs.dashboard.result }}
+          RUNNING_REPORTED: ${{ needs.report-running.outputs.reported }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-account-result"
+          if [[ -z "$CALLBACK_SECRET" || -z "$CALLBACK_URL" || -z "$JOB_ID" || ! "$REQUEST_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "ERROR=ACCOUNT_CALLBACK_CONFIGURATION_INCOMPLETE"
+            exit 1
+          fi
+
+          sequence=1
+          if [[ "$RUNNING_REPORTED" == "true" ]]; then sequence=2; fi
+          state=failed
+          stage=failed
+          error_code=GITHUB_ACTIONS_WORKER_FAILED
+          error_message='The AOI science workflow did not complete successfully.'
+          summary_args=()
+
+          if [[ "$PIPELINE_RESULT" == "success" ]]; then
+            if PYTHONPATH="$GITHUB_WORKSPACE/dynamic-api/Backend" python -m science_adapter.dynamic_callback \
+              --dashboard-root "$root/dashboard" --github-run-id "$GITHUB_RUN_ID" \
+              --build-summary-out "$root/dashboard/result-summary.json"; then
+              state=succeeded
+              stage=completed
+              error_code=''
+              error_message=''
+              summary_args=(--result-summary "$root/dashboard/result-summary.json")
+            else
+              error_code=RESULT_CONTRACT_VALIDATION_FAILED
+              error_message='The AOI workflow finished without a complete verified private result package.'
+            fi
+          fi
+
+          args=(--state "$state" --stage "$stage" --sequence "$sequence" \
+            --callback-url "$CALLBACK_URL" --callback-secret "$CALLBACK_SECRET" \
+            --job-id "$JOB_ID" --request-fingerprint "$REQUEST_FINGERPRINT" \
+            --github-run-id "$GITHUB_RUN_ID" \
+            --github-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          if [[ -n "$error_code" ]]; then
+            args+=(--error-code "$error_code" --error-message "$error_message")
+          fi
+          PYTHONPATH="$GITHUB_WORKSPACE/dynamic-api/Backend" python -m science_adapter.dynamic_callback "${args[@]}" "${summary_args[@]}"
+
