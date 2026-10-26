@@ -37,3 +37,10 @@ Audit source: real run [40308665800](https://github.com/moshiour0/SARGuardian-ba
 ## Consequence
 
 The pipeline already generates most numerical and provenance inputs for a good dashboard. The missing work is the **web-facing spatial representation and interactive presentation contract**, plus explicit checks ensuring the new display assets stay aligned with source data. Add light preview assets during aggregation; retain the native TIFF and reports as source evidence. Do not add more raw processing merely to create decorative charts.
+
+
+## Follow-up validation on the same real artifact
+
+On 2026-10-26, the branch's real-artifact smoke test downloaded the existing artifact for run [40308665800](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40308665800) and ran the new display builder over its 10 clipped GeoTIFFs, without replaying NISAR/raw-HDF5 processing. It produced 10 observation records and 20 transparent raster layers; all source TIFF hashes remained unchanged. The rebuilt test fixture ZIP contained the viewer, data JS, manifest, AOI GeoJSON, timeline, metrics and STAC catalog. The smoke run is [here](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40340177367).
+
+This is compatibility evidence for the builder against the real output schema; it is **not** a retroactive modification of run 40308665800's stored ZIP and does not mean the live app is already enabled. Only a future run executed through the reviewed processing integration will naturally produce the dashboard-ready result bundle.
