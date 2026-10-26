@@ -424,6 +424,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
         "science_diagnostics":science_diagnostics,
+        "analysis_target":manifest.get("analysis_target"),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
         "goff_count":sum(x.get("product_type")=="GOFF" for x in result_rows),
         "retention_profile_note":manifest.get("archive_note"),"baseline_policy":manifest.get("baseline_policy"),
@@ -440,6 +441,41 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "science_commit":manifest.get("science_commit"),"manifest_sha256":sha256_file(args.manifest),
         "status":summary["status"],"errors":errors,
         "warning_note":"PASS indicates requested-AOI processing and structural checks passed; it is not independent geophysical validation."}}
+    (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+    # Run the AOI-scoped science adapter on retained derived rasters only. This
+    # is independent of the processing PASS and never triggers a raw replay.
+    # Its per-stage gates preserve limitations instead of fabricating a forecast.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from tools.run_dynamic_aoi_science import run_engine
+        science_engine_full = run_engine(out, Path(args.science_root))
+        science_engine = {
+            "schema_version": science_engine_full.get("schema_version"),
+            "status": science_engine_full.get("status", "UNKNOWN"),
+            "report": "science-engine-report.json",
+            "stages": science_engine_full.get("stages", {}),
+            "warnings": science_engine_full.get("warnings", []),
+            "errors": science_engine_full.get("errors", []),
+        }
+    except Exception as exc:
+        science_engine = {
+            "schema_version": "sarguardian-dynamic-aoi-science-engine/1.0",
+            "status": "FAIL",
+            "report": "science-engine-report.json",
+            "errors": [{"problem": "DYNAMIC_SCIENCE_ENGINE_EXCEPTION",
+                        "type": type(exc).__name__, "detail": str(exc)[:400]}],
+            "stages": {},
+        }
+        (out/"science-engine-report.json").write_text(
+            json.dumps(json_safe(science_engine),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8"
+        )
+    print("SCIENCE_ENGINE_STATUS=" + str(science_engine.get("status", "UNKNOWN")))
+    summary["science_engine"] = science_engine
+    report["summary"] = summary
+    report["science_engine"] = science_engine
+    (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     # Build georeferenced web-display assets from already validated AOI-clipped
     # GeoTIFF exports. This is presentation-only; it must not trigger new raw
