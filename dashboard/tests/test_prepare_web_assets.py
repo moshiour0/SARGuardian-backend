@@ -119,7 +119,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("measurementChart", viewer)
             self.assertIn("measurementTrack", viewer)
-            self.assertIn("Bars are not connected", viewer)
+            self.assertIn("bars are not connected", viewer.lower())
             self.assertIn('<script type="module">', viewer)
             self.assertIn("maplibre-gl@6.16.0/dist/maplibre-gl.mjs", viewer)
             self.assertNotIn("dist/maplibre-gl.js", viewer)
