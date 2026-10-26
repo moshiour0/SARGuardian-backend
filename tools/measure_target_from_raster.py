@@ -20,8 +20,14 @@ from rasterio.warp import transform as transform_coordinates
 from rasterio.windows import Window
 
 
-def finite_values(values: np.ndarray, nodata: float | None = None) -> np.ndarray:
-    arr = np.asarray(values, dtype="float64").ravel()
+def finite_values(values: np.ndarray, nodata: float | None = None,
+                  mask: np.ndarray | None = None) -> np.ndarray:
+    arr = np.asarray(values, dtype="float64")
+    if mask is not None:
+        if mask.shape != arr.shape:
+            raise ValueError("Science and quality bands must have identical windows")
+        arr = arr[np.asarray(mask, dtype=bool)]
+    arr = arr.ravel()
     arr = arr[np.isfinite(arr)]
     if nodata is not None and math.isfinite(float(nodata)):
         arr = arr[arr != float(nodata)]
@@ -58,7 +64,8 @@ def measure_target(
                 "schema_version": 1, "status": "TARGET_OUTSIDE_RASTER",
                 "product_type": family, "source_raster": raster_path.name,
                 "target": {"longitude": longitude, "latitude": latitude, "radius_px": radius_px,
-                           "row": row, "column": col, "window_pixels": total, "valid_pixels": 0},
+                           "row": row, "column": col, "window_pixels": 0,
+                           "requested_window_pixels": total, "valid_pixels": 0, "valid_fraction": 0.0},
                 "measurements": {},
                 "interpretation": "The target is not covered by this product's exported AOI raster; no value was inferred.",
             }
@@ -66,6 +73,7 @@ def measure_target(
         height = min(ds.height, row + radius_px + 1) - row0
         width = min(ds.width, col + radius_px + 1) - col0
         window = Window(col0, row0, width, height)
+        window_cells_available = int(width * height)
         first = ds.read(1, window=window).astype("float64")
         if ds.nodata is not None:
             first[first == ds.nodata] = np.nan
@@ -79,9 +87,11 @@ def measure_target(
             metric_name = "target_local_los_median_mm"
             metric_description = "GUNW LOS displacement"
             quality_name = "mean_coherence"
-            quality_values = finite_values(ds.read(2, window=window), ds.nodata)
-            quality = float(np.mean(quality_values)) if quality_values.size else None
-            quality = min(1.0, max(0.0, quality)) if quality is not None else None
+            quality_values = finite_values(ds.read(2, window=window), ds.nodata, valid)
+            quality = float(np.mean(quality_values)) if quality_values.size >= minimum_valid_pixels else None
+            quality_status = "VALID" if quality is not None and 0.0 <= quality <= 1.0 else "INSUFFICIENT_OR_INVALID"
+            if quality_status != "VALID":
+                quality = None
         else:
             metric_name = "target_local_range_median_mm"
             metric_description = "GOFF slant-range offset"
@@ -93,14 +103,19 @@ def measure_target(
             metric_azimuth = "target_local_azimuth_median_mm"
             measurements[metric_azimuth] = float(np.median(second_values)) if second_values.size >= minimum_valid_pixels else None
             quality_name = "mean_correlation"
-            quality_values = finite_values(ds.read(3, window=window), ds.nodata)
-            quality = float(np.mean(quality_values)) if quality_values.size else None
+            quality_values = finite_values(ds.read(3, window=window), ds.nodata, valid)
+            quality = float(np.mean(quality_values)) if quality_values.size >= minimum_valid_pixels else None
+            quality_status = "VALID" if quality is not None and 0.0 <= quality <= 1.0 else "INSUFFICIENT_OR_INVALID"
+            if quality_status != "VALID":
+                quality = None
 
         measurements[metric_name] = float(np.median(values)) if support >= minimum_valid_pixels else None
         measurements["p05_mm"] = float(np.percentile(values, 5)) if support >= minimum_valid_pixels else None
         measurements["p95_mm"] = float(np.percentile(values, 95)) if support >= minimum_valid_pixels else None
         measurements["robust_sigma_mm"] = float(1.4826 * np.median(np.abs(values - np.median(values)))) if support >= minimum_valid_pixels else None
         measurements[quality_name] = quality
+        measurements["quality_valid_pixels"] = int(quality_values.size)
+        measurements["quality_status"] = quality_status
         status = "MEASURED" if support >= minimum_valid_pixels else "INSUFFICIENT_TARGET_SUPPORT"
         ref_date = tags.get("reference") or None
         sec_date = tags.get("secondary") or None
@@ -113,7 +128,9 @@ def measure_target(
             "source_raster": raster_path.name, "metric_name": metric_name,
             "metric_description": metric_description, "units": "mm",
             "target": {"longitude": longitude, "latitude": latitude, "radius_px": radius_px,
-                       "row": row, "column": col, "window_pixels": total, "valid_pixels": support},
+                       "row": row, "column": col, "window_pixels": window_cells_available,
+                       "requested_window_pixels": total, "valid_pixels": support,
+                       "valid_fraction": support / window_cells_available if window_cells_available else 0.0},
             "temporal_scope": {"reference_date": ref_date, "secondary_date": sec_date},
             "measurements": measurements,
             "reference_policy": tags.get("reference_policy", "per-product reader reference; a shared cross-pair datum is not verified"),
