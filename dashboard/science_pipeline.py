@@ -25,6 +25,7 @@ def build_science_pipeline_report(
     products: list[dict[str, Any]],
     science_root: Path,
     science_diagnostics: dict[str, Any] | None,
+    site_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run time-series network topology analysis and gate downstream methods.
 
@@ -112,6 +113,7 @@ def build_science_pipeline_report(
         network_error = type(exc).__name__ + ":" + str(exc)[:250]
         report["network_assessment_status"] = "UNAVAILABLE"
     report["invalid_pair_rows"] = invalid
+    report["site_context"] = site_context or {}
     report["network_assessment_log_excerpt"] = captured.getvalue()[-8000:] if "captured" in locals() else ""
     report["network_error"] = network_error
 
@@ -133,6 +135,32 @@ def build_science_pipeline_report(
                 "topology_status": "REDUNDANT" if redundancy > 0 else "EXACTLY_DETERMINED_NO_REDUNDANCY",
             })
 
+    target_info = (site_context or {}).get("measurement_target", {})
+    target_status = target_info.get("status") if isinstance(target_info, dict) else "NOT_PROVIDED"
+    measured_targets = sum(
+        isinstance(row.get("target_measurement"), dict)
+        and row["target_measurement"].get("status") == "MEASURED"
+        for row in products
+    )
+    measured_floors = sum(
+        isinstance(row.get("local_floor"), dict)
+        and row["local_floor"].get("status") == "MEASURED"
+        for row in products
+    )
+    if target_status == "IN_AOI_TARGET_CAPTURED":
+        local_floor_status = "PAIRWISE_LOCAL_FLOOR_MEASURED" if measured_floors else "TARGET_CAPTURED_FLOOR_UNAVAILABLE"
+        local_floor_reason = (
+            f"An in-AOI point was supplied. {measured_targets} product(s) have target-window measurements and "
+            f"{measured_floors} have a measured radius-6 local noise floor. These are pair-specific values in each reader's "
+            "reference frame; they do not provide a shared stable-ground datum or authorize cumulative inversion."
+        )
+    elif target_status == "NOT_PROVIDED":
+        local_floor_status = "BLOCKED_NO_EXPLICIT_MEASUREMENT_TARGET"
+        local_floor_reason = "No in-AOI target coordinate was provided. No target-local measurement or floor is inferred."
+    else:
+        local_floor_status = "BLOCKED_INVALID_OR_OUTSIDE_TARGET"
+        local_floor_reason = f"Target context was rejected or incomplete ({target_status}); no target-specific inference is allowed."
+
     report["modules"].extend([
         {
             "name": "timeseries.py",
@@ -147,9 +175,11 @@ def build_science_pipeline_report(
         },
         {
             "name": "local_floor.py",
-            "status": "BLOCKED_NO_EXPLICIT_MEASUREMENT_TARGET",
-            "reason": "The current Dynamic request sends AOI WKT and dates but no explicit measurement target/reference point. A place-search marker is not forwarded as a validated target in the scientific job contract.",
-            "available_related_metrics": "The product reader may already emit GOFF detect_floor_mm_day; this is not a successful execution of local_floor.py.",
+            "status": local_floor_status,
+            "reason": local_floor_reason,
+            "products_with_measured_local_floor": measured_floors,
+            "products_with_target_window_measurement": measured_targets,
+            "available_related_metrics": "A local floor is a pair-specific detectability/noise estimate, not observed motion or a common-reference time series.",
         },
         {
             "name": "inverse_velocity.py",
