@@ -30,6 +30,8 @@ class DashboardWorkflowPinTests(unittest.TestCase):
         self.assertIn("target_latitude:", workflow)
         self.assertIn("TARGET_LATITUDE: ${{ inputs.target_latitude }}", worker)
         self.assertIn("measure_target_from_raster.py", worker)
+        self.assertIn('--aoi-wkt "$SARGUARDIAN_AOI_WKT"', worker)
+        self.assertIn("--minimum-valid-pixels 6", worker)
         self.assertIn("science-source/src/local_floor.py", worker)
         self.assertIn('find "$CURATED_DIR/derived" -type f -print | sort', worker)
         self.assertIn("LOCAL_FLOOR_STATUS=", worker)
