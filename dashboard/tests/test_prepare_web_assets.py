@@ -99,6 +99,14 @@ class PrepareWebAssetsTests(unittest.TestCase):
             stac_item = json.loads((root / "web-dashboard" / "stac" / "items" / "GUNW-001.json").read_text(encoding="utf-8"))
             self.assertEqual(stac_item["stac_version"], "1.1.0")
             self.assertEqual(stac_item["properties"]["datetime"], "2026-08-14T00:00:00Z")
+            collection = json.loads((root / "web-dashboard" / "stac" / "collection.json").read_text(encoding="utf-8"))
+            self.assertEqual(collection["license"], "other")
+            license_links = [link for link in collection["links"] if link["rel"] == "license"]
+            self.assertGreaterEqual(len(license_links), 2)
+            self.assertTrue(any("earthdata.nasa.gov" in link["href"] for link in license_links))
+            self.assertTrue(any("nisar-docs.asf.alaska.edu" in link["href"] for link in license_links))
+            self.assertTrue(collection["providers"])
+            self.assertIn("does not relicense source data", collection["sarguardian:license_note"])
             item_path = root / "web-dashboard" / "stac" / "items" / "GUNW-001.json"
             native_href = item_path.parent / stac_item["assets"]["native_raster"]["href"]
             self.assertTrue(native_href.resolve().is_file(), "STAC native asset href must resolve")
