@@ -158,7 +158,7 @@ def test_download_step_does_not_retry_large_transient_earthdata_downloads():
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
     )[1].split("\n      - name:", 1)[0]
-    assert "max_attempts=4" in download
+    assert "max_attempts=1" in download
     assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
     assert "DOWNLOAD_RETRY_SCHEDULED" in download
     assert "timeout-minutes: 90" in download
