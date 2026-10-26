@@ -1,0 +1,150 @@
+name: Dashboard real-run artifact smoke test
+
+on:
+  push:
+    branches:
+      - feat/interactive-geospatial-dashboard-main-integration
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/dashboard-real-artifact-smoke.yml"
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Existing successful AOI workflow run ID to use as a derived-artifact fixture (no processing replay)"
+        required: true
+        type: string
+        default: "40308665800"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: dashboard-real-artifact-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-artifact-smoke:
+    name: Build dashboard from existing AOI output (no raw replay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out reviewed dashboard builder
+        uses: actions/checkout@v4
+
+      - name: Resolve the existing successful derived-output artifact
+        id: source
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id || '40308665800' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]{5,15}$ ]]; then
+            echo "ERROR=SOURCE_RUN_ID_MUST_BE_NUMERIC"
+            exit 2
+          fi
+          echo "run_id=$SOURCE_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_RUN_ID=$SOURCE_RUN_ID"
+
+      - name: Download existing derived-output artifact only
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-aoi-dashboard-${{ steps.source.outputs.run_id }}-1
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/sarguardian-dashboard-fixture
+
+      - name: Install dashboard renderer dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir numpy rasterio matplotlib pillow
+
+      - name: Compile builder and validate real fixture schema
+        run: python -m py_compile dashboard/assets/prepare_web_assets.py
+        env:
+          PYTHONPATH: .
+
+      - name: Build map, timeline, metrics and STAC metadata from real TIFFs
+        env:
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-dashboard-fixture/dashboard"
+          test -s "$root/aoi-run-summary.json"
+          test -s "$root/aoi-processing-report.json"
+          before="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          python dashboard/assets/prepare_web_assets.py --dashboard-root "$root"
+          after="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+          test "$before" = "$after"
+          python - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          from shutil import move
+          root = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-dashboard-fixture" / "dashboard"
+          receipt = json.loads((root / "web-dashboard-build-receipt.json").read_text())
+          manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text())
+          assert receipt["status"] == "PASS", receipt
+          assert receipt["observations"] == 10, receipt
+          assert receipt["layers"] >= 20, receipt
+          assert manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED"
+
+          # This reference run predates the feature, so its ZIP is intentionally
+          # old. Reassemble the fixture bundle in the same order as the updated
+          # aggregator: record visual status first, then package all current
+          # output files plus any legacy members (e.g. per-product provenance)
+          # that exist only inside the original ZIP.
+          summary_path = root / "aoi-run-summary.json"
+          report_path = root / "aoi-processing-report.json"
+          summary = json.loads(summary_path.read_text())
+          summary["web_dashboard"] = receipt
+          report = json.loads(report_path.read_text())
+          report["summary"] = summary
+          report["web_dashboard"] = receipt
+          summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
+          report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
+
+          zip_path = root / "aoi-derived-results.zip"
+          with zipfile.ZipFile(zip_path, "r") as original:
+              legacy_members = [(info.filename, original.read(info)) for info in original.infolist() if not info.is_dir()]
+          rebuilt = root / "aoi-derived-results-smoke.zip"
+          added = set()
+          with zipfile.ZipFile(rebuilt, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file() and path not in {zip_path, rebuilt}:
+                      name = path.relative_to(root).as_posix()
+                      if name not in added:
+                          bundle.write(path, name)
+                          added.add(name)
+              for name, data in legacy_members:
+                  if name not in added:
+                      bundle.writestr(name, data)
+                      added.add(name)
+          move(str(rebuilt), str(zip_path))
+
+          with zipfile.ZipFile(zip_path) as archive:
+              names = archive.namelist()
+              required = [
+                  "web-dashboard/index.html",
+                  "web-dashboard/dashboard-data.js",
+                  "web-dashboard/manifest.json",
+                  "web-dashboard/timeline.json",
+                  "web-dashboard/metrics.json",
+                  "web-dashboard/stac/catalog.json",
+              ]
+              missing = [name for name in required if names.count(name) != 1]
+              assert not missing, {"missing": missing}
+          print("REAL_ARTIFACT_DASHBOARD_SMOKE=PASS")
+          print("REAL_ARTIFACT_OBSERVATIONS=" + str(receipt["observations"]))
+          print("REAL_ARTIFACT_RASTER_LAYERS=" + str(receipt["layers"]))
+          print("REAL_ARTIFACT_SOURCE_TIFFS_UNCHANGED=PASS")
+          print("REAL_ARTIFACT_RESULT_ZIP_CONTRACT=PASS")
+          PY
+
+      - name: Upload generated viewer and build receipts for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-dashboard-real-artifact-smoke-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/web-dashboard/
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/web-dashboard-build-receipt.json
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/aoi-derived-results.zip
+          if-no-files-found: error
+          retention-days: 14

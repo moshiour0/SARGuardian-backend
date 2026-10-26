@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian_Dynamic
-          ref: fc13f87067fe3a53d74e7f605c2106c56ea59fb6
+          ref: db6472e1c304e21242f1ab1dfd671ccb21ba5697
           path: dynamic-api
 
       - name: Report running state to the account API
@@ -426,6 +426,11 @@ jobs:
           print("- **Products structurally validated:** {}/{}".format(x.get("products_validated"),x.get("products_expected")))
           print("- **GUNW / GOFF:** {} / {}".format(x.get("gunw_count"),x.get("goff_count")))
           print("- **Products with valid pixels:** "+str(x.get("products_with_science_pixels")))
+          web=x.get("web_dashboard") if isinstance(x.get("web_dashboard"),dict) else {}
+          print("- **Interactive web-dashboard assets:** "+str(web.get("status","NOT_AVAILABLE")))
+          if web.get("status") == "PASS":
+              print("- **Interactive viewer in result bundle:** `web-dashboard/index.html`")
+              print("- **Web observations / raster layers:** {}/{}".format(web.get("observations"),web.get("layers")))
           print("- **AOI WKT SHA-256:** `"+str(x.get("aoi_wkt_sha256"))+"`")
           print("- **Date window mode:** `" + str(x.get("date_filter_mode")) + "`")
           print("- **Date window:** {} to {}".format(x.get("date_start"),x.get("date_end")))
@@ -433,6 +438,9 @@ jobs:
           print("- **Product rows with reference date outside the requested interval:** "+str(x.get("products_with_reference_outside_window")))
           print("")
           print("Download the **sarguardian-aoi-dashboard-${{ github.run_id }}-${{ github.run_attempt }}** artifact and open `index.html`.")
+          web=x.get("web_dashboard") if isinstance(x.get("web_dashboard"),dict) else {}
+          if web.get("status") == "PASS":
+              print("The ZIP also contains `web-dashboard/index.html` for the interactive map and pair-aware timeline.")
           print("")
           print("> PASS means acquisition, exact-AOI masking, provenance and structural checks passed. It does not mean independent geophysical validation.")
           PY
@@ -489,7 +497,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian_Dynamic
-          ref: fc13f87067fe3a53d74e7f605c2106c56ea59fb6
+          ref: db6472e1c304e21242f1ab1dfd671ccb21ba5697
           path: dynamic-api
 
       - name: Download the assembled AOI dashboard and Drive receipt
