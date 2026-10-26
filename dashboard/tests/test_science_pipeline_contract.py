@@ -20,6 +20,10 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("GOFF along-track offset median (mm)", builder)
         self.assertIn("GOFF detection floor (mm/day)", builder)
         self.assertIn("Detection floors are noise bounds, not observed motion", builder)
+        self.assertIn('"target_local_los_median_mm": metric_number(target_metrics.get("target_local_los_median_mm"))', builder)
+        self.assertIn('"target_local_floor_mm_day": metric_number(floor_metrics.get("local_floor_mm_day"))', builder)
+        self.assertIn("selected-site-marker", builder)
+        self.assertIn('"site_context": summary.get("site_context") or {}', builder)
 
     def test_every_main_science_module_has_an_explicit_dynamic_aoi_stage_gate(self) -> None:
         pipeline = PIPELINE.read_text(encoding="utf-8")
@@ -35,6 +39,8 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("NETWORK_TOPOLOGY_ONLY_INVERSION_WITHHELD", pipeline)
         self.assertIn("BLOCKED_NO_EXPLICIT_MEASUREMENT_TARGET", pipeline)
         self.assertIn("BLOCKED_NO_VERIFIED_COMMON_DATUM_SERIES", pipeline)
+        self.assertIn("PAIRWISE_LOCAL_FLOOR_MEASURED", pipeline)
+        self.assertIn("measured_targets", pipeline)
         self.assertIn("NOT_APPLICABLE_GENERIC_AOI", pipeline)
         self.assertIn("build_science_pipeline_report", aggregator)
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
