@@ -79,6 +79,13 @@ def safe_child(root: Path, relative: str) -> Path:
     return candidate
 
 
+def canonical_granule_name(value: Any) -> str:
+    name = Path(str(value or "").strip()).name
+    return name[:-3] if name.lower().endswith(".h5") else name
+
+
+
+
 def parse_single_ring_wkt(value: str) -> list[tuple[float, float]]:
     match = re.fullmatch(r"\s*POLYGON\s*\(\(\s*(.*?)\s*\)\)\s*", str(value), flags=re.I)
     if not match:
@@ -672,6 +679,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     products = processing_report.get("products")
     if not isinstance(products, list):
         raise ValueError("PROCESSING_REPORT_PRODUCTS_MISSING")
+    manifest_products = manifest.get("products")
+    if not isinstance(manifest_products, list):
+        raise ValueError("RUN_MANIFEST_PRODUCTS_MISSING")
+    manifest_by_id = {str(row.get("id") or ""): row for row in manifest_products if isinstance(row, dict)}
+    if not manifest_by_id or "" in manifest_by_id:
+        raise ValueError("RUN_MANIFEST_PRODUCT_IDS_INVALID")
+    report_by_id = {str(row.get("id") or ""): row for row in products if isinstance(row, dict)}
+    if len(report_by_id) != len(products) or set(report_by_id) != set(manifest_by_id):
+        raise ValueError("PROCESSING_REPORT_PRODUCT_SET_MISMATCH")
+    for product_id, manifest_product in manifest_by_id.items():
+        report_product = report_by_id[product_id]
+        if canonical_granule_name(manifest_product.get("granule_name")) != canonical_granule_name(report_product.get("granule_name")):
+            raise ValueError(f"PROCESSING_REPORT_GRANULE_MISMATCH product_id={product_id}")
+        if str(manifest_product.get("product_type") or "").upper() != str(report_product.get("product_type") or "").upper():
+            raise ValueError(f"PROCESSING_REPORT_FAMILY_MISMATCH product_id={product_id}")
     aoi_wkt = str(manifest.get("aoi_wkt") or "").strip()
     if not aoi_wkt:
         raise ValueError("AOI_WKT_MISSING_FROM_MANIFEST")
@@ -1155,6 +1177,9 @@ def main() -> int:
             raise ValueError("COHERENCE_THRESHOLD_MUST_BE_IN_(0,1]")
         if args.expected_science_commit:
             expected = args.expected_science_commit.strip().lower()
+            input_manifest = read_json(args.manifest.resolve())
+            if str(input_manifest.get("science_commit") or "").strip().lower() != expected:
+                raise ValueError("MANIFEST_SCIENCE_COMMIT_MISMATCH")
             commit = subprocess.run(
                 ["git", "-C", str(args.science_root.resolve()), "rev-parse", "HEAD"],
                 text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
