@@ -10,6 +10,8 @@ from rasterio.transform import from_origin
 
 from tools.measure_target_from_raster import measure_target
 
+AOI_WKT = "POLYGON((85 27, 85.01 27, 85 27.01, 85 27))"
+
 
 def write_fixture(path: Path, *, nodata: float = -9999.0) -> None:
     los = np.arange(49, dtype="float32").reshape(7, 7)
@@ -30,7 +32,7 @@ def write_fixture(path: Path, *, nodata: float = -9999.0) -> None:
 def test_goff_target_metric_is_local_and_not_time_series(tmp_path: Path) -> None:
     raster = tmp_path / "GOFF_20260801_20260813_layer2.tif"
     write_fixture(raster)
-    result = measure_target(raster, "GOFF", longitude=85.0035, latitude=27.0035, radius_px=1)
+    result = measure_target(raster, "GOFF", longitude=85.0035, latitude=27.0035, radius_px=1, aoi_wkt=AOI_WKT)
     assert result["status"] == "MEASURED"
     assert result["measurements"]["target_local_range_median_mm"] == 0.0
     assert result["measurements"]["target_local_azimuth_median_mm"] == 48.0
@@ -50,7 +52,7 @@ def test_gunw_target_metric_uses_band1_and_excludes_finite_nodata_in_coherence(t
         ds.set_band_description(1, "LOS displacement (mm)")
         ds.set_band_description(2, "coherence")
         ds.update_tags(reference="2026-08-01", secondary="2026-08-13", aoi_name="custom", aoi_mask_applied="true")
-    result = measure_target(raster, "GUNW", longitude=85.0035, latitude=27.0035, radius_px=1)
+    result = measure_target(raster, "GUNW", longitude=85.0035, latitude=27.0035, radius_px=1, aoi_wkt=AOI_WKT)
     assert result["status"] == "MEASURED"
     assert result["measurements"]["target_local_los_median_mm"] == 24.0
     assert result["measurements"]["mean_coherence"] == 0.75
@@ -59,8 +61,11 @@ def test_gunw_target_metric_uses_band1_and_excludes_finite_nodata_in_coherence(t
 def test_target_outside_raster_and_insufficient_support_are_explicit(tmp_path: Path) -> None:
     raster = tmp_path / "GUNW_20260801_20260813.tif"
     write_fixture(raster)
-    outside = measure_target(raster, "GUNW", longitude=87.0, latitude=29.0)
+    outside = measure_target(raster, "GUNW", longitude=85.008, latitude=27.001, aoi_wkt=AOI_WKT)
     assert outside["status"] == "TARGET_OUTSIDE_RASTER"
-    few = measure_target(raster, "GUNW", longitude=85.0035, latitude=27.0035, radius_px=0, minimum_valid_pixels=3)
+    outside_aoi = measure_target(raster, "GUNW", longitude=85.009, latitude=27.009, aoi_wkt=AOI_WKT)
+    assert outside_aoi["status"] == "REJECTED_OUTSIDE_AOI"
+    assert outside_aoi["measurements"] == {}
+    few = measure_target(raster, "GUNW", longitude=85.0035, latitude=27.0035, radius_px=0, minimum_valid_pixels=3, aoi_wkt=AOI_WKT)
     assert few["status"] == "INSUFFICIENT_TARGET_SUPPORT"
     assert few["measurements"]["target_local_los_median_mm"] is None
