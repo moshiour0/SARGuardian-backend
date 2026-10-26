@@ -342,10 +342,30 @@ jobs:
       RUN_ID_SAFE: SARGuardian-AOI-${{ github.run_id }}-${{ github.run_attempt }}
       AOI_ORCHESTRATION_SHA: ${{ needs.manifest.outputs.orchestration_sha }}
     steps:
-      - name: Checkout dashboard tools at the manifest's exact code revision
+      - name: Checkout dashboard orchestration tools at the manifest's exact code revision
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.manifest.outputs.orchestration_sha }}
+
+      # The pinned orchestration branch intentionally carries the AOI worker tooling,
+      # but it predates the web viewer. Use this immutable backend revision for
+      # the aggregator + web-dashboard builder, while retaining the existing
+      # manifest/worker/retry provenance pin above.
+      - name: Checkout pinned interactive-dashboard builder
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian-backend
+          ref: f43c8aa1c4db12ed00b3bbb1c11525c6f6b204ab
+          path: dashboard-source
+
+      - name: Verify pinned interactive-dashboard builder revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="f43c8aa1c4db12ed00b3bbb1c11525c6f6b204ab"
+          actual="$(git -C dashboard-source rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "DASHBOARD_BUILDER_SHA=$actual"
 
       - name: Checkout the same pinned science engine for WKT/provenance checks
         uses: actions/checkout@v4
@@ -397,7 +417,7 @@ jobs:
           root="$RUNNER_TEMP/sarguardian-aoi"
           mkdir -p "$root/dashboard"
           status=0
-          python tools/aggregate_aoi_run.py \
+          python dashboard-source/tools/aggregate_aoi_run.py \
             --manifest "$root/manifest/manifest.json" \
             --artifact-root "$root/product-artifacts" \
             --science-root "$PWD/science-source" \
