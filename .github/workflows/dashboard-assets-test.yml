@@ -3,14 +3,14 @@ name: Dashboard asset builder tests
 on:
   push:
     branches:
-      - feat/interactive-geospatial-dashboard
+      - feat/interactive-geospatial-dashboard-main-integration
     paths:
       - "dashboard/**"
       - "tools/aggregate_aoi_run.py"
       - ".github/workflows/dashboard-assets-test.yml"
   pull_request:
     branches:
-      - feat/final-aoi-science-integration
+      - main
     paths:
       - "dashboard/**"
       - "tools/aggregate_aoi_run.py"
