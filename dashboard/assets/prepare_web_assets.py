@@ -334,7 +334,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         for idx, layer in enumerate(l for l in public_layers if l["observation_id"] == obs["id"]):
             assets["preview_band_" + str(layer["band"]) + "_" + str(idx + 1)] = {"href": "../../" + layer["preview_asset"], "type": "image/png", "roles": ["overview"]}
         if obs.get("quicklook"):
-            assets["quicklook"] = {"href": "../../" + str(obs["quicklook"]), "type": "image/png", "roles": ["overview"]}
+            assets["quicklook"] = {"href": "../../../" + str(obs["quicklook"]), "type": "image/png", "roles": ["overview"]}
         item = {
             "stac_version": "1.1.0", "type": "Feature", "id": str(obs["id"]), "geometry": geometry, "bbox": bbox,
             "properties": {"datetime": date + "T00:00:00Z", "start_datetime": str(obs.get("reference_date")) + "T00:00:00Z",
