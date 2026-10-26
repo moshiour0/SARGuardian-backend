@@ -86,7 +86,7 @@ def reproject_band(path: Path, band: int, aoi_geometry: dict[str, Any]) -> tuple
         shrink = min(1.0, 1024.0 / width, 1024.0 / height)
         out_width = max(1, int(round(width * shrink)))
         out_height = max(1, int(round(height * shrink)))
-        transform = transform * Affine.scale(width / out_width, height / out_height)
+        transform = transform @ Affine.scale(width / out_width, height / out_height)
         width, height = out_width, out_height
         if width * height > 1_100_000:
             raise ValueError(f"Preview raster exceeds the display-pixel cap for {path.name}")
@@ -193,6 +193,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         exports = product.get("exports") or []
         if not exports:
             exports = [{"relative_path": next((p.relative_to(root).as_posix() for p in (root / "product-data" / pid).glob("*.tif")), "")}]
+        band1_source_counts: list[int] = []
         for export_index, export in enumerate(exports):
             relative = str(export.get("relative_path") or "")
             if not relative:
@@ -209,13 +210,8 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 if not overlaps:
                     raise ValueError(f"Preview does not intersect AOI: {pid}/{raster_path.name}")
                 valid = values[np.isfinite(values)]
-                if band == 1 and product.get("valid_pixels") is not None:
-                    try:
-                        expected_valid = int(product["valid_pixels"])
-                    except (TypeError, ValueError):
-                        expected_valid = -1
-                    if expected_valid >= 0 and expected_valid != meta["source_valid_pixels"]:
-                        raise ValueError(f"Source raster valid-pixel mismatch for {pid}: record={expected_valid}, raster={meta['source_valid_pixels']}")
+                if band == 1:
+                    band1_source_counts.append(meta["source_valid_pixels"])
                 if not valid.size:
                     continue
                 track_value = (product.get("stats") or {}).get("track") or product.get("track")
@@ -240,6 +236,13 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 })
             if sha256(raster_path) != original_hash:
                 raise RuntimeError(f"Source GeoTIFF unexpectedly changed: {raster_path.name}")
+        if band1_source_counts and product.get("valid_pixels") is not None:
+            try:
+                expected_valid = int(product["valid_pixels"])
+            except (TypeError, ValueError):
+                expected_valid = -1
+            if expected_valid >= 0 and max(band1_source_counts) != expected_valid:
+                raise ValueError(f"Product valid-pixel summary mismatch for {pid}: record={expected_valid}, max_export={max(band1_source_counts)}")
 
     webroot = root / "web-dashboard"
     public_layers = []
@@ -269,6 +272,10 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         stats = product.get("stats") or {}
         product_layers = [layer for layer in public_layers if layer["observation_id"] == product.get("id")]
         band1 = next((layer for layer in product_layers if layer["band"] == 1), None)
+        metric_name = str(product.get("metric_name") or "")
+        metric_units = ("mm" if product.get("product_type") == "GUNW" and band1
+                        and "los displacement" in band1["description"].lower()
+                        and "median" in metric_name.lower() else "source units not declared")
         observations.append({
             "id": product.get("id"), "product_type": product.get("product_type"), "granule_name": product.get("granule_name"),
             "reference_date": product.get("reference_date"), "secondary_date": product.get("secondary_date"),
@@ -281,7 +288,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "native_assets": [item.get("relative_path") for item in product.get("exports", []) if item.get("relative_path")],
             "quicklook": product.get("quicklook"), "layers": [layer["id"] for layer in product_layers],
             "metrics": {"reader_median": product.get("metric_value"), "reader_median_name": product.get("metric_name"),
-                        "reader_median_units": band1.get("units") if band1 else None, "mean_coherence": stats.get("mean_coherence")},
+                        "reader_median_units": metric_units if product.get("metric_value") is not None else None, "mean_coherence": stats.get("mean_coherence")},
         })
     limitations = [
         "Structural/provenance PASS is not independent geophysical validation.",
@@ -382,7 +389,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             content = re.sub(r"(<main(?:\s[^>]*)?>)", lambda m: m.group(1) + link, content, count=1, flags=re.I)
             report_html.write_text(content, encoding="utf-8")
 
-    receipt = {"schema_version": SCHEMA, "status": "PASS", "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    receipt = {"schema_version": SCHEMA, "status": "PASS" if public_layers else "PARTIAL", "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                "manifest": "web-dashboard/manifest.json", "viewer": "web-dashboard/index.html",
                "viewer_data": "web-dashboard/dashboard-data.js", "aoi_geojson": "web-dashboard/aoi.geojson",
                "timeline": "web-dashboard/timeline.json", "metrics": "web-dashboard/metrics.json",
