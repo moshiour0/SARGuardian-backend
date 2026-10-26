@@ -286,6 +286,12 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     observations = []
     for product in ordered:
         stats = product.get("stats") or {}
+        floor = product.get("local_floor") if isinstance(product.get("local_floor"), dict) else {}
+        floor_metrics = floor.get("metrics") if isinstance(floor.get("metrics"), dict) else {}
+        target = product.get("target_measurement") if isinstance(product.get("target_measurement"), dict) else {}
+        target_metrics = target.get("measurements") if isinstance(target.get("measurements"), dict) else {}
+        target_status = str(target.get("status") or "NOT_REPORTED")
+        floor_status = str(floor.get("status") or "NOT_REPORTED")
         product_layers = [layer for layer in public_layers if layer["observation_id"] == product.get("id")]
         band1 = next((layer for layer in product_layers if layer["band"] == 1), None)
         metric_name = str(product.get("metric_name") or "")
@@ -317,6 +323,16 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 "goff_range_velocity_mm_day": metric_number(stats.get("range_velocity_mm_day")),
                 "mean_coherence": metric_number(stats.get("mean_coherence")),
                 "mean_correlation": metric_number(stats.get("mean_correlation")),
+                "target_measurement_status": target_status,
+                "target_local_los_median_mm": metric_number(target_metrics.get("target_local_los_median_mm")) if target_status == "MEASURED" else None,
+                "target_local_range_median_mm": metric_number(target_metrics.get("target_local_range_median_mm")) if target_status == "MEASURED" else None,
+                "target_local_azimuth_median_mm": metric_number(target_metrics.get("target_local_azimuth_median_mm")) if target_status == "MEASURED" else None,
+                "target_mean_coherence": metric_number(target_metrics.get("mean_coherence")) if target_status == "MEASURED" else None,
+                "target_mean_correlation": metric_number(target_metrics.get("mean_correlation")) if target_status == "MEASURED" else None,
+                "target_local_floor_status": floor_status,
+                "target_local_floor_mm_day": metric_number(floor_metrics.get("local_floor_mm_day")) if floor_status == "MEASURED" else None,
+                "target_local_floor_ci_lo_mm_day": metric_number(floor_metrics.get("local_floor_ci_lo_mm_day")) if floor_status == "MEASURED" else None,
+                "target_local_floor_ci_hi_mm_day": metric_number(floor_metrics.get("local_floor_ci_hi_mm_day")) if floor_status == "MEASURED" else None,
             },
         })
     limitations = [
@@ -345,10 +361,32 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                         "date_basis": summary.get("date_basis"), "date_filter_mode": summary.get("date_filter_mode")},
         "observations": observations, "layers": public_layers, "science_limitations": limitations,
         "science_pipeline": summary.get("science_pipeline") or {},
-        "display_policy": "Actual pair selection only. No interpolation, trend fitting, or hazard inference is added by the visualization layer.",
+        "site_context": summary.get("site_context") or {},
+        "display_policy": "Actual pair selection only. Target values stay pair-specific; no cumulative series, interpolation, or hazard inference is added by the visualization layer.",
     }
     webroot.mkdir(parents=True, exist_ok=True)
     (webroot / "aoi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feature]}, indent=2) + "\n", encoding="utf-8")
+    selected_place = (summary.get("site_context") or {}).get("place") or {}
+    site_features = []
+    try:
+        site_lat, site_lon = float(selected_place.get("latitude")), float(selected_place.get("longitude"))
+        if (math.isfinite(site_lat) and math.isfinite(site_lon)
+                and -90 <= site_lat <= 90 and -180 <= site_lon <= 180):
+            site_features.append({
+                "type": "Feature",
+                "properties": {
+                    "name": str(selected_place.get("name") or "Selected place")[:200],
+                    "inside_aoi": selected_place.get("inside_aoi"),
+                    "role": "map-selected-place-context_not_hazard_evidence",
+                },
+                "geometry": {"type": "Point", "coordinates": [site_lon, site_lat]},
+            })
+    except (TypeError, ValueError, OverflowError):
+        pass
+    (webroot / "site.geojson").write_text(json.dumps({
+        "type": "FeatureCollection", "features": site_features,
+        "note": "A site marker is selected-place context, not a detected hazard or stable-ground reference.",
+    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (webroot / "timeline.json").write_text(json.dumps({"schema_version": SCHEMA, "observations": [
         {key: obs.get(key) for key in ("id", "product_type", "reference_date", "secondary_date", "track", "look_direction", "maturity", "valid_pixels", "layers")} for obs in observations
     ], "policy": "pair-aware; no synthetic intermediate observations"}, indent=2) + "\n", encoding="utf-8")
