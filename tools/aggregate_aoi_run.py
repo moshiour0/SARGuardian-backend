@@ -430,6 +430,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "science_claim_limit":manifest.get("scientific_claim_limit"),"errors":errors,
     }
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+    (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
         writer=csv.DictWriter(fh,fieldnames=fields,extrasaction="ignore");writer.writeheader()
