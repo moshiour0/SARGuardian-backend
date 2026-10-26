@@ -24,6 +24,11 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn('"target_local_floor_mm_day": metric_number(floor_metrics.get("local_floor_mm_day"))', builder)
         self.assertIn("selected-site-marker", builder)
         self.assertIn('"site_context": summary.get("site_context") or {}', builder)
+        self.assertIn("sameSourceGrid(a,b)", builder)
+        self.assertIn("function compatiblePair(a,b)", builder)
+        self.assertIn("Selected bands do not satisfy the common-grid and common-band contract", builder)
+        self.assertIn("not a forecast", builder.lower())
+        self.assertIn("This ratio is a simple sensitivity comparison", builder)
 
     def test_every_main_science_module_has_an_explicit_dynamic_aoi_stage_gate(self) -> None:
         pipeline = PIPELINE.read_text(encoding="utf-8")
