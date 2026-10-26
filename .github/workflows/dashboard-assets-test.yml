@@ -3,7 +3,7 @@ name: Dashboard asset builder tests
 on:
   push:
     branches:
-      - feat/know-place-analysis
+      - feat/interactive-geospatial-dashboard
     paths:
       - "dashboard/**"
       - "tools/aggregate_aoi_run.py"
