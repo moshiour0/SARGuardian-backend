@@ -3,7 +3,7 @@
 Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item moves to DONE only with code/test/evidence links.
 
 ## Phase 0 — Evidence and architecture
-- [x] Run the builder against existing successful real-run artifact 40308665800 without replaying source-data downloads; verified 10 observations, 20 layers and unchanged source TIFF hashes. See [smoke run](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40340177367). The historical original ZIP remains unchanged; the smoke test created a separate refreshed fixture bundle.
+- [x] Run the builder against existing successful real-run artifact 40308665800 without replaying source-data downloads; verified 10 observations, 20 layers and unchanged source TIFF hashes. See [latest smoke run](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40350497667). The historical original ZIP remains unchanged; the smoke test created a separate refreshed fixture bundle.
 - [x] Audit the successful processing run and download dashboard artifact.
 - [x] Inventory existing PNG quicklooks, multi-band GeoTIFFs, CSV/reports, provenance, and pixel-stack diagnostics.
 - [x] Identify no-geospatial-map and no-playback gaps in current HTML.
@@ -32,7 +32,7 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [ ] Add native GeoTIFF/quicklook export actions inside the static viewer itself; the original bundle currently retains those assets.
 - [x] Add graceful map-library/basemap fallback messaging and explicit OpenStreetMap attribution; note that actual basemap rendering requires network access.
 - [x] Add keyboard-operable native controls, responsive mobile layout and full-screen presentation toggle.
-- [ ] Add explicit reduced-motion behavior and independent browser/contrast/accessibility audit.
+- [x] Pin MapLibre GL JS 6.16.0 using its v6 ESM entry point; test the imported module guard and syntax-check the module with Node in CI.\n- [ ] Add explicit reduced-motion behavior and independent browser/contrast/accessibility audit. A full real-browser visual test remains pending; the CI smoke test verifies generated artifacts, JS syntax and bundle contract.
 
 ## Phase 3 — Authenticated Dynamic app integration
 - [x] Define owner-scoped, read-only dashboard HTML endpoint in Dynamic PR [#6](https://github.com/moshiour0/SARGuardian_Dynamic/pull/6).
