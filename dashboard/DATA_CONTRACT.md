@@ -66,6 +66,7 @@ The example values above are placeholders illustrating the schema; they must nev
 - `corners` ordering is MapLibre image-source order: northwest, northeast, southeast, southwest, all in WGS84 longitude/latitude.
 - Band names and units must be read from the raster; do not assume all product families share a band schema.
 - If a band unit is missing, label it “source units not declared” instead of guessing.
+- Reader summary statistics are a separate field from the raster band. For the pinned GUNW reader commit used by the reference run, its report computes percentiles over the `displacement_mm` array and labels the median in millimetres; show the pairwise-median chart only when both the reader metric name and raster band metadata support that mapping. Do not reuse that unit mapping for GOFF or another reader.
 - `valid_pixels` count is recomputed from the same output band/NoData policy used by the source validator and reconciled to the product record.
 - `display_scale` is fixed within the comparison group used for playback; its method and numerical limits appear in the legend and export metadata.
 - `visual_assets_status` cannot overwrite or promote scientific validation. The latter remains `NOT_PERFORMED` unless independently validated by an approved method.
