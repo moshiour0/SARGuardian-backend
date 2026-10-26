@@ -175,8 +175,130 @@ function metricSpecs(){return [
 {id:'goff_target_azimuth',label:'Target-local GOFF along-track median (mm)',units:'mm',note:'Target-window along-track offset; not a complete 3-D movement vector.'},
 {id:'target_local_floor',label:'Target-local detection floor (mm/day)',units:'mm/day',note:'Pair-specific local noise/detectability bound, not observed motion or a forecast.'}
 ]}
-function renderMeasurementChart(){const metricSelect=$('measurementMetric'),trackSelect=$('measurementTrack'),svg=$('measurementChart');const specs=metricSpecs().filter(s=>obs.some(p=>metricValue(p,s.id)!==null));const priorMetric=metricSelect.value;metricSelect.innerHTML=specs.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.label)+'</option>').join('');metricSelect.disabled=!specs.length;if(specs.some(s=>s.id===priorMetric))metricSelect.value=priorMetric;svg.replaceChildren();if(!specs.length){svg.setAttribute('viewBox','0 0 420 70');svg.style.height='70px';const tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x','10');tx.setAttribute('y','35');tx.textContent='No unit-labelled compatible metrics are available for this run.';svg.append(tx);trackSelect.innerHTML='';trackSelect.disabled=true;return;}const spec=specs.find(s=>s.id===metricSelect.value)||specs[0];const values=obs.map(p=>({p,value:metricValue(p,spec.id)})).filter(x=>x.value!==null);const tracks=[...new Set(values.map(x=>x.p.track||'track unavailable'))].sort();const priorTrack=trackSelect.value;trackSelect.innerHTML=tracks.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join('');if(tracks.includes(priorTrack))trackSelect.value=priorTrack;trackSelect.disabled=!tracks.length;const track=trackSelect.value||tracks[0],rows=values.filter(x=>(x.p.track||'track unavailable')===track);const maxAbs=Math.max(1,...rows.map(x=>Math.abs(x.value)));const positiveOnly=rows.every(x=>x.value>=0);const h=Math.max(100,rows.length*30+48),w=560,left=150,plot=370,zero=positiveOnly?left:left+plot/2;svg.setAttribute('viewBox','0 0 '+w+' '+h);svg.style.height=h+'px';const makeText=(x,y,t,anchor='start')=>{const tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x',x);tx.setAttribute('y',y);tx.setAttribute('text-anchor',anchor);tx.textContent=t;svg.append(tx);};const axis=document.createElementNS('http://www.w3.org/2000/svg','line');axis.setAttribute('x1',zero);axis.setAttribute('x2',zero);axis.setAttribute('y1',20);axis.setAttribute('y2',h-24);axis.setAttribute('stroke','#72909d');axis.setAttribute('stroke-dasharray','3 3');svg.append(axis);makeText(left,12,spec.label+' · '+track);makeText(left,h-5,positiveOnly?'0':(-maxAbs).toFixed(1),'start');makeText(zero,h-5,'0','middle');makeText(left+plot,h-5,maxAbs.toFixed(1),'end');rows.forEach((x,i)=>{const p=x.p,value=x.value,y=25+i*30,width=Math.abs(value)/maxAbs*(positiveOnly?plot-5:plot/2-4),barX=value<0?zero-width:zero;makeText(left-8,y+13,p.id+' · '+String(p.secondary_date||'').slice(5),'end');const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');rect.setAttribute('x',barX);rect.setAttribute('y',y);rect.setAttribute('width',Math.max(1,width));rect.setAttribute('height',18);rect.setAttribute('rx',3);rect.setAttribute('fill',spec.id==='goff_detection_floor'?'#f7c76b':(value<0?'#66b9e8':'#f4a879'));const title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=p.id+': '+value+' '+spec.units+' · '+p.reference_date+' → '+p.secondary_date;rect.append(title);svg.append(rect);});const note=document.createElementNS('http://www.w3.org/2000/svg','text');note.setAttribute('x',left);note.setAttribute('y',h-24);note.textContent=spec.note;svg.append(note);}function select(i){if(!n)return;selected=(i+n)%n;renderProduct();}function stop(){playing=false;if(timer)clearInterval(timer);timer=null;$('play').textContent='Play';}function play(){if(!n)return;if(playing){stop();return;}playing=true;$('play').textContent='Pause';timer=setInterval(()=>select((selected+1)%n),Number($('speed').value||1500));}
-$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('bandSelect').addEventListener('change',renderProduct);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',stop);renderList();renderChart();renderMeasurementChart();renderSciencePipeline();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
+function renderMeasurementChart(){const metricSelect=$('measurementMetric'),trackSelect=$('measurementTrack'),svg=$('measurementChart');const specs=metricSpecs().filter(s=>obs.some(p=>metricValue(p,s.id)!==null));const priorMetric=metricSelect.value;metricSelect.innerHTML=specs.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.label)+'</option>').join('');metricSelect.disabled=!specs.length;if(specs.some(s=>s.id===priorMetric))metricSelect.value=priorMetric;svg.replaceChildren();if(!specs.length){svg.setAttribute('viewBox','0 0 420 70');svg.style.height='70px';const tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x','10');tx.setAttribute('y','35');tx.textContent='No unit-labelled compatible metrics are available for this run.';svg.append(tx);trackSelect.innerHTML='';trackSelect.disabled=true;return;}const spec=specs.find(s=>s.id===metricSelect.value)||specs[0];const values=obs.map(p=>({p,value:metricValue(p,spec.id)})).filter(x=>x.value!==null);const tracks=[...new Set(values.map(x=>x.p.track||'track unavailable'))].sort();const priorTrack=trackSelect.value;trackSelect.innerHTML=tracks.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join('');if(tracks.includes(priorTrack))trackSelect.value=priorTrack;trackSelect.disabled=!tracks.length;const track=trackSelect.value||tracks[0],rows=values.filter(x=>(x.p.track||'track unavailable')===track);const maxAbs=Math.max(1,...rows.map(x=>Math.abs(x.value)));const positiveOnly=rows.every(x=>x.value>=0);const h=Math.max(100,rows.length*30+48),w=560,left=150,plot=370,zero=positiveOnly?left:left+plot/2;svg.setAttribute('viewBox','0 0 '+w+' '+h);svg.style.height=h+'px';const makeText=(x,y,t,anchor='start')=>{const tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x',x);tx.setAttribute('y',y);tx.setAttribute('text-anchor',anchor);tx.textContent=t;svg.append(tx);};const axis=document.createElementNS('http://www.w3.org/2000/svg','line');axis.setAttribute('x1',zero);axis.setAttribute('x2',zero);axis.setAttribute('y1',20);axis.setAttribute('y2',h-24);axis.setAttribute('stroke','#72909d');axis.setAttribute('stroke-dasharray','3 3');svg.append(axis);makeText(left,12,spec.label+' · '+track);makeText(left,h-5,positiveOnly?'0':(-maxAbs).toFixed(1),'start');makeText(zero,h-5,'0','middle');makeText(left+plot,h-5,maxAbs.toFixed(1),'end');rows.forEach((x,i)=>{const p=x.p,value=x.value,y=25+i*30,width=Math.abs(value)/maxAbs*(positiveOnly?plot-5:plot/2-4),barX=value<0?zero-width:zero;makeText(left-8,y+13,p.id+' · '+String(p.secondary_date||'').slice(5),'end');const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');rect.setAttribute('x',barX);rect.setAttribute('y',y);rect.setAttribute('width',Math.max(1,width));rect.setAttribute('height',18);rect.setAttribute('rx',3);rect.setAttribute('fill',spec.id==='goff_detection_floor'?'#f7c76b':(value<0?'#66b9e8':'#f4a879'));const title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=p.id+': '+value+' '+spec.units+' · '+p.reference_date+' → '+p.secondary_date;rect.append(title);svg.append(rect);});const note=document.createElementNS('http://www.w3.org/2000/svg','text');note.setAttribute('x',left);note.setAttribute('y',h-24);note.textContent=spec.note;svg.append(note);}
+// Comparison viewers are deliberately pairwise: same family, same track/look,
+// same source grid and matching band semantics are required. No raster
+// subtraction, cumulative trend, or cross-datum motion is synthesized here.
+let compareMapAInstance=null,compareMapBInstance=null,compareMapALoaded=false,compareMapBLoaded=false;
+let comparisonSyncing=false,compareOverlayA=null,compareOverlayB=null;
+function compareLayerFor(p,band){return layers.find(l=>l.observation_id===p.id&&Number(l.band)===Number(band))||null;}
+function nearlyEqual(a,b){return Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&Math.abs(Number(a)-Number(b))<=1e-8;}
+function sameNumbers(a,b){return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>nearlyEqual(v,b[i]));}
+function sameSourceGrid(a,b){return Boolean(a&&b&&a.source_crs&&a.source_crs===b.source_crs&&Number(a.source_width)===Number(b.source_width)&&Number(a.source_height)===Number(b.source_height)&&sameNumbers(a.source_transform,b.source_transform)&&sameNumbers(a.corners&&a.corners.flat(),b.corners&&b.corners.flat()));}
+function compatiblePair(a,b){
+ if(!a||!b||a.id===b.id||a.product_type!==b.product_type)return false;
+ const at=String(a.track||''),bt=String(b.track||'');
+ const al=String(a.look_direction||''),bl=String(b.look_direction||'');
+ if(!at||!bt||at.startsWith('geometry-unclassified:')||bt.startsWith('geometry-unclassified:')||at!==bt||!al||!bl||al!==bl)return false;
+ const aa=compareLayerFor(a,1),bb=compareLayerFor(b,1);
+ return Boolean(aa&&bb&&aa.description===bb.description&&aa.units===bb.units&&sameSourceGrid(aa,bb));
+}
+function compareOptions(select,items,currentValue){select.innerHTML=items.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.secondary_date)+' · '+esc(p.id)+'</option>').join('');if(items.some(p=>p.id===currentValue))select.value=currentValue;}
+function addComparisonBaseLayers(map,loadedFlag){
+ if(!map||!map.isStyleLoaded())return;
+ if(aoi&&!map.getSource('compare-aoi')){map.addSource('compare-aoi',{type:'geojson',data:manifest.aoi});map.addLayer({id:'compare-aoi-fill',type:'fill',source:'compare-aoi',paint:{'fill-color':'#66e2d3','fill-opacity':0.04}});map.addLayer({id:'compare-aoi-outline',type:'line',source:'compare-aoi',paint:{'line-color':'#66e2d3','line-width':2,'line-dasharray':[2,1]}});}
+ if(place&&Number.isFinite(Number(place.longitude))&&Number.isFinite(Number(place.latitude))&&!map.getSource('compare-site')){map.addSource('compare-site',{type:'geojson',data:{type:'Feature',properties:{name:place.name||'Selected site'},geometry:{type:'Point',coordinates:[Number(place.longitude),Number(place.latitude)]}}});map.addLayer({id:'compare-site-marker',type:'circle',source:'compare-site',paint:{'circle-radius':6,'circle-color':'#f7c76b','circle-stroke-color':'#fff','circle-stroke-width':1.5}});}
+}
+function createComparisonMap(container,side){
+ const map=new maplibregl.Map({container,style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster',source:'osm'}]},center:[0,0],zoom:2});
+ map.addControl(new maplibregl.NavigationControl(),'top-right');
+ map.on('load',function(){addComparisonBaseLayers(map);if(aoi){const coords=aoi.coordinates[0]||[];if(coords.length){let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;coords.forEach(c=>{west=Math.min(west,c[0]);south=Math.min(south,c[1]);east=Math.max(east,c[0]);north=Math.max(north,c[1]);});map.fitBounds([[west,south],[east,north]],{padding:24,maxZoom:14});}}if(side==='A')compareMapALoaded=true;else compareMapBLoaded=true;renderPairComparison();});
+ map.on('move',function(){if(comparisonSyncing)return;const other=side==='A'?compareMapBInstance:compareMapAInstance;if(!other||!other.loaded())return;comparisonSyncing=true;other.jumpTo({center:map.getCenter(),zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch()});comparisonSyncing=false;});
+ return map;
+}
+function setCompareOverlay(map,side,p,band){
+ if(!map||!map.isStyleLoaded())return;
+ const sourceId='compare-raster-'+side,layerId='compare-raster-layer-'+side;
+ if(map.getLayer(layerId))map.removeLayer(layerId);if(map.getSource(sourceId))map.removeSource(sourceId);
+ const layer=compareLayerFor(p,band);if(!layer)return;
+ const url=(window.SARGUARDIAN_LAYER_DATA||{})[layer.id]||layer.preview_asset;
+ map.addSource(sourceId,{type:'image',url,coordinates:layer.corners});
+ map.addLayer({id:layerId,type:'raster',source:sourceId,paint:{'raster-opacity':0.88,'raster-resampling':'nearest'}});
+}
+function renderPairComparison(){
+ const selectA=$('compareA'),selectB=$('compareB'),selectBand=$('compareBand');
+ if(!selectA||!selectB||!selectBand)return;
+ const observationA=obs.find(p=>p.id===selectA.value)||null;
+ const priorB=selectB.value;
+ const compatible=obs.filter(p=>compatiblePair(observationA,p));
+ compareOptions(selectB,compatible,priorB);
+ const observationB=obs.find(p=>p.id===selectB.value)||null;
+ const compatibleNow=compatiblePair(observationA,observationB);
+ const status=$('compareStatus');
+ selectB.disabled=!compatible.length;
+ if(!compatibleNow){
+  status.textContent='Comparison withheld: no second observation with matching product family, known track/look geometry and exact source grid. No difference or movement claim is generated.';
+  $('compareTitleA').textContent=observationA?'Pair A · '+observationA.id:'Pair A';
+  $('compareTitleB').textContent='No compatible Pair B';
+  $('compareLegendA').textContent='No valid pair comparison selected.';
+  $('compareLegendB').textContent='A compatible source grid is required.';
+  return;
+ }
+ const layerA=compareLayerFor(observationA,1),layerB=compareLayerFor(observationB,1);
+ const commonBands=layers.filter(l=>l.observation_id===observationA.id).filter(l=>{
+  const other=compareLayerFor(observationB,l.band);
+  return other&&l.description===other.description&&l.units===other.units&&sameSourceGrid(l,other);
+ });
+ const previousBand=selectBand.value;
+ selectBand.innerHTML=commonBands.map(l=>'<option value="'+esc(l.band)+'">Band '+esc(l.band)+': '+esc(l.description)+' ('+esc(l.units)+')</option>').join('');
+ if(commonBands.some(l=>String(l.band)===previousBand))selectBand.value=previousBand;
+ selectBand.disabled=!commonBands.length;
+ const band=Number(selectBand.value||1),chosenA=compareLayerFor(observationA,band),chosenB=compareLayerFor(observationB,band);
+ if(!chosenA||!chosenB||!sameSourceGrid(chosenA,chosenB)||chosenA.description!==chosenB.description||chosenA.units!==chosenB.units){
+  status.textContent='Selected bands do not satisfy the common-grid and common-band contract. Comparison withheld.';
+  return;
+ }
+ $('compareTitleA').textContent=(observationA.reference_date||'—')+' → '+(observationA.secondary_date||'—')+' · '+observationA.id;
+ $('compareTitleB').textContent=(observationB.reference_date||'—')+' → '+(observationB.secondary_date||'—')+' · '+observationB.id;
+ const warning='Separate pairwise raster · '+chosenA.description+' · '+chosenA.units+' · display scaling is for visualization only.';
+ $('compareLegendA').textContent=warning;
+ $('compareLegendB').textContent=warning;
+ status.textContent='Compatible pairwise view only: same family ('+observationA.product_type+'), track '+observationA.track+', look '+observationA.look_direction+', source CRS/grid and band meaning match. The two values are not subtracted and may still use different per-pair references.';
+ if(!compareMapAInstance&&maplibregl&&typeof maplibregl.Map==='function')compareMapAInstance=createComparisonMap('compareMapA','A');
+ if(!compareMapBInstance&&maplibregl&&typeof maplibregl.Map==='function')compareMapBInstance=createComparisonMap('compareMapB','B');
+ if(compareMapALoaded&&compareMapAInstance)setCompareOverlay(compareMapAInstance,'A',observationA,band);
+ if(compareMapBLoaded&&compareMapBInstance)setCompareOverlay(compareMapBInstance,'B',observationB,band);
+ if(compareMapAInstance)compareMapAInstance.resize();if(compareMapBInstance)compareMapBInstance.resize();
+}
+function renderHypotheticalScenario(){
+ const svg=$('scenarioChart'),result=$('scenarioResult');if(!svg||!result)return;
+ const rate=Number($('scenarioRate').value),days=Number($('scenarioDays').value);
+ svg.replaceChildren();
+ if($('scenarioRate').value.trim()===''||$('scenarioDays').value.trim()===''||!Number.isFinite(rate)||!Number.isFinite(days)||days<1||days>90||!Number.isInteger(days)||Math.abs(rate)>500){
+  result.textContent='Enter a finite hypothetical rate between −500 and +500 mm/day and a duration of 1–90 whole days. No scenario is shown until both inputs are valid.';
+  svg.setAttribute('viewBox','0 0 560 80');svg.style.height='80px';return;
+ }
+ const cumulative=rate*days,maxAbs=Math.max(1,Math.abs(cumulative));
+ svg.setAttribute('viewBox','0 0 560 180');svg.style.height='180px';
+ const line=(x1,y1,x2,y2,stroke,width,dash)=>{const e=document.createElementNS('http://www.w3.org/2000/svg','line');for(const [k,v] of Object.entries({x1,y1,x2,y2,stroke,'stroke-width':width,'stroke-dasharray':dash||''}))e.setAttribute(k,v);svg.append(e);};
+ const textSvg=(x,y,value,anchor='start')=>{const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('text-anchor',anchor);t.textContent=value;svg.append(t);};
+ const zero=88,endY=zero-(cumulative/maxAbs)*55;
+ line(38,zero,522,zero,'#72909d',1,'4 3');line(38,28,38,148,'#72909d',1,'');
+ line(38,zero,522,endY,'#66e2d3',3,'');
+ const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('cx','522');dot.setAttribute('cy',String(endY));dot.setAttribute('r','4');dot.setAttribute('fill','#66e2d3');svg.append(dot);
+ textSvg(38,17,'HYPOTHETICAL RATE × DURATION · NOT OBSERVED');textSvg(38,164,'0 days');textSvg(522,164,String(days)+' days','end');
+ textSvg(48,zero-7,'0 mm');textSvg(514,endY+(cumulative>=0?-8:16),cumulative.toFixed(1)+' mm','end');
+ const pair=current(),metrics=pair&&pair.metrics||{},floor=(metrics.target_local_floor_status==='MEASURED'?Number(metrics.target_local_floor_mm_day):NaN);
+ let message='Hypothetical only — not observed NISAR data, not a hazard alert, and not a forecast. Scenario displacement after '+days+' days: '+cumulative.toFixed(2)+' mm at '+rate.toFixed(2)+' mm/day.';
+ if(Number.isFinite(floor)&&floor>0){
+  const ratio=Math.abs(rate)/floor;
+  message+=' Selected observed pair '+pair.id+' has a measured pair-local floor of '+floor.toFixed(2)+' mm/day; absolute scenario rate is '+ratio.toFixed(2)+'× that floor. This ratio is a simple sensitivity comparison, not a formal detection probability, inverse-velocity test or prediction.';
+ } else {
+  message+=' No measured target-local floor is available for the selected observed pair; no detection-threshold comparison is shown.';
+ }
+ result.textContent=message;
+}
+function initComparisonControls(){
+ const a=$('compareA'),b=$('compareB'),band=$('compareBand'),details=$('pairCompare');
+ compareOptions(a,obs,obs[0]&&obs[0].id);
+ if(obs.length>1){const first=obs.find(p=>obs.some(q=>compatiblePair(p,q)));if(first)a.value=first.id;}
+ renderPairComparison();
+ a.addEventListener('change',renderPairComparison);b.addEventListener('change',renderPairComparison);band.addEventListener('change',renderPairComparison);
+ details.addEventListener('toggle',()=>{if(details.open){renderPairComparison();if(compareMapAInstance)compareMapAInstance.resize();if(compareMapBInstance)compareMapBInstance.resize();}});
+ $('simulateScenario').addEventListener('click',renderHypotheticalScenario);
+}
+function select(i){if(!n)return;selected=(i+n)%n;renderProduct();}function stop(){playing=false;if(timer)clearInterval(timer);timer=null;$('play').textContent='Play';}function play(){if(!n)return;if(playing){stop();return;}playing=true;$('play').textContent='Pause';timer=setInterval(()=>select((selected+1)%n),Number($('speed').value||1500));}
+$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('bandSelect').addEventListener('change',renderProduct);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
 </script></body></html>'''
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
