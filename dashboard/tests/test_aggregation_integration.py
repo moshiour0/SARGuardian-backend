@@ -36,7 +36,7 @@ def test_existing_private_drive_upload_and_required_account_files_remain() -> No
 
 def test_account_workflow_reports_dashboard_status_and_uses_retry_enabled_callback_contract() -> None:
     workflow = ACCOUNT_WORKFLOW.read_text(encoding="utf-8")
-    assert workflow.count("d030debee5b52e2ecb4b999b2c0ccc70130f371d") == 2
+    assert workflow.count("db6472e1c304e21242f1ab1dfd671ccb21ba5697") == 2
     assert "Interactive web-dashboard assets" in workflow
     assert "web-dashboard/index.html" in workflow
     assert "Report validated terminal state" in workflow
