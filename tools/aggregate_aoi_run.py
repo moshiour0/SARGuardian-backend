@@ -399,10 +399,10 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
     # displacement inversion is withheld unless common-reference provenance is
     # verified; this is a scientific gate, not a processing failure.
     try:
-        try:
-            from dashboard.science_pipeline import build_science_pipeline_report
-        except ImportError:
-            from science_pipeline import build_science_pipeline_report
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.science_pipeline import build_science_pipeline_report
         science_pipeline = build_science_pipeline_report(
             result_rows, args.science_root, science_diagnostics
         )
