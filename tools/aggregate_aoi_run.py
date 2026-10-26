@@ -394,6 +394,35 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
+    # Use the pinned science engine for acquisition-network topology and emit an
+    # explicit eligibility report for every downstream science module. Pairwise
+    # displacement inversion is withheld unless common-reference provenance is
+    # verified; this is a scientific gate, not a processing failure.
+    try:
+        try:
+            from dashboard.science_pipeline import build_science_pipeline_report
+        except ImportError:
+            from science_pipeline import build_science_pipeline_report
+        science_pipeline = build_science_pipeline_report(
+            result_rows, args.science_root, science_diagnostics
+        )
+    except Exception as exc:
+        science_pipeline = {
+            "schema_version": "sarguardian-science-pipeline-readiness/1.0",
+            "overall_status": "REPORT_BUILD_FAILED",
+            "network_assessment_status": "UNAVAILABLE",
+            "science_commit_expected": str(manifest.get("science_commit") or ""),
+            "structural_validation_is_geophysical_validation": False,
+            "networks": [],
+            "modules": [],
+            "warnings": [
+                "The stage-readiness report could not be built.",
+                "No unavailable measurements were replaced by synthetic values.",
+            ],
+            "error": type(exc).__name__ + ":" + str(exc)[:250],
+        }
+    science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
+
     ring = parse_polygon_wkt(str(manifest["aoi_wkt"]))
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
@@ -424,11 +453,16 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
         "science_diagnostics":science_diagnostics,
+        "science_pipeline":science_pipeline,
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
         "goff_count":sum(x.get("product_type")=="GOFF" for x in result_rows),
         "retention_profile_note":manifest.get("archive_note"),"baseline_policy":manifest.get("baseline_policy"),
         "science_claim_limit":manifest.get("scientific_claim_limit"),"errors":errors,
     }
+    (out/"science-pipeline-report.json").write_text(
+        json.dumps(json_safe(science_pipeline), indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
