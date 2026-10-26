@@ -478,8 +478,14 @@ def plot_series(path: Path, rows: list[dict[str, Any]], title: str) -> None:
         series_rows = sorted(series_rows, key=lambda row: row["epoch"])
         x = [dt_datetime.strptime(row["epoch"], "%Y-%m-%d") for row in series_rows]
         y = [float(row["cumulative_mm"]) for row in series_rows]
-        err = [float(row["error_mm"]) if row.get("error_mm") is not None else 0.0 for row in series_rows]
-        axis.errorbar(x, y, yerr=err, marker="o", capsize=3, label=f"{geometry} · component {component}")
+        available = [(idx, float(row["error_mm"])) for idx, row in enumerate(series_rows)
+                     if row.get("error_mm") is not None and math.isfinite(float(row["error_mm"]))]
+        label = f"{geometry} · component {component}"
+        axis.plot(x, y, marker="o", label=label)
+        if available:
+            axis.errorbar([x[idx] for idx, _ in available],
+                          [y[idx] for idx, _ in available],
+                          yerr=[err for _, err in available], fmt="none", capsize=3)
     axis.set_ylabel("Relative cumulative displacement (mm, LOS/range)")
     axis.set_xlabel("Observation date")
     axis.set_title(title + "\ncomponents are independent; error bars are residual-based where defined")
@@ -989,7 +995,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             # the source detector checks series_id+CRID instead of dates alone.
             latest = max(item["secondary_date"] for item in item_group["items"])
             forecast = run_inverse_velocity(
-                science_root, series_path, out_root / floor_path_text, out_dir,
+                science_root, series_path, out_dir / floor_path_text, out_dir,
                 family, latest, aoi_wkt, gid,
             )
             inverse_results.append({"family": family, "geometry": label, **forecast})
@@ -1021,13 +1027,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     passed_components = sum(
         1 for item in series_objects if item["status"] == "PASS" and item.get("dof", 0) > 0
     )
-    if passed_components:
-        result_status = "PARTIAL" if reference_ring is None else "PASS"
-    else:
+    if not series_objects:
         result_status = "INSUFFICIENT_DATA"
+    elif reference_ring is None or passed_components == 0:
+        result_status = "PARTIAL"
+    else:
+        result_status = "PASS"
     result.update({
         "status": result_status,
         "groups": [entry["group_report"] for entry in groups_for_downstream],
+        "series": {"GUNW": [item for item in series_objects if item["family"] == "GUNW"],
+                   "GOFF": [item for item in series_objects if item["family"] == "GOFF"]},
         "rejected_products": rejected,
         "pair_inventory_count": len(inventory_rows),
         "eligible_pair_exports": len(loaded),
