@@ -49,5 +49,6 @@ def test_display_builder_does_not_mutate_source_or_redownload_raw_data() -> None
     assert "source_geotiffs_unchanged" in builder
     assert "urlopen(" not in builder
     assert "requests.get(" not in builder
-    assert '"license": "various"' in builder
-    assert "does not relicense source material" in builder
+    assert '"license": "other"' in builder
+    assert builder.count('"rel": "license"') >= 2
+    assert "does not relicense source data" in builder
