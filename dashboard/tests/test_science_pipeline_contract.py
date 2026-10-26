@@ -24,6 +24,7 @@ class SciencePipelineContractTests(unittest.TestCase):
     def test_every_main_science_module_has_an_explicit_dynamic_aoi_stage_gate(self) -> None:
         pipeline = PIPELINE.read_text(encoding="utf-8")
         aggregator = AGGREGATOR.read_text(encoding="utf-8")
+        builder = BUILDER.read_text(encoding="utf-8")
         for name in (
             "timeseries.py", "local_floor.py", "inverse_velocity.py",
             "geometry_merge.py", "bound.py", "gunw_reader.py", "goff_reader.py",
