@@ -38,7 +38,9 @@ class DashboardWorkflowPinTests(unittest.TestCase):
         self.assertIn('SITE_TARGET_LATITUDE: ${{ inputs.target_latitude }}', workflow)
         self.assertIn('place_name:', workflow)
         self.assertIn('target_longitude:', workflow)
-        self.assertIn('"site_context": summary.get("site_context") or {}', aggregator)
+        self.assertIn("def build_site_context(ring:", aggregator)
+        self.assertIn('"site_context": summary.get("site_context") or {}', builder)
+        self.assertIn("def collect_target_evidence(artifact:", aggregator)
 
 
 if __name__ == "__main__":
