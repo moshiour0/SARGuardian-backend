@@ -20,9 +20,12 @@ from pyproj import Transformer
 from rasterio.windows import Window
 
 
-def finite_values(values: np.ndarray) -> np.ndarray:
+def finite_values(values: np.ndarray, nodata: float | None = None) -> np.ndarray:
     arr = np.asarray(values, dtype="float64").ravel()
-    return arr[np.isfinite(arr)]
+    arr = arr[np.isfinite(arr)]
+    if nodata is not None and math.isfinite(float(nodata)):
+        arr = arr[arr != float(nodata)]
+    return arr
 
 
 def measure_target(
@@ -77,7 +80,7 @@ def measure_target(
             metric_name = "target_local_los_median_mm"
             metric_description = "GUNW LOS displacement"
             quality_name = "mean_coherence"
-            quality_values = finite_values(ds.read(2, window=window))
+            quality_values = finite_values(ds.read(2, window=window), ds.nodata)
             quality = float(np.mean(quality_values)) if quality_values.size else None
             quality = min(1.0, max(0.0, quality)) if quality is not None else None
         else:
@@ -91,7 +94,7 @@ def measure_target(
             metric_azimuth = "target_local_azimuth_median_mm"
             measurements[metric_azimuth] = float(np.median(second_values)) if second_values.size >= minimum_valid_pixels else None
             quality_name = "mean_correlation"
-            quality_values = finite_values(ds.read(3, window=window))
+            quality_values = finite_values(ds.read(3, window=window), ds.nodata)
             quality = float(np.mean(quality_values)) if quality_values.size else None
 
         measurements[metric_name] = float(np.median(values)) if support >= minimum_valid_pixels else None
