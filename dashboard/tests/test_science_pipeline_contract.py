@@ -28,6 +28,8 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn('"site_context": summary.get("site_context") or {}', builder)
         self.assertIn("sameSourceGrid(a,b)", builder)
         self.assertIn("function compatiblePair(a,b)", builder)
+        self.assertIn("function metricUncertainty(p,key)", builder)
+        self.assertIn("target_local_floor_ci_hi_mm_day", builder)
         self.assertIn("Selected bands do not satisfy the common-grid and common-band contract", builder)
         self.assertIn("not a forecast", builder.lower())
         self.assertIn("This ratio is a simple sensitivity comparison", builder)
