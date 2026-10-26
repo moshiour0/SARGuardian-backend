@@ -48,6 +48,18 @@ class PrepareWebAssetsTests(unittest.TestCase):
             "stats": {"track": "DESC 091", "mean_coherence": 0.6},
             "exports": [{"name": "fixture.tif", "relative_path": "product-data/GUNW-001/fixture.tif", "quicklook": None}],
             "validation_scope": "structural_and_provenance_not_independent_geophysical_validation",
+            "target_measurement": {
+                "status": "MEASURED",
+                "measurements": {
+                    "target_local_los_median_mm": 2.5, "target_local_range_median_mm": None,
+                    "target_local_azimuth_median_mm": None, "mean_coherence": 0.62,
+                },
+            },
+            "local_floor": {
+                "status": "MEASURED",
+                "metrics": {"radius_px": 6, "local_floor_mm_day": 8.1,
+                            "local_floor_ci_lo_mm_day": 6.0, "local_floor_ci_hi_mm_day": 10.5},
+            },
         }
         summary = {
             "schema_version": "sarguardian-aoi-dashboard-summary/1.0", "status": "PASS",
@@ -59,6 +71,14 @@ class PrepareWebAssetsTests(unittest.TestCase):
             "products_validated": 1, "products_missing": 0, "gunw_count": 1, "goff_count": 0,
             "science_diagnostics": {"pixel_stack": {"status": "COMPLETED"}, "candidate_checks": {"status": "SKIPPED_UNSUPPORTED_CUSTOM_AOI", "detail": "test fixture"}},
             "science_claim_limit": "Structural validation does not independently validate geophysical accuracy.",
+            "site_context": {
+                "place": {"name": "Test ridge", "latitude": 24.7518, "longitude": 90.3864,
+                          "coordinates_status": "VALID", "inside_aoi": True},
+                "measurement_target": {"status": "IN_AOI_TARGET_CAPTURED", "latitude": 24.7518,
+                                       "longitude": 90.3864, "used_by_reader": False, "is_measurement": False},
+            },
+            "target_measurement_count": 1,
+            "local_floor_count": 1,
         }
         (root / "aoi-run-summary.json").write_text(json.dumps(summary), encoding="utf-8")
         (root / "aoi-processing-report.json").write_text(json.dumps({"summary": summary, "products": [product], "processing_report": {"status": "PASS"}}), encoding="utf-8")
@@ -80,6 +100,12 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["observations"][0]["reference_date"], "2026-07-21")
             self.assertEqual(manifest["validation"]["visual_assets_status"], "PASS")
             self.assertEqual(manifest["observations"][0]["metrics"]["reader_median_units"], "mm")
+            self.assertEqual(manifest["site_context"]["place"]["name"], "Test ridge")
+            self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
+            self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
+            site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
+            self.assertEqual(len(site_geojson["features"]), 1)
+            self.assertEqual(site_geojson["features"][0]["geometry"]["coordinates"], [90.3864, 24.7518])
             los = next(layer for layer in manifest["layers"] if layer["band"] == 1)
             coh = next(layer for layer in manifest["layers"] if layer["band"] == 2)
             self.assertEqual(los["units"], "mm")
@@ -119,6 +145,9 @@ class PrepareWebAssetsTests(unittest.TestCase):
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("measurementChart", viewer)
             self.assertIn("measurementTrack", viewer)
+            self.assertIn("selected-site-marker", viewer)
+            self.assertIn("Target-local GUNW LOS median (mm)", viewer)
+            self.assertIn("Target-local detection floor (mm/day)", viewer)
             self.assertIn("bars are not connected", viewer.lower())
             self.assertIn('<script type="module">', viewer)
             self.assertIn("maplibre-gl@6.16.0/dist/maplibre-gl.mjs", viewer)
