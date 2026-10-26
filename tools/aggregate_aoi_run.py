@@ -10,6 +10,7 @@ import json
 import math
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 from datetime import datetime, timezone
@@ -441,6 +442,94 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "status":summary["status"],"errors":errors,
         "warning_note":"PASS indicates requested-AOI processing and structural checks passed; it is not independent geophysical validation."}}
     (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+
+    # Scientific E2E analysis consumes only this run's validated derived GeoTIFFs.
+    # Any science-stage failure is recorded separately and must never skip the
+    # existing result ZIP, private Drive upload, or the ordinary product outputs.
+    science_analysis: dict[str, Any]
+    science_tool = Path(__file__).resolve().parent / "run_dynamic_aoi_science.py"
+    science_argv = [
+        sys.executable, str(science_tool),
+        "--manifest", str(args.manifest.resolve()),
+        "--processing-report", str((out/"aoi-processing-report.json").resolve()),
+        "--science-root", str(args.science_root.resolve()),
+        "--out-root", str(out.resolve()),
+        "--expected-science-commit", str(manifest.get("science_commit") or ""),
+    ]
+    target_config = manifest.get("target") if isinstance(manifest.get("target"), dict) else {}
+    for key, flag in (("lat", "--target-lat"), ("lon", "--target-lon")):
+        value = target_config.get(key)
+        if value is not None and str(value).strip() != "":
+            science_argv.extend([flag, str(value)])
+    reference_wkt = str(manifest.get("reference_wkt") or "").strip()
+    if reference_wkt:
+        science_argv.extend(["--reference-wkt", reference_wkt])
+    science_log_path = out/"science-analysis-build.log"
+    try:
+        completed = subprocess.run(
+            science_argv, cwd=Path(__file__).resolve().parents[1],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            check=False, timeout=3600,
+        )
+        science_log_path.write_text(completed.stdout or "", encoding="utf-8")
+        science_report_path = out/"science-analysis"/"analysis-report.json"
+        if science_report_path.is_file():
+            science_analysis = json.loads(science_report_path.read_text(encoding="utf-8"))
+            if not isinstance(science_analysis, dict):
+                raise ValueError("SCIENTIFIC_ANALYSIS_REPORT_NOT_OBJECT")
+            science_analysis["runner_exit_code"] = completed.returncode
+            science_analysis["runner_log"] = "science-analysis-build.log"
+            if completed.returncode != 0 and science_analysis.get("status") not in {"FAIL", "INSUFFICIENT_DATA", "PARTIAL"}:
+                science_analysis["status"] = "FAIL"
+                science_analysis.setdefault("errors", []).append("SCIENTIFIC_ANALYSIS_RUNNER_EXIT_NONZERO")
+        else:
+            science_analysis = {
+                "schema_version":"sarguardian-dynamic-aoi-science/1.0",
+                "status":"FAIL",
+                "runner_exit_code":completed.returncode,
+                "runner_log":"science-analysis-build.log",
+                "errors":["SCIENTIFIC_ANALYSIS_REPORT_MISSING"],
+            }
+    except subprocess.TimeoutExpired as exc:
+        tail = exc.stdout or b""
+        if isinstance(tail, bytes):
+            tail = tail.decode("utf-8", errors="replace")
+        science_log_path.write_text("SCIENTIFIC_ANALYSIS_TIMEOUT\n"+str(tail)[-5000:], encoding="utf-8")
+        science_analysis = {
+            "schema_version":"sarguardian-dynamic-aoi-science/1.0",
+            "status":"FAIL", "runner_log":"science-analysis-build.log",
+            "errors":["SCIENTIFIC_ANALYSIS_TIMEOUT_AFTER_3600_SECONDS"],
+        }
+        (out/"science-analysis").mkdir(parents=True, exist_ok=True)
+        (out/"science-analysis"/"analysis-report.json").write_text(
+            json.dumps(science_analysis, indent=2)+"\n", encoding="utf-8")
+    except Exception as exc:
+        science_analysis = {
+            "schema_version":"sarguardian-dynamic-aoi-science/1.0",
+            "status":"FAIL", "runner_log":"science-analysis-build.log",
+            "errors":[type(exc).__name__+":"+str(exc)[:500]],
+        }
+        (out/"science-analysis").mkdir(parents=True, exist_ok=True)
+        (out/"science-analysis"/"analysis-report.json").write_text(
+            json.dumps(science_analysis, indent=2)+"\n", encoding="utf-8")
+    summary["scientific_analysis"] = {
+        "status": science_analysis.get("status", "UNKNOWN"),
+        "runner_log": science_analysis.get("runner_log", "science-analysis-build.log"),
+        "eligible_pair_exports": science_analysis.get("eligible_pair_exports", 0),
+        "series_component_count": science_analysis.get("series_component_count", 0),
+        "series_components_with_residual_uncertainty": science_analysis.get("series_components_with_residual_uncertainty", 0),
+        "operational_alerts": 0,
+        "interpretation": "Scientific-analysis status is separate from product-processing and dashboard status; no operational warning is emitted.",
+    }
+    report["summary"] = summary
+    report["scientific_analysis"] = science_analysis
+    (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+    (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+    write_html(out,summary,result_rows,polygon_svg(ring))
+    print("DYNAMIC_AOI_SCIENCE_STATUS="+str(science_analysis.get("status","UNKNOWN")))
+    print("DYNAMIC_AOI_SCIENCE_SERIES_COMPONENTS="+str(science_analysis.get("series_component_count",0)))
+    print("DYNAMIC_AOI_SCIENCE_OPERATIONAL_ALERTS=0")
+
     # Build georeferenced web-display assets from already validated AOI-clipped
     # GeoTIFF exports. This is presentation-only; it must not trigger new raw
     # downloads or rewrite scientific inputs. A preview failure is reported
