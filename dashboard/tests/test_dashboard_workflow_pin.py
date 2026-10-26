@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml"
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
 BUILDER = ROOT / "dashboard" / "assets" / "prepare_web_assets.py"
-EXPECTED_BUILDER_SHA = "b9cdbc66c9d317ad005b3df8131c32a034a3de53"
+EXPECTED_BUILDER_SHA = "efb299aa2fbe31ab8f6fe6ee796fd45dcfe853ce"
 
 
 class DashboardWorkflowPinTests(unittest.TestCase):
@@ -34,6 +34,11 @@ class DashboardWorkflowPinTests(unittest.TestCase):
         self.assertIn('find "$CURATED_DIR/derived" -type f -print | sort', worker)
         self.assertIn("LOCAL_FLOOR_STATUS=", worker)
         self.assertIn("TARGET_MEASUREMENT_STATUS=", worker)
+        self.assertIn('SITE_PLACE_NAME: ${{ inputs.place_name }}', workflow)
+        self.assertIn('SITE_TARGET_LATITUDE: ${{ inputs.target_latitude }}', workflow)
+        self.assertIn('place_name:', workflow)
+        self.assertIn('target_longitude:', workflow)
+        self.assertIn('"site_context": summary.get("site_context") or {}', aggregator)
 
 
 if __name__ == "__main__":
