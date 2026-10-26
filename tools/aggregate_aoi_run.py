@@ -464,7 +464,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
     summary["web_dashboard"] = web_dashboard
     report["summary"] = summary
     report["web_dashboard"] = web_dashboard
-    (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\\n",encoding="utf-8")
+    (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\\n",encoding="utf-8")
 
     zip_path=out/"aoi-derived-results.zip"
