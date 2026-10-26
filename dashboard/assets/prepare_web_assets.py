@@ -218,7 +218,8 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                         raise ValueError(f"Source raster valid-pixel mismatch for {pid}: record={expected_valid}, raster={meta['source_valid_pixels']}")
                 if not valid.size:
                     continue
-                track_value = (product.get("stats") or {}).get("track") or product.get("track")\n                track = str(track_value) if track_value else "geometry-unclassified:" + pid
+                track_value = (product.get("stats") or {}).get("track") or product.get("track")
+                track = str(track_value) if track_value else "geometry-unclassified:" + pid
                 kind = "coherence" if "coherence" in meta["description"].lower() else "continuous"
                 group_key = (str(product.get("product_type") or "UNKNOWN"), track, meta["description"])
                 groups.setdefault(group_key, []).append(valid.astype("float32", copy=False))
