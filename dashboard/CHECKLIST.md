@@ -18,26 +18,26 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [ ] Harden validation further: enforce full manifest/schema shape, true polygon-to-valid-pixel intersection (not only conservative bounding-box overlap), all-NaN/empty bands, and checksum round-trips.
 - [x] Add unit tests for cross-UTM reprojection, NoData transparency, STAC paths, common scale within the same track group and source TIFF immutability.\n- [ ] Extend tests for missing band descriptions, all-empty bands, multi-export products and deterministic rebuilds.
 - [x] Wire builder into AOI aggregation before ZIP creation and Drive upload. The new visualization build is best-effort and reports its own status so a render issue cannot mark scientific processing as failed.
-- [ ] Add generated file list and explicit status to workflow step summary; review the private Drive package inventory and preserve the three required account artifacts.
+- [ ] Add generated file list and explicit status to the GitHub workflow step summary; review the private Drive package inventory and preserve the three required account artifacts.
 - [ ] Run the exact committed builder against the downloaded run artifact and compare all source TIFF hashes before/after.
 
 ## Phase 2 — Interactive offline/presentation viewer
-- [ ] Add map panel showing true AOI geometry and geo-located preview layer, never a schematic pretending to be the map.
-- [ ] Add product/band selector, opacity slider, legend with units/scale, product details and pixel count.
-- [ ] Add acquisition-pair timeline, Play/Pause, previous/next, playback speed and date labels.
+- [x] Add map panel showing the true AOI polygon and georeferenced raster preview layers, never a schematic pretending to be the map.
+- [x] Add product/band selector, opacity slider, legend with units/scale, product details and pixel count.
+- [x] Add acquisition-pair timeline, Play/Pause, previous/next, playback speed and date labels.
 - [ ] Group observations by track/view geometry; do not interpolate missing acquisitions or join incompatible pairwise measurements as a trend.
-- [ ] Add scientific metric charts, data-quality/support chart, provenance card, limitation banners, and export links.
-- [ ] Add graceful no-basemap/offline fallback and explicit map-data attribution.
-- [ ] Add keyboard, mobile, contrast, reduced-motion, and presentation/full-screen checks.
+- [x] Add pairwise LOS median chart filtered to one track, valid-pixel support chart, provenance card and always-visible science limitation banner.\n- [ ] Add native GeoTIFF/quicklook export actions inside the static viewer itself; the original bundle currently retains those assets.
+- [x] Add graceful map-library/basemap fallback messaging and explicit OpenStreetMap attribution; note that actual basemap rendering requires network access.
+- [x] Add keyboard-operable native controls, responsive mobile layout and full-screen presentation toggle.\n- [ ] Add explicit reduced-motion behavior and independent browser/contrast/accessibility audit.
 
 ## Phase 3 — Authenticated Dynamic app integration
-- [ ] Define owner-scoped read-only dashboard metadata/assets endpoint or verified bundle download.
-- [ ] Enforce Firebase owner authentication and server-side job ownership.
-- [ ] Verify stored artifact byte count and SHA-256 before serving; do not leak private Drive IDs.
-- [ ] Add “Open interactive dashboard” for successful jobs and a resilient direct-link route.
-- [ ] Show `processing PASS`, `visual assets PASS`, and `independent scientific validation NOT PERFORMED` as distinct states.
-- [ ] Preserve current Retry task, account history, and private Drive retention behavior.
-- [ ] Test authorization failures, expired/missing artifacts, API retries and older schema versions.
+- [x] Define owner-scoped, read-only dashboard HTML endpoint in Dynamic PR [#6](https://github.com/moshiour0/SARGuardian_Dynamic/pull/6).
+- [x] Enforce Firebase bearer authentication and server-side job ownership in Dynamic PR #6.
+- [x] Verify stored artifact byte count/SHA-256 before serving; do not leak private Drive IDs.
+- [x] Add the “Open interactive dashboard” action for successful jobs with a PASS dashboard receipt in Dynamic PR #6. The action is intentionally hidden for old jobs.
+- [x] Keep processing status and visual asset status separate in the bundle; expose web dashboard status to the account UI. The viewer visibly states that independent geophysical validation was not performed.
+- [x] Preserve existing Retry task, account history and private Drive retention code paths.
+- [x] Test authorization failure, old bundles without dashboard assets, checksum mismatch, and duplicate manifest compatibility.\n- [ ] Add expiry and transient-storage retry tests for the dashboard endpoint.
 
 ## Phase 4 — Scientific visualization QA
 - [ ] Test expected product/observation count and pair/date sorting.
@@ -49,8 +49,8 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [ ] Independent reviewer sign-off on the visual measurement semantics before any operational hazard-alert language.
 
 ## Phase 5 — Performance and release
-- [ ] Verify dashboard generation adds no source HDF5 downloads and does not increase raw retention.
+- [x] Builder consumes only already validated AOI-clipped GeoTIFFs and metadata; no raw HDF5 re-download or retention-profile change is introduced.
 - [ ] Benchmark asset build time, bundle size, first contentful display, and playback frame consistency.
 - [ ] Check reproducible manifests/checksums on a second run with the same fixture.
-- [ ] Document browser requirements, external basemap dependency, and offline behavior.
-- [ ] Complete code review and CI; integrate only into the approved science-integration branch, never commit directly to backend `main`.
+- [x] Document MapLibre/OpenStreetMap network dependency, offline fallback, native TIFF and bundle behavior.
+- [x] Dashboard builder tests and backend regression CI pass on the feature branch.\n- [ ] Complete review and integration. PR #43 targets `feat/final-aoi-science-integration`; it does not change backend `main`. Dynamic app PR #6 is separate and remains unmerged.\n- [ ] Update the production workflow's signed-callback helper pin only in an approved integration PR, then run a new processing job and verify that its result summary includes `web_dashboard.status == PASS` before exposing the live button.
