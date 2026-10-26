@@ -37,6 +37,24 @@ def test_goff_target_metric_is_local_and_not_time_series(tmp_path: Path) -> None
     assert "common datum" in result["interpretation"]
 
 
+def test_gunw_target_metric_uses_band1_and_excludes_finite_nodata_in_coherence(tmp_path: Path) -> None:
+    raster = tmp_path / "GUNW_20260801_20260813.tif"
+    coherence = np.full((7, 7), 0.75, dtype="float32")
+    coherence[3, 3] = -9999.0
+    los = np.arange(49, dtype="float32").reshape(7, 7)
+    with rasterio.open(raster, "w", driver="GTiff", width=7, height=7, count=2,
+                       dtype="float32", crs="EPSG:4326",
+                       transform=from_origin(85.0, 27.007, 0.001, 0.001), nodata=-9999.0) as ds:
+        ds.write(los, 1); ds.write(coherence, 2)
+        ds.set_band_description(1, "LOS displacement (mm)")
+        ds.set_band_description(2, "coherence")
+        ds.update_tags(reference="2026-08-01", secondary="2026-08-13", aoi_name="custom", aoi_mask_applied="true")
+    result = measure_target(raster, "GUNW", longitude=85.0035, latitude=27.0035, radius_px=1)
+    assert result["status"] == "MEASURED"
+    assert result["measurements"]["target_local_los_median_mm"] == 24.0
+    assert result["measurements"]["mean_coherence"] == 0.75
+
+
 def test_target_outside_raster_and_insufficient_support_are_explicit(tmp_path: Path) -> None:
     raster = tmp_path / "GUNW_20260801_20260813.tif"
     write_fixture(raster)
