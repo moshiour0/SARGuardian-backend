@@ -19,7 +19,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("GOFF range-offset median (mm)", builder)
         self.assertIn("GOFF along-track offset median (mm)", builder)
         self.assertIn("GOFF detection floor (mm/day)", builder)
-        self.assertIn("Detection floors are noise bounds, not observed motion", builder)
+        self.assertIn("detection floors are noise bounds, not observed motion", builder)
         self.assertIn('"target_local_los_median_mm": metric_number(target_metrics.get("target_local_los_median_mm"))', builder)
         self.assertIn('"target_local_floor_mm_day": metric_number(floor_metrics.get("local_floor_mm_day"))', builder)
         self.assertIn("selected-site-marker", builder)
