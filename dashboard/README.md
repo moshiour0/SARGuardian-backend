@@ -4,15 +4,17 @@ This directory is the implementation home for the product-facing geospatial dash
 
 ## Current state
 
-The processing run already creates a useful evidence bundle:
-- per-product, AOI-clipped multi-band GeoTIFF exports;
-- PNG quicklooks (currently independently stretched per image);
-- `products.csv`, `aoi-run-summary.json`, and `aoi-processing-report.json`;
-- per-product metadata/provenance, reader statistics, and science diagnostics;
-- an offline HTML report with summary cards, filters, a metric chart, product table, and quicklooks;
-- a derived-results ZIP plus verified upload receipts for private Drive storage.
+The successful reference run [40308665800](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40308665800) generated the original evidence bundle:
+- per-product AOI-clipped multi-band GeoTIFFs and PNG quicklooks;
+- `products.csv`, `aoi-run-summary.json`, `aoi-processing-report.json`;
+- per-product provenance, reader statistics and science diagnostics;
+- the earlier static HTML report and verified private Drive result package.
 
-The current HTML is **not yet an interactive geospatial map**. Its AOI illustration explicitly says it is a schematic, not a basemap or raster footprint. It has no map-aligned raster layer switching or date playback. The GeoTIFFs are the correct source for spatial alignment; the PNG quicklooks are visual summaries only.
+The audit found no map-aligned raster overlay, observation playback, STAC catalog, or authenticated in-app dashboard in that run. The builder and viewer in this feature branch now implement those missing pieces **for future runs that use this branch**. The previous successful ZIP is not retroactively changed, and the current production `main` workflow is not changed by this PR.
+
+The output bundle adds transparent WGS84 raster previews derived from already clipped GeoTIFFs, `web-dashboard/manifest.json`, `aoi.geojson`, pair-aware `timeline.json`, `metrics.json`, STAC 1.1.0 metadata, and a MapLibre viewer with layer controls, real acquisition-pair playback, quality/provenance panels, a per-track pairwise LOS median graph, and presentation mode. Native GeoTIFF remains the analytical asset; a display preview does not replace source data.
+
+The separate in-app integration is tracked in [SARGuardian_Dynamic PR #6](https://github.com/moshiour0/SARGuardian_Dynamic/pull/6). Both PRs remain reviewable and unmerged. A new run using the integrated workflow is still required before claiming that the live account dashboard is active.
 
 ## Design decisions
 
