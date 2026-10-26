@@ -140,20 +140,20 @@ def test_full_baseline_preflights_urgent_response_products_before_matrix_jobs():
     assert "ERROR=UR_BASELINE_SOURCE_UNAVAILABLE" in manifest[preflight:]
     assert "full-baseline processing stopped before any product downloads" in manifest[preflight:]
 
-def test_download_step_captures_both_stdout_and_stderr_for_diagnostics():
+def test_download_step_captures_both_stdout_and_stderr_with_single_attempt():
     text = PRODUCT_WORKER.read_text(encoding="utf-8")
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
     )[1].split("\n      - name:", 1)[0]
     assert '--out-dir "$RAW_DIR" 2>&1 | tee "$attempt_log"' in download
-    assert "max_attempts=4" in download
+    assert "max_attempts=1" in download
     assert "DOWNLOAD_FAILURE_RETRYABLE=yes" in download
     assert "timeout-minutes: 90" in download
     assert 'ERROR=DIRECT_HTTPS_PRODUCT_PROBE_FAILED' in (WORKFLOW.parents[2] / "tools" / "download_nisar_product.py").read_text(encoding="utf-8")
 
 
 
-def test_download_step_retries_transient_earthdata_failures_with_bounded_backoff():
+def test_download_step_does_not_retry_large_transient_earthdata_downloads():
     text = PRODUCT_WORKER.read_text(encoding="utf-8")
     download = text.split(
         "- name: Download exactly one raw NISAR granule", 1
@@ -164,13 +164,13 @@ def test_download_step_retries_transient_earthdata_failures_with_bounded_backoff
     assert "timeout-minutes: 90" in download
 
 
-def test_urgent_response_preflight_also_retries_transient_authentication_failures():
+def test_urgent_response_preflight_uses_single_probe_attempt():
     text = WORKFLOW.read_text(encoding="utf-8")
     preflight = text.split(
         "- name: Fail fast when a selected urgent-response baseline product is unavailable", 1
     )[1].split("\n\n  process-one:", 1)[0]
     assert "DOWNLOAD_FAILURE_RETRYABLE=" in preflight
-    assert "max_attempts = 4" in preflight
+    assert "max_attempts = 1" in preflight
     assert "UR_PREFLIGHT_RETRY" in preflight
     assert "time.sleep(delay)" in preflight
 
