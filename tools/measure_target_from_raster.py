@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 import rasterio
-from pyproj import Transformer
+from rasterio.warp import transform as transform_coordinates
 from rasterio.windows import Window
 
 
@@ -50,9 +50,8 @@ def measure_target(
     with rasterio.open(raster_path) as ds:
         if ds.crs is None or ds.count < (2 if family == "GUNW" else 3):
             raise ValueError("Raster CRS or expected quality bands are missing")
-        transformer = Transformer.from_crs("EPSG:4326", ds.crs, always_xy=True)
-        x, y = transformer.transform(longitude, latitude)
-        row, col = ds.index(x, y)
+        xs, ys = transform_coordinates("EPSG:4326", ds.crs, [longitude], [latitude])
+        row, col = ds.index(xs[0], ys[0])
         total = (2 * radius_px + 1) ** 2
         if row < 0 or col < 0 or row >= ds.height or col >= ds.width:
             return {
