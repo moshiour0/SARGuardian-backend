@@ -26,3 +26,6 @@ Official/normative references checked on 2026-10-26.
 ## Chosen approach
 
 For current outputs: native AOI-clipped GeoTIFF + transparent reprojected preview PNG + GeoJSON AOI + versioned manifest/STAC metadata + pair-aware timeline and dashboard. For larger or multi-user raster hosting: validated COGs + HTTP Range hosting + TiTiler/OGC tile endpoints. Do not add the tile server yet just to display a 77 × 75 raster.
+
+10. **Pinned SARGuardian GUNW reader for the run** — https://github.com/moshiour0/SARGuardian/blob/10639a916c9829850775410b3ed7de62e527770d/src/gunw_reader.py  
+    For the current run's science commit, `report()` forms statistics from the reader's `displacement_mm` array and explicitly labels the LOS percentile/median values in millimetres. The dashboard's per-pair median chart only displays mm when the raster band is described as LOS displacement (mm) and the selected reader metric is a median; otherwise it says the units are not declared. Do not generalize that mapping to GOFF or a different stats-reader schema.
