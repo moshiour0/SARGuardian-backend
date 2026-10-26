@@ -123,6 +123,8 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('<script type="module">', viewer)
             self.assertIn("maplibre-gl@6.16.0/dist/maplibre-gl.mjs", viewer)
             self.assertNotIn("dist/maplibre-gl.js", viewer)
+            self.assertIn("if(maplibregl && typeof maplibregl.Map==='function')", viewer)
+            self.assertNotIn("if(window.maplibregl)", viewer)
             self.assertTrue((root / "web-dashboard" / "dashboard-data.js").is_file())
             updated_html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("web-dashboard/index.html", updated_html)
