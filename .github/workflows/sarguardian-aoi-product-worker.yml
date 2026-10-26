@@ -371,6 +371,63 @@ jobs:
           echo "LOCAL_FLOOR_STATUS=$status"
           echo "status=$status" >> "$GITHUB_OUTPUT"
 
+      - name: Extract real target-local pair measurement from the AOI-clipped raster
+        id: target_measurement
+        if: steps.reader.outcome == 'success'
+        shell: bash
+        env:
+          CURATED_DIR: ${{ steps.paths.outputs.curated_dir }}
+          PRODUCT_TYPE: ${{ env.PRODUCT_TYPE }}
+          TARGET_LATITUDE: ${{ env.TARGET_LATITUDE }}
+          TARGET_LONGITUDE: ${{ env.TARGET_LONGITUDE }}
+        run: |
+          set -uo pipefail
+          root="$CURATED_DIR/derived"
+          mkdir -p "$root"
+          report="$root/target-measurement.json"
+          export_dir="$root/export_custom"
+          if [[ "$PRODUCT_TYPE" == "GOFF" ]]; then export_dir="$root/export_goff_custom"; fi
+          if [[ -z "$TARGET_LATITUDE" || -z "$TARGET_LONGITUDE" ]]; then
+            python - "$report" <<'PY'
+          import json,sys
+          with open(sys.argv[1],"w",encoding="utf-8") as f:
+              json.dump({"schema_version":1,"status":"NOT_RUN_NO_IN_AOI_TARGET","measurements":{},
+                         "interpretation":"No in-AOI target was supplied; no target value was inferred."},f,indent=2)
+          PY
+            echo "TARGET_MEASUREMENT_STATUS=NOT_RUN_NO_IN_AOI_TARGET"
+            echo "status=NOT_RUN_NO_IN_AOI_TARGET" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          raster="$(find "$export_dir" -maxdepth 1 -type f -name '*.tif' | sort | head -n 1)"
+          if [[ -z "$raster" ]]; then
+            echo '{"schema_version":1,"status":"UNAVAILABLE_NO_AOI_RASTER","measurements":{},"interpretation":"No validated target raster was available."}' > "$report"
+            echo "TARGET_MEASUREMENT_STATUS=UNAVAILABLE_NO_AOI_RASTER"
+            echo "status=UNAVAILABLE_NO_AOI_RASTER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          python tools/measure_target_from_raster.py --raster "$raster" --product-type "$PRODUCT_TYPE" \
+            --longitude "$TARGET_LONGITUDE" --latitude "$TARGET_LATITUDE" --radius-px 3 \
+            --minimum-valid-pixels 3 --out "$report"
+          rc=$?
+          set -e
+          if [[ ! -s "$report" ]]; then
+            python - "$report" "$rc" <<'PY'
+          import json,sys
+          with open(sys.argv[1],"w",encoding="utf-8") as f:
+              json.dump({"schema_version":1,"status":"UNAVAILABLE_MEASUREMENT_ERROR","exit_code":int(sys.argv[2]),
+                         "measurements":{},"interpretation":"Target measurement tool did not produce a report."},f,indent=2)
+          PY
+          fi
+          status="$(python - "$report" <<'PY'
+          import json,sys
+          try: print(json.load(open(sys.argv[1],encoding="utf-8")).get("status","UNAVAILABLE_MEASUREMENT_ERROR"))
+          except Exception: print("UNAVAILABLE_MEASUREMENT_ERROR")
+          PY
+          )"
+          echo "TARGET_MEASUREMENT_STATUS=$status"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
       - name: Validate derived outputs against the AOI-specific structural checks before cleanup
         id: derived_validation
         env:
@@ -468,6 +525,9 @@ jobs:
                                      if (root / "derived" / "local_floor.json").is_file() else "NOT_REPORTED"),
               "local_floor_report": "derived/local_floor.json" if (root / "derived" / "local_floor.json").is_file() else None,
               "local_floor_csv": "derived/local_floor.csv" if (root / "derived" / "local_floor.csv").is_file() else None,
+              "target_measurement_status": (json.loads((root / "derived" / "target-measurement.json").read_text(encoding="utf-8")).get("status")
+                                            if (root / "derived" / "target-measurement.json").is_file() else "NOT_REPORTED"),
+              "target_measurement_report": "derived/target-measurement.json" if (root / "derived" / "target-measurement.json").is_file() else None,
               "cleanup_receipt": "local-cleanup-receipt.json",
               "source_dataset_inventory_count": len(inventory.get("datasets", [])),
               "excluded_dataset_count": 0 if profile == "full-lossless" else None,
