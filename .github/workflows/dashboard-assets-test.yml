@@ -70,7 +70,11 @@ jobs:
           PY
           node --check /tmp/sarguardian-dashboard.js
 
+      - name: Validate dashboard workflow YAML
+        shell: bash
+        run: ruby -e 'require "yaml"; YAML.load_file(".github/workflows/sarguardian-aoi-wkt-dashboard.yml"); YAML.load_file(".github/workflows/dashboard-assets-test.yml"); puts "DASHBOARD_WORKFLOW_YAML_PASS"'
+
       - name: Test georeferenced layers, CRS handling, STAC paths and source immutability
         env:
           PYTHONPATH: .
-        run: python -m unittest dashboard.tests.test_prepare_web_assets -v
+        run: python -m unittest dashboard.tests.test_prepare_web_assets dashboard.tests.test_aggregation_integration -v
