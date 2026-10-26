@@ -3,7 +3,7 @@
 Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item moves to DONE only with code/test/evidence links.
 
 ## Phase 0 — Evidence and architecture
-- [x] Audit the successful processing run and download dashboard artifact.
+- [x] Run the builder against existing successful real-run artifact 40308665800 without replaying source-data downloads; verified 10 observations, 20 layers and unchanged source TIFF hashes. See [smoke run](https://github.com/moshiour0/SARGuardian-backend/actions/runs/40340177367). The historical original ZIP remains unchanged; the smoke test created a separate refreshed fixture bundle.\n- [x] Audit the successful processing run and download dashboard artifact.
 - [x] Inventory existing PNG quicklooks, multi-band GeoTIFFs, CSV/reports, provenance, and pixel-stack diagnostics.
 - [x] Identify no-geospatial-map and no-playback gaps in current HTML.
 - [x] Document scientific guardrails, current AOI distinction, formats, and source references.
@@ -53,4 +53,4 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [ ] Benchmark asset build time, bundle size, first contentful display, and playback frame consistency.
 - [ ] Check reproducible manifests/checksums on a second run with the same fixture.
 - [x] Document MapLibre/OpenStreetMap network dependency, offline fallback, native TIFF and bundle behavior.
-- [x] Dashboard builder tests and backend regression CI pass on the feature branch.\n- [ ] Complete review and integration. PR #43 targets `feat/final-aoi-science-integration`; it does not change backend `main`. Dynamic app PR #6 is separate and remains unmerged.\n- [ ] Update the production workflow's signed-callback helper pin only in an approved integration PR, then run a new processing job and verify that its result summary includes `web_dashboard.status == PASS` before exposing the live button.
+- [x] Dashboard builder tests and backend regression CI pass on the feature branch.\n- [ ] Complete review and integration. PR #44 targets `main` for review only; no merge or direct main commit has been made; it does not change backend `main`. Dynamic app PR #6 is separate and remains unmerged.\n- [ ] Update the production workflow's signed-callback helper pin only in an approved integration PR, then run a new processing job and verify that its result summary includes `web_dashboard.status == PASS` before exposing the live button.
