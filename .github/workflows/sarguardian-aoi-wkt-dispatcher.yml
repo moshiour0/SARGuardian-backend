@@ -44,6 +44,16 @@ on:
           - derived-only
           - full-lossless
         default: derived-only
+      target_lat:
+        description: "Optional point latitude inside the AOI for target-local time-series and noise-floor analysis."
+        required: false
+        type: string
+        default: ''
+      target_lon:
+        description: "Optional point longitude inside the AOI; supply together with target_lat."
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -60,4 +70,6 @@ jobs:
       date_filter_mode: ${{ inputs.date_filter_mode }}
       run_profile: ${{ inputs.run_profile }}
       retention_profile: ${{ inputs.retention_profile }}
+      target_lat: ${{ inputs.target_lat }}
+      target_lon: ${{ inputs.target_lon }}
     secrets: inherit
