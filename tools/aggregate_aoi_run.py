@@ -134,11 +134,21 @@ def build_site_context(ring: list[list[float]]) -> dict[str, Any]:
             target["status"] = "REJECTED_OUTSIDE_AOI"
         else:
             target["status"] = "IN_AOI_TARGET_CAPTURED"
-            target["used_by_reader"] = True
+            target["used_by_reader"] = False
+            target["used_by_target_tools"] = True
             # Pair-local extraction is supported, but these coordinates are not
             # a stable-ground reference and do not authorize cumulative inversion.
             target["is_measurement"] = False
             target["usage_limit"] = "Used for pair-local sampling and noise floors only; not a common stable-ground reference."
+    if place is None and target.get("status") == "IN_AOI_TARGET_CAPTURED":
+        place = {
+            "name": "Measurement target (not a hazard alert)",
+            "latitude": target["latitude"],
+            "longitude": target["longitude"],
+            "coordinates_status": "VALID",
+            "inside_aoi": True,
+            "role": "measurement_target_context_not_hazard_evidence",
+        }
     return {
         "schema_version": 1,
         "place": place,
