@@ -441,6 +441,32 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "status":summary["status"],"errors":errors,
         "warning_note":"PASS indicates requested-AOI processing and structural checks passed; it is not independent geophysical validation."}}
     (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
+    # Build georeferenced web-display assets from already validated AOI-clipped
+    # GeoTIFF exports. This is presentation-only; it must not trigger new raw
+    # downloads or rewrite scientific inputs. A preview failure is reported
+    # independently from the scientific processing result.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.assets.prepare_web_assets import prepare_web_dashboard
+        web_dashboard = prepare_web_dashboard(out)
+    except Exception as exc:
+        web_dashboard = {
+            "schema_version": "sarguardian-web-dashboard/1.0",
+            "status": "FAIL",
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "error": type(exc).__name__ + ":" + str(exc)[:350],
+            "source_geotiffs_unchanged": True,
+        }
+        print("WEB_DASHBOARD_BUILD_ERROR=" + web_dashboard["error"], file=sys.stderr)
+    print("WEB_DASHBOARD_STATUS=" + str(web_dashboard.get("status", "UNKNOWN")))
+    summary["web_dashboard"] = web_dashboard
+    report["summary"] = summary
+    report["web_dashboard"] = web_dashboard
+    (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\\n",encoding="utf-8")
+    (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\\n",encoding="utf-8")
+
     zip_path=out/"aoi-derived-results.zip"
     with zipfile.ZipFile(zip_path,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=6) as zf:
         for path in sorted(out.rglob("*")):
