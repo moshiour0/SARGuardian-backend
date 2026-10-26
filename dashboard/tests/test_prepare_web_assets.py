@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -148,6 +151,12 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("selected-site-marker", viewer)
             self.assertIn("Target-local GUNW LOS median (mm)", viewer)
             self.assertIn("Target-local detection floor (mm/day)", viewer)
+            self.assertIn('id="pairCompare"', viewer)
+            self.assertIn('id="scenarioSandbox"', viewer)
+            self.assertIn("function compatiblePair(a,b)", viewer)
+            self.assertIn("function renderHypotheticalScenario()", viewer)
+            self.assertIn("Comparison withheld", viewer)
+            self.assertIn("not a forecast", viewer.lower())
             self.assertIn("bars are not connected", viewer.lower())
             self.assertIn('<script type="module">', viewer)
             self.assertIn("maplibre-gl@6.16.0/dist/maplibre-gl.mjs", viewer)
@@ -155,6 +164,13 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("if(maplibregl && typeof maplibregl.Map==='function')", viewer)
             self.assertNotIn("if(window.maplibregl)", viewer)
             self.assertTrue((root / "web-dashboard" / "dashboard-data.js").is_file())
+            if shutil.which("node"):
+                module_scripts = re.findall(r'<script type="module">(.*?)</script>', viewer, flags=re.S)
+                self.assertEqual(len(module_scripts), 1)
+                module_path = root / "viewer-module.mjs"
+                module_path.write_text(module_scripts[0], encoding="utf-8")
+                syntax = subprocess.run(["node", "--check", str(module_path)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
             updated_html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("web-dashboard/index.html", updated_html)
 
