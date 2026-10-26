@@ -373,7 +373,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     date_end = str(summary.get("date_end") or (max(dates) if dates else "2026-12-31"))
     collection = {"stac_version": "1.1.0", "type": "Collection", "id": "sarguardian-" + str(summary.get("run_id", "run")),
                   "description": "AOI-clipped NISAR acquisition-pair exports; pairwise values are not automatically a common-reference time series.",
-                  "license": "proprietary", "extent": {"spatial": {"bbox": [bbox]}, "temporal": {"interval": [[date_start + "T00:00:00Z", date_end + "T23:59:59Z"]]}},
+                  "license": "various", "sarguardian:license_note": "Consult source metadata; this package does not relicense source material.", "extent": {"spatial": {"bbox": [bbox]}, "temporal": {"interval": [[date_start + "T00:00:00Z", date_end + "T23:59:59Z"]]}},
                   "links": [{"rel": "self", "href": "collection.json"}, {"rel": "root", "href": "catalog.json"}, {"rel": "items", "href": "items/"}] + item_links}
     (stac_root / "collection.json").write_text(json.dumps(collection, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
     catalog = {"stac_version": "1.1.0", "type": "Catalog", "id": "sarguardian-" + str(summary.get("run_id", "run")),
