@@ -1,7 +1,7 @@
-name: SARGuardian AOI WKT E2E (safe branch dispatcher)
+name: SARGuardian AOI WKT E2E (main workflow dispatcher)
 
-# This small default-branch entry point only calls the isolated feature workflow.
-# It does not edit, replace, or invoke the existing source-AOI E2E workflow.
+# Stable entry point for the merged, dashboard-enabled AOI workflow.
+# This dispatches a dynamic-WKT run; it does not run the fixed-source baseline.
 on:
   workflow_dispatch:
     inputs:
@@ -51,8 +51,8 @@ permissions:
 
 jobs:
   run-isolated-aoi-pipeline:
-    name: Run AOI workflow from the isolated science-integration branch
-    uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@feat/final-aoi-science-integration
+    name: Run AOI workflow from the merged main workflow
+    uses: moshiour0/SARGuardian-backend/.github/workflows/sarguardian-aoi-wkt-dashboard.yml@main
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
       start_date: ${{ inputs.start_date }}
