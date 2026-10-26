@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import rasterio
-import pytest
 from rasterio.transform import from_origin
 
 from tools.measure_target_from_raster import measure_target
@@ -34,7 +34,7 @@ def test_goff_target_metric_is_local_and_not_time_series(tmp_path: Path) -> None
     assert result["status"] == "MEASURED"
     assert result["measurements"]["target_local_range_median_mm"] == 0.0
     assert result["measurements"]["target_local_azimuth_median_mm"] == 48.0
-    assert result["measurements"]["mean_correlation"] == pytest.approx(0.8)
+    assert math.isclose(result["measurements"]["mean_correlation"], 0.8, rel_tol=1e-6)
     assert "common datum" in result["interpretation"]
 
 
