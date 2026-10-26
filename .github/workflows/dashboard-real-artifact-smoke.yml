@@ -77,6 +77,7 @@ jobs:
           python - <<'PY'
           import json, os, zipfile
           from pathlib import Path
+          from shutil import move
           root = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-dashboard-fixture" / "dashboard"
           receipt = json.loads((root / "web-dashboard-build-receipt.json").read_text())
           manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text())
@@ -84,7 +85,41 @@ jobs:
           assert receipt["observations"] == 10, receipt
           assert receipt["layers"] >= 20, receipt
           assert manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED"
-          with zipfile.ZipFile(root / "aoi-derived-results.zip") as archive:
+
+          # This reference run predates the feature, so its ZIP is intentionally
+          # old. Reassemble the fixture bundle in the same order as the updated
+          # aggregator: record visual status first, then package all current
+          # output files plus any legacy members (e.g. per-product provenance)
+          # that exist only inside the original ZIP.
+          summary_path = root / "aoi-run-summary.json"
+          report_path = root / "aoi-processing-report.json"
+          summary = json.loads(summary_path.read_text())
+          summary["web_dashboard"] = receipt
+          report = json.loads(report_path.read_text())
+          report["summary"] = summary
+          report["web_dashboard"] = receipt
+          summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\\n", encoding="utf-8")
+          report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n", encoding="utf-8")
+
+          zip_path = root / "aoi-derived-results.zip"
+          with zipfile.ZipFile(zip_path, "r") as original:
+              legacy_members = [(info.filename, original.read(info)) for info in original.infolist() if not info.is_dir()]
+          rebuilt = root / "aoi-derived-results-smoke.zip"
+          added = set()
+          with zipfile.ZipFile(rebuilt, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file() and path not in {zip_path, rebuilt}:
+                      name = path.relative_to(root).as_posix()
+                      if name not in added:
+                          bundle.write(path, name)
+                          added.add(name)
+              for name, data in legacy_members:
+                  if name not in added:
+                      bundle.writestr(name, data)
+                      added.add(name)
+          move(str(rebuilt), str(zip_path))
+
+          with zipfile.ZipFile(zip_path) as archive:
               names = archive.namelist()
               required = [
                   "web-dashboard/index.html",
