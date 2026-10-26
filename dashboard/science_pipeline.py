@@ -26,6 +26,7 @@ def build_science_pipeline_report(
     science_root: Path,
     science_diagnostics: dict[str, Any] | None,
     site_context: dict[str, Any] | None = None,
+    common_reference_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run time-series network topology analysis and gate downstream methods.
 
@@ -114,6 +115,8 @@ def build_science_pipeline_report(
         report["network_assessment_status"] = "UNAVAILABLE"
     report["invalid_pair_rows"] = invalid
     report["site_context"] = site_context or {}
+    common_reference_report = common_reference_report if isinstance(common_reference_report, dict) else {}
+    report["common_reference_timeseries"] = common_reference_report
     report["network_assessment_log_excerpt"] = captured.getvalue()[-8000:] if "captured" in locals() else ""
     report["network_error"] = network_error
 
@@ -161,17 +164,41 @@ def build_science_pipeline_report(
         local_floor_status = "BLOCKED_INVALID_OR_OUTSIDE_TARGET"
         local_floor_reason = f"Target context was rejected or incomplete ({target_status}); no target-specific inference is allowed."
 
+    has_diagnostic_series = common_reference_report.get("status") == "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED"
+    has_common_datum = common_reference_report.get("status") in {
+        "COMMON_DATUM_PAIRWISE_ONLY", "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+    }
+    if has_diagnostic_series:
+        timeseries_status = "DIAGNOSTIC_CUMULATIVE_LOS_SERIES_COMPUTED_REFERENCE_UNVALIDATED"
+        timeseries_reason = (
+            "A common-grid, common-pixel GUNW stack was re-referenced and at least one connected, redundant component passed the pinned graph solver and leave-one-out velocity-sign check. "
+            "This is still diagnostic only: its zero is the median of common-valid AOI pixels outside the target buffer, not an independently surveyed stable-ground reference."
+        )
+    elif has_common_datum:
+        timeseries_status = "COMMON_DATUM_PAIRWISE_ONLY_NO_PUBLISHABLE_CUMULATIVE_SERIES"
+        timeseries_reason = str(common_reference_report.get("reason") or "Common datum was computed but no component met cumulative-series publication gates.")
+    else:
+        timeseries_status = "NETWORK_TOPOLOGY_ONLY_INVERSION_WITHHELD" if pairs else report["network_assessment_status"]
+        timeseries_reason = (
+            "The pinned engine assessed pair/epoch connectivity, but the retained rasters did not satisfy the common-grid, >=200 common-reference-pixel, target-support and/or robust redundant-network gate. No cumulative values were inferred."
+            if pairs else "Pair topology could not be assessed from the supplied product identities and acquisition dates."
+        )
+    common_status = str(common_reference_report.get("status") or "NOT_REPORTED")
     report["modules"].extend([
         {
+            "name": "common_ref.py",
+            "status": common_status,
+            "reason": str(common_reference_report.get("reason") or "See common-reference-timeseries.json for per-network grid, mask, target-support and common-pixel checks."),
+            "stable_ground_independently_validated": False,
+            "interpretation": "The pinned common-datum calculation uses the all-pair valid AOI median outside the target buffer. It does not independently establish geological stability.",
+        },
+        {
             "name": "timeseries.py",
-            "status": "NETWORK_TOPOLOGY_ONLY_INVERSION_WITHHELD" if pairs else report["network_assessment_status"],
+            "status": timeseries_status,
             "pairs_parsed": len(pairs),
             "networks": len(structures),
-            "reason": (
-                "The pinned engine assessed pair/epoch connectivity. Numeric inversion is withheld because the dynamic exports do not persist and verify a common stable-ground reference point/datum across pairs."
-                if pairs else "Pair topology could not be assessed from the supplied product identities and acquisition dates."
-            ),
-            "minimum_next_evidence": "Export and verify common-reference provenance for every pair, then require enough connected and redundant observations before publishing a cumulative series.",
+            "reason": timeseries_reason,
+            "minimum_next_evidence": "For an independently validated movement series, supply/validate a stable-ground reference or external stable-area evidence and verify the AOI-derived datum sensitivity; do not use a diagnostic line as a hazard alert.",
         },
         {
             "name": "local_floor.py",
@@ -208,8 +235,11 @@ def build_science_pipeline_report(
         },
     ])
     report["overall_status"] = (
-        "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
-        if report["network_assessment_status"] == "COMPLETED"
-        else "PARTIAL_STAGE_ASSESSMENT"
+        "REFERENCE_UNVALIDATED_DIAGNOSTIC_SERIES_COMPUTED"
+        if has_diagnostic_series else (
+            "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
+            if report["network_assessment_status"] == "COMPLETED"
+            else "PARTIAL_STAGE_ASSESSMENT"
+        )
     )
     return report
