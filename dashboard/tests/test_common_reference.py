@@ -65,6 +65,11 @@ def _fake_science_modules():
          "jackknife_min": 0.06, "jackknife_max": 0.10} if len(pairs) >= 4 else None
     )
 
+    aoi_wkt = ModuleType("aoi_wkt")
+    def parse_polygon_wkt(_wkt):
+        return [(84.90, 26.90), (85.12, 26.90), (85.12, 27.12), (84.90, 27.12), (84.90, 26.90)]
+    aoi_wkt.parse_polygon_wkt = parse_polygon_wkt
+
     gunw_reader = ModuleType("gunw_reader")
     gunw_reader.AOIS = {}
     gunw_reader.set_aoi = lambda name: None
@@ -92,6 +97,7 @@ def _fake_science_modules():
     common_ref.window = window
 
     return {
+        "aoi_wkt": aoi_wkt,
         "timeseries": timeseries,
         "gunw_reader": gunw_reader,
         "common_ref": common_ref,
@@ -126,6 +132,7 @@ def test_missing_or_invalid_target_blocks_common_reference(tmp_path: Path) -> No
 
 
 def test_common_datum_diagnostic_requires_grid_and_network_gates(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
     products = []
     # Five real-like intervals produce a connected, redundant four-epoch graph.
     intervals = [
