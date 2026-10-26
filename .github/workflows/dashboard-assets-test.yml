@@ -44,6 +44,32 @@ jobs:
       - name: Compile aggregator and asset builder
         run: python -m py_compile tools/aggregate_aoi_run.py dashboard/assets/prepare_web_assets.py
 
+      - name: Syntax-check the interactive viewer JavaScript
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path("dashboard/assets/prepare_web_assets.py").read_text(encoding="utf-8")
+          marker = "page = r'''"
+          start = source.find(marker)
+          if start < 0:
+              raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_NOT_FOUND")
+          start += len(marker)
+          end = source.find("'''", start)
+          if end < 0:
+              raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_UNTERMINATED")
+          html = source[start:end]
+          script_start = html.rfind("<script>")
+          if script_start < 0:
+              raise SystemExit("ERROR=DASHBOARD_INLINE_SCRIPT_NOT_FOUND")
+          script_start += len("<script>")
+          script_end = html.find("</script>", script_start)
+          if script_end < 0:
+              raise SystemExit("ERROR=DASHBOARD_INLINE_SCRIPT_UNTERMINATED")
+          Path("/tmp/sarguardian-dashboard.js").write_text(html[script_start:script_end], encoding="utf-8")
+          PY
+          node --check /tmp/sarguardian-dashboard.js
+
       - name: Test georeferenced layers, CRS handling, STAC paths and source immutability
         env:
           PYTHONPATH: .
