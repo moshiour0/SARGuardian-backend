@@ -540,17 +540,42 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
+    # Build a common-reference diagnostic only from retained GUNW exports.
+    # No raw HDF5 files are needed. This stage may still be withheld if grids,
+    # common pixels, target support or the temporal network do not meet gates.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.common_reference import build_common_reference_report
+        common_reference_report = build_common_reference_report(
+            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+        )
+    except Exception as exc:
+        common_reference_report = {
+            "schema_version": "sarguardian-common-reference-timeseries/1.0",
+            "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
+            "series_are_independent_geophysical_validation": False,
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [], "pairwise_measurements": [], "components": [],
+            "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+        }
+        (out / "common-reference-timeseries.json").write_text(
+            json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
     # Use the pinned science engine for acquisition-network topology and emit an
-    # explicit eligibility report for every downstream science module. Pairwise
-    # displacement inversion is withheld unless common-reference provenance is
-    # verified; this is a scientific gate, not a processing failure.
+    # explicit eligibility report for every downstream science module.
     try:
         repo_root = str(Path(__file__).resolve().parents[1])
         if repo_root not in sys.path:
             sys.path.insert(0, repo_root)
         from dashboard.science_pipeline import build_science_pipeline_report
         science_pipeline = build_science_pipeline_report(
-            result_rows, args.science_root, science_diagnostics, site_context
+            result_rows, args.science_root, science_diagnostics, site_context,
+            common_reference_report,
         )
     except Exception as exc:
         science_pipeline = {
@@ -600,6 +625,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "science_diagnostics":science_diagnostics,
         "science_pipeline":science_pipeline,
         "site_context":site_context,
+        "common_reference_timeseries":common_reference_report,
         "target_measurement_count":sum((x.get("target_measurement") or {}).get("status") == "MEASURED" for x in result_rows),
         "local_floor_count":sum((x.get("local_floor") or {}).get("status") == "MEASURED" for x in result_rows),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
