@@ -22,9 +22,18 @@ class DashboardWorkflowPinTests(unittest.TestCase):
     def test_pinned_source_contract_has_interactive_asset_builder(self) -> None:
         aggregator = AGGREGATOR.read_text(encoding="utf-8")
         builder = BUILDER.read_text(encoding="utf-8")
+        worker = (ROOT / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("prepare_web_dashboard", aggregator)
         self.assertIn('web-dashboard/manifest.json', builder)
         self.assertIn('web-dashboard/index.html', builder)
+        self.assertIn("target_latitude:", workflow)
+        self.assertIn("TARGET_LATITUDE: ${{ inputs.target_latitude }}", worker)
+        self.assertIn("measure_target_from_raster.py", worker)
+        self.assertIn("science-source/src/local_floor.py", worker)
+        self.assertIn('find "$CURATED_DIR/derived" -type f -print | sort', worker)
+        self.assertIn("LOCAL_FLOOR_STATUS=", worker)
+        self.assertIn("TARGET_MEASUREMENT_STATUS=", worker)
 
 
 if __name__ == "__main__":
