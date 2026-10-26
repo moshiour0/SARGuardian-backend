@@ -7,19 +7,19 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [x] Inventory existing PNG quicklooks, multi-band GeoTIFFs, CSV/reports, provenance, and pixel-stack diagnostics.
 - [x] Identify no-geospatial-map and no-playback gaps in current HTML.
 - [x] Document scientific guardrails, current AOI distinction, formats, and source references.
-- [ ] Add a representative sample fixture to automated tests without committing proprietary or large raw HDF5 files.
+- [x] Add a representative synthetic GeoTIFF fixture to automated tests without committing proprietary or large raw HDF5 files.
 
 ## Phase 1 — Processing-time map assets (no raw replay)
-- [ ] Implement a deterministic web-asset builder in `dashboard/assets/`.
-- [ ] Reproject each validated raster band to display-friendly geographic coordinates from the source CRS and affine transform.
-- [ ] Produce transparent preview PNGs with explicit corners/bounds; keep native GeoTIFFs unchanged.
-- [ ] Build `web-dashboard/manifest.json`, `aoi.geojson`, `timeline.json`, `metrics.json`, STAC catalog/collection/items.
-- [ ] Record per-layer band name/units, value range, color scale policy, NoData count, source CRS, source hash, science/orchestration commits and AOI hash.
-- [ ] Validate every generated PNG, metadata shape, corners and checksum; fail closed if an overlay points outside the AOI beyond expected grid padding.
-- [ ] Add tests for different UTM zones, NoData transparency, missing band descriptions, empty bands, and reproducibility.
-- [ ] Wire builder into AOI aggregation before ZIP creation and Drive upload.
-- [ ] Add generated file list and explicit status to workflow summary; preserve Drive result upload and the current three required account artifacts.
-- [ ] Run the builder against the downloaded artifact fixture and compare source TIFF hashes before/after.
+- [x] Implement a deterministic web-asset builder in `dashboard/assets/` (`prepare_web_assets.py`).
+- [x] Reproject each validated raster band to display-friendly geographic coordinates from the source CRS and affine transform using Rasterio/GDAL.
+- [x] Produce transparent preview PNGs with explicit corners/bounds; keep native GeoTIFFs unchanged.
+- [x] Build `web-dashboard/manifest.json`, `aoi.geojson`, `timeline.json`, `metrics.json`, STAC catalog/collection/items.
+- [x] Record per-layer band name/units, value range, color scale policy, NoData/valid-pixel info, source CRS/transform/hash, science/orchestration commits and AOI hash.
+- [ ] Harden validation further: enforce full manifest/schema shape, true polygon-to-valid-pixel intersection (not only conservative bounding-box overlap), all-NaN/empty bands, and checksum round-trips.
+- [x] Add unit tests for cross-UTM reprojection, NoData transparency, STAC paths, common scale within the same track group and source TIFF immutability.\n- [ ] Extend tests for missing band descriptions, all-empty bands, multi-export products and deterministic rebuilds.
+- [x] Wire builder into AOI aggregation before ZIP creation and Drive upload. The new visualization build is best-effort and reports its own status so a render issue cannot mark scientific processing as failed.
+- [ ] Add generated file list and explicit status to workflow step summary; review the private Drive package inventory and preserve the three required account artifacts.
+- [ ] Run the exact committed builder against the downloaded run artifact and compare all source TIFF hashes before/after.
 
 ## Phase 2 — Interactive offline/presentation viewer
 - [ ] Add map panel showing true AOI geometry and geo-located preview layer, never a schematic pretending to be the map.
