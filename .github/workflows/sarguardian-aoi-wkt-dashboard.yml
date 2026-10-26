@@ -122,7 +122,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian_Dynamic
-          ref: d030debee5b52e2ecb4b999b2c0ccc70130f371d
+          ref: db6472e1c304e21242f1ab1dfd671ccb21ba5697
           path: dynamic-api
 
       - name: Report running state to the account API
@@ -497,7 +497,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian_Dynamic
-          ref: d030debee5b52e2ecb4b999b2c0ccc70130f371d
+          ref: db6472e1c304e21242f1ab1dfd671ccb21ba5697
           path: dynamic-api
 
       - name: Download the assembled AOI dashboard and Drive receipt
