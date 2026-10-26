@@ -23,6 +23,8 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn('"target_local_los_median_mm": metric_number(target_metrics.get("target_local_los_median_mm"))', builder)
         self.assertIn('"target_local_floor_mm_day": metric_number(floor_metrics.get("local_floor_mm_day"))', builder)
         self.assertIn("selected-site-marker", builder)
+        self.assertIn("selected-target-marker", builder)
+        self.assertIn("compare-target-marker", builder)
         self.assertIn('"site_context": summary.get("site_context") or {}', builder)
         self.assertIn("sameSourceGrid(a,b)", builder)
         self.assertIn("function compatiblePair(a,b)", builder)
