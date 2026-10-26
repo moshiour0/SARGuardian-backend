@@ -373,8 +373,20 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     date_end = str(summary.get("date_end") or (max(dates) if dates else "2026-12-31"))
     collection = {"stac_version": "1.1.0", "type": "Collection", "id": "sarguardian-" + str(summary.get("run_id", "run")),
                   "description": "AOI-clipped NISAR acquisition-pair exports; pairwise values are not automatically a common-reference time series.",
-                  "license": "various", "sarguardian:license_note": "Consult source metadata; this package does not relicense source material.", "extent": {"spatial": {"bbox": [bbox]}, "temporal": {"interval": [[date_start + "T00:00:00Z", date_end + "T23:59:59Z"]]}},
-                  "links": [{"rel": "self", "href": "collection.json"}, {"rel": "root", "href": "catalog.json"}, {"rel": "items", "href": "items/"}] + item_links}
+                  "license": "other",
+                  "sarguardian:license_note": "Official NASA/NISAR data-use guidance is linked below for source context only. Verify the exact source product metadata and any non-NASA/third-party terms before redistribution; this package does not relicense source data or grant rights to third-party content.",
+                  "providers": [
+                      {"name": "NASA / ISRO NISAR mission", "roles": ["producer"], "url": "https://nisar-docs.asf.alaska.edu/"},
+                      {"name": "Alaska Satellite Facility DAAC", "roles": ["host"], "url": "https://asf.alaska.edu/"},
+                  ],
+                  "extent": {"spatial": {"bbox": [bbox]}, "temporal": {"interval": [[date_start + "T00:00:00Z", date_end + "T23:59:59Z"]]}},
+                  "links": [
+                      {"rel": "self", "href": "collection.json"},
+                      {"rel": "root", "href": "catalog.json"},
+                      {"rel": "items", "href": "items/"},
+                      {"rel": "license", "href": "https://www.earthdata.nasa.gov/engage/open-data-services-software/data-use-policy", "type": "text/html", "title": "NASA Earthdata data-use and citation guidance"},
+                      {"rel": "license", "href": "https://nisar-docs.asf.alaska.edu/data-use-citation-guidance/", "type": "text/html", "title": "NISAR data-use and citation guidance"},
+                  ] + item_links}
     (stac_root / "collection.json").write_text(json.dumps(collection, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
     catalog = {"stac_version": "1.1.0", "type": "Catalog", "id": "sarguardian-" + str(summary.get("run_id", "run")),
                "description": "SARGuardian AOI-scoped NISAR products and derived previews.",
