@@ -59,16 +59,16 @@ jobs:
           if end < 0:
               raise SystemExit("ERROR=DASHBOARD_HTML_TEMPLATE_UNTERMINATED")
           html = source[start:end]
-          script_start = html.rfind("<script>")
+          script_start = html.rfind('<script type="module">')
           if script_start < 0:
               raise SystemExit("ERROR=DASHBOARD_INLINE_SCRIPT_NOT_FOUND")
-          script_start += len("<script>")
+          script_start += len('<script type="module">')
           script_end = html.find("</script>", script_start)
           if script_end < 0:
               raise SystemExit("ERROR=DASHBOARD_INLINE_SCRIPT_UNTERMINATED")
-          Path("/tmp/sarguardian-dashboard.js").write_text(html[script_start:script_end], encoding="utf-8")
+          Path("/tmp/sarguardian-dashboard.mjs").write_text(html[script_start:script_end], encoding="utf-8")
           PY
-          node --check /tmp/sarguardian-dashboard.js
+          node --check /tmp/sarguardian-dashboard.mjs
 
       - name: Validate dashboard workflow YAML
         shell: bash
