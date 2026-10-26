@@ -98,7 +98,7 @@ jobs:
           report = json.loads(report_path.read_text())
           report["summary"] = summary
           report["web_dashboard"] = receipt
-          summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\\n", encoding="utf-8")
+          summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
           report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n", encoding="utf-8")
 
           zip_path = root / "aoi-derived-results.zip"
