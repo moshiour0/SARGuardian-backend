@@ -136,7 +136,7 @@ def build_science_pipeline_report(
             })
 
     target_info = (site_context or {}).get("measurement_target", {})
-    target_status = target_info.get("status") if isinstance(target_info, dict) else "NOT_PROVIDED"
+    target_status = (target_info.get("status") or "NOT_PROVIDED") if isinstance(target_info, dict) else "NOT_PROVIDED"
     measured_targets = sum(
         isinstance(row.get("target_measurement"), dict)
         and row["target_measurement"].get("status") == "MEASURED"
