@@ -16,7 +16,8 @@ import numpy as np
 import rasterio
 from matplotlib import colormaps
 from PIL import Image
-from rasterio.transform import array_bounds
+from rasterio.features import geometry_mask
+from rasterio.transform import Affine, array_bounds
 from rasterio.warp import Resampling, calculate_default_transform, reproject
 
 SCHEMA = "sarguardian-web-dashboard/1.0"
@@ -66,7 +67,7 @@ def parse_wkt(value: str) -> list[list[float]]:
     return ring
 
 
-def reproject_band(path: Path, band: int) -> tuple[np.ndarray, tuple[float, float, float, float], dict[str, Any]]:
+def reproject_band(path: Path, band: int, aoi_geometry: dict[str, Any]) -> tuple[np.ndarray, tuple[float, float, float, float], dict[str, Any]]:
     with rasterio.open(path) as src:
         if src.crs is None or band < 1 or band > src.count:
             raise ValueError(f"Missing CRS or invalid band in {path.name}")
@@ -79,8 +80,16 @@ def reproject_band(path: Path, band: int) -> tuple[np.ndarray, tuple[float, floa
         transform, width, height = calculate_default_transform(
             src.crs, WEB_CRS, src.width, src.height, *src.bounds
         )
-        if width < 1 or height < 1 or width * height > 16_000_000:
+        if width < 1 or height < 1:
             raise ValueError(f"Invalid preview raster dimensions for {path.name}")
+        # Keep presentation previews compact. Native GeoTIFF is never resampled or replaced.
+        shrink = min(1.0, 1024.0 / width, 1024.0 / height)
+        out_width = max(1, int(round(width * shrink)))
+        out_height = max(1, int(round(height * shrink)))
+        transform = transform * Affine.scale(width / out_width, height / out_height)
+        width, height = out_width, out_height
+        if width * height > 1_100_000:
+            raise ValueError(f"Preview raster exceeds the display-pixel cap for {path.name}")
         out = np.full((height, width), np.nan, dtype="float32")
         reproject(
             source=source, destination=out,
@@ -88,6 +97,10 @@ def reproject_band(path: Path, band: int) -> tuple[np.ndarray, tuple[float, floa
             dst_transform=transform, dst_crs=WEB_CRS, dst_nodata=np.nan,
             resampling=Resampling.nearest, init_dest_nodata=True,
         )
+        # Clip the display preview to the exact AOI polygon; never expose the
+        # rectangular raster window outside the requested polygon as data.
+        inside_aoi = geometry_mask([aoi_geometry], out_shape=(height, width), transform=transform, invert=True, all_touched=False)
+        out[~inside_aoi] = np.nan
         west, south, east, north = array_bounds(height, width, transform)
         if not all(math.isfinite(v) for v in (west, south, east, north)) or west >= east or south >= north:
             raise ValueError(f"Invalid WGS84 bounds for {path.name}")
@@ -124,7 +137,7 @@ def write_viewer(path: Path) -> None:
     page = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SARGuardian · Interactive Science Dashboard</title>
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.15.0/dist/maplibre-gl.css">
 <style>
 :root{color-scheme:dark;--bg:#07121c;--panel:#0e1e2a;--edge:#254050;--ink:#edf7fb;--muted:#a5bec8;--aqua:#66e2d3;--amber:#f7c76b}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#123444,#07121c 55%);color:var(--ink);font:14px/1.45 system-ui,sans-serif}main{max-width:1500px;margin:auto;padding:22px}header{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;border-bottom:1px solid var(--edge);padding-bottom:16px}h1{font-size:clamp(25px,3vw,38px);line-height:1.05;letter-spacing:-.035em;margin:7px 0}.kicker{color:var(--aqua);font-size:10px;font-weight:800;letter-spacing:.17em;text-transform:uppercase}.muted{color:var(--muted)}button,select,input{font:inherit;color:inherit;background:#102a39;border:1px solid #396071;border-radius:7px;padding:8px}button{cursor:pointer}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--aqua);outline-offset:2px}.warn{margin:14px 0;padding:12px 14px;border:1px solid #8e6b35;background:#322816;color:#ffe7b6;border-radius:10px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.card,.panel{background:linear-gradient(145deg,#112b39,#0c1a25);border:1px solid var(--edge);border-radius:12px;padding:13px;min-width:0}.label{color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}.big{font-size:26px;font-weight:750;margin-top:3px;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(290px,.8fr);gap:12px}.maphead{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.mapbox{position:relative;height:min(65vh,640px);min-height:340px;border:1px solid var(--edge);border-radius:10px;overflow:hidden;background:#0a1720}.mapbox #map{position:absolute;inset:0}.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.timeline{margin-top:12px;display:grid;grid-template-columns:auto minmax(100px,1fr) auto;gap:9px;align-items:center}.timeline input{width:100%;padding:0;accent-color:var(--aqua)}.timeline small{font-variant-numeric:tabular-nums;color:var(--muted)}.metriclist{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.metricitem{padding:10px;background:#091721;border:1px solid var(--edge);border-radius:8px;min-width:0}.metricitem strong{display:block;margin-top:4px;overflow-wrap:anywhere}.chart{width:100%;height:170px;display:block}.chart text{fill:var(--muted);font-size:10px}.product-list{display:grid;gap:6px;max-height:250px;overflow:auto}.product-row{width:100%;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:9px;background:#091721}.product-row[aria-current=true]{border-color:var(--aqua);background:#153746}.product-row span{display:block}.product-row small{display:block;color:var(--muted)}details{margin-top:10px;border-top:1px solid var(--edge);padding-top:10px}summary{cursor:pointer}.foot{margin-top:15px;font-size:11px;color:var(--muted)}.legend{font-size:11px;color:var(--muted);margin:7px 0}.legendbar{height:8px;border-radius:4px;background:linear-gradient(90deg,#053061,#f7f7f7,#67001f);margin-top:5px}.hidden{display:none!important}@media(max-width:850px){main{padding:12px}.layout{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.mapbox{height:48vh;min-height:300px}}@media(max-width:450px){.cards{grid-template-columns:1fr 1fr}.big{font-size:21px}.timeline{grid-template-columns:1fr}.timeline input{grid-row:2}}
 </style></head><body><main>
@@ -134,14 +147,14 @@ def write_viewer(path: Path) -> None:
 <div class="layout"><section class="panel"><div class="maphead"><div><div class="kicker">Geospatial workspace</div><strong id="mapTitle">Loading map layers…</strong></div><div class="controls"><label>Band <select id="bandSelect" aria-label="Select raster band"></select></label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="80" aria-label="Raster opacity"></label><label>Speed <select id="speed"><option value="2500">0.5×</option><option value="1500" selected>1×</option><option value="750">2×</option></select></label></div></div><div class="mapbox"><div id="map"></div><div id="mapFallback" class="hidden" style="padding:20px"><strong>Interactive map unavailable.</strong><p>The processing report and georeferenced assets remain in this bundle; the basemap/MapLibre library requires an internet connection.</p></div></div><div id="legend" class="legend"></div><div class="timeline"><div class="controls"><button id="previous" aria-label="Previous observation">◀</button><button id="play">Play</button><button id="next" aria-label="Next observation">▶</button></div><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Observation pair timeline"><small id="dateLabel">—</small></div><p class="muted" id="timelineNote">Each point is a real acquisition pair. No synthetic intermediate observations are created.</p></section>
 <aside class="panel"><div class="kicker">Selected observation</div><h2 id="productTitle">—</h2><p class="muted" id="productDescription">—</p><div class="metriclist" id="productMetrics"></div><label>Jump to pair <select id="productSelect"></select></label><div class="kicker" style="margin-top:18px">Quality / support by product</div><svg id="supportChart" class="chart" role="img" aria-label="Bar chart of valid pixels by product"></svg><p class="muted" style="font-size:11px">Bars show per-product valid-pixel counts; they are not a movement trend.</p><div class="kicker" style="margin-top:12px">Observation list</div><div class="product-list" id="productList"></div><details><summary>Provenance and limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details></aside></div>
 <footer class="foot">Map data attribution: © OpenStreetMap contributors. Raster preview is reprojected from the validated clipped GeoTIFF; native raster and per-product records remain the scientific source assets. This is a research viewer, not a hazard-alert service.</footer>
-</main><script src="./dashboard-data.js"></script><script src="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.js"></script><script>
+</main><script src="./dashboard-data.js"></script><script src="https://unpkg.com/maplibre-gl@6.15.0/dist/maplibre-gl.js"></script><script>
 (function(){const $=id=>document.getElementById(id);const manifest=window.SARGUARDIAN_DASHBOARD;let M=null,selected=0,playing=false,timer=null,activeLayer=null;const esc=s=>String(s==null?'—':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));if(!manifest){$('mapTitle').textContent='Manifest is missing';$('mapFallback').classList.remove('hidden');return}const obs=manifest.observations||[],layers=manifest.layers||[],aoi=manifest.aoi&&manifest.aoi.geometry,n=obs.length;
 $('timeline').max=String(Math.max(0,n-1));$('timeline').disabled=n<2;$('productSelect').innerHTML=obs.map((p,i)=>'<option value="'+i+'">'+esc(p.secondary_date)+' · '+esc(p.id)+'</option>').join('');
 const cards=[['Products',n],['GUNW',obs.filter(p=>p.product_type==='GUNW').length],['GOFF',obs.filter(p=>p.product_type==='GOFF').length],['Visual assets',manifest.validation.visual_assets_status||'—']];$('summaryCards').innerHTML=cards.map(x=>'<div class="card"><div class="label">'+esc(x[0])+'</div><div class="big">'+esc(x[1])+'</div></div>').join('');
 function addFallback(){ $('mapFallback').classList.remove('hidden'); }
 if(window.maplibregl){try{M=new maplibregl.Map({container:'map',style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster',source:'osm'}]},center:[0,0],zoom:2});M.addControl(new maplibregl.NavigationControl(),'top-right');M.on('load',function(){if(aoi){M.addSource('aoi',{type:'geojson',data:manifest.aoi});M.addLayer({id:'aoi-fill',type:'fill',source:'aoi',paint:{'fill-color':'#66e2d3','fill-opacity':0.09}});M.addLayer({id:'aoi-outline',type:'line',source:'aoi',paint:{'line-color':'#66e2d3','line-width':2,'line-dasharray':[2,1]}});const coords=aoi.coordinates[0]||[];if(coords.length){let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;coords.forEach(c=>{west=Math.min(west,c[0]);south=Math.min(south,c[1]);east=Math.max(east,c[0]);north=Math.max(north,c[1]);});M.fitBounds([[west,south],[east,north]],{padding:55,maxZoom:14});}}layers.forEach(function(l){const source='src-'+l.id;M.addSource(source,{type:'image',url:(window.SARGUARDIAN_LAYER_DATA||{})[l.id]||l.preview_asset,coordinates:l.corners});M.addLayer({id:'raster-'+l.id,type:'raster',source:source,layout:{visibility:'none'},paint:{'raster-opacity':Number($('opacity').value)/100,'raster-resampling':'nearest'}});});if(n)renderProduct();});}catch(e){addFallback();}}else addFallback();
 function current(){return obs[selected]||null;}function obsLayers(p){return layers.filter(l=>l.observation_id===p.id);}function hideLayers(){if(!M)return;layers.forEach(l=>{const id='raster-'+l.id;if(M.getLayer(id))M.setLayoutProperty(id,'visibility','none');});activeLayer=null;}
-function renderLegend(l){if(!l){$('legend').textContent='No renderable raster overlay for this product.';return;}const d=l.display_scale||{};$('legend').innerHTML='<strong>'+esc(l.description)+'</strong> · '+esc(l.units)+' · preview-valid pixels '+esc(l.valid_pixels)+'<br>Scale '+esc(d.min)+' to '+esc(d.max)+' '+esc(l.units)+' ('+esc(d.method)+')<div class="legendbar"></div>';}
+function renderLegend(l){if(!l){$('legend').textContent='No renderable raster overlay for this product.';return;}const d=l.display_scale||{};const ramp=l.kind==='coherence'?'linear-gradient(90deg,#440154,#21918c,#fde725)':'linear-gradient(90deg,#053061,#f7f7f7,#67001f)';$('legend').innerHTML='<strong>'+esc(l.description)+'</strong> · '+esc(l.units)+' · preview-valid pixels '+esc(l.valid_pixels)+'<br>Scale '+esc(d.min)+' to '+esc(d.max)+' '+esc(l.units)+' ('+esc(d.method)+')<div class="legendbar" style="background:'+ramp+'"></div>';}
 function renderProduct(){const p=current();if(!p)return;const pl=obsLayers(p);$('timeline').value=String(selected);$('productSelect').value=String(selected);$('dateLabel').textContent=(p.reference_date||'—')+' → '+(p.secondary_date||'—');$('mapTitle').textContent=p.id+' · '+p.product_type+' · '+(p.track||'track unavailable');$('productTitle').textContent=p.id+' · '+p.product_type;$('productDescription').textContent=(p.reference_date||'—')+' reference → '+(p.secondary_date||'—')+' secondary · '+(p.maturity||'maturity not reported')+' · '+(p.look_direction||'view geometry in metadata');
 const priorBand=$('bandSelect').value;$('bandSelect').innerHTML=pl.map(l=>'<option value="'+esc(l.id)+'">Band '+esc(l.band)+': '+esc(l.description)+'</option>').join('');if(pl.some(l=>l.id===priorBand))$('bandSelect').value=priorBand;$('bandSelect').disabled=!pl.length;const layer=pl.find(l=>l.id===$('bandSelect').value)||pl[0]||null;hideLayers();if(layer&&M&&M.getLayer('raster-'+layer.id)){M.setLayoutProperty('raster-'+layer.id,'visibility','visible');M.setPaintProperty('raster-'+layer.id,'raster-opacity',Number($('opacity').value)/100);activeLayer=layer.id;}renderLegend(layer);
 const m=p.metrics||{};const items=[['Reference date',p.reference_date],['Secondary date',p.secondary_date],['Track / look',p.track||'Not reported'],['Maturity',p.maturity],['Valid pixels',p.valid_pixels],['Reader median',m.reader_median==null?'Not reported':String(m.reader_median)+' '+(m.reader_median_units||'(source units)')],['Mean coherence',m.mean_coherence==null?'Not reported':m.mean_coherence],['CRID',p.crid]];$('productMetrics').innerHTML=items.map(x=>'<div class="metricitem"><div class="label">'+esc(x[0])+'</div><strong>'+esc(x[1])+'</strong></div>').join('');$('provenance').innerHTML='<p>Run: '+esc(manifest.run.github_run_id)+'</p><p>AOI SHA-256: '+esc(manifest.run.aoi_wkt_sha256)+'</p><p>Science commit: '+esc(manifest.run.science_commit)+'</p><p>Orchestration commit: '+esc(manifest.run.orchestration_commit)+'</p><p>Source hash: '+esc(p.source_sha256)+'</p><p>'+esc(p.validation_scope||'Structural/provenance only; independent geophysical validation not performed.')+'</p><p>'+(p.warnings||[]).map(esc).join('<br>')+'</p>';document.querySelectorAll('.product-row').forEach(row=>row.setAttribute('aria-current',row.dataset.idx===String(selected)?'true':'false'));}
@@ -191,7 +204,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             with rasterio.open(raster_path) as ds:
                 band_count = ds.count
             for band in range(1, band_count + 1):
-                values, bounds, meta = reproject_band(raster_path, band)
+                values, bounds, meta = reproject_band(raster_path, band, geometry)
                 overlaps = bounds[0] <= bbox[2] and bounds[2] >= bbox[0] and bounds[1] <= bbox[3] and bounds[3] >= bbox[1]
                 if not overlaps:
                     raise ValueError(f"Preview does not intersect AOI: {pid}/{raster_path.name}")
@@ -205,7 +218,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                         raise ValueError(f"Source raster valid-pixel mismatch for {pid}: record={expected_valid}, raster={meta['source_valid_pixels']}")
                 if not valid.size:
                     continue
-                track = str((product.get("stats") or {}).get("track") or product.get("track") or "geometry-unclassified")
+                track_value = (product.get("stats") or {}).get("track") or product.get("track")\n                track = str(track_value) if track_value else "geometry-unclassified:" + pid
                 kind = "coherence" if "coherence" in meta["description"].lower() else "continuous"
                 group_key = (str(product.get("product_type") or "UNKNOWN"), track, meta["description"])
                 groups.setdefault(group_key, []).append(valid.astype("float32", copy=False))
@@ -259,7 +272,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "id": product.get("id"), "product_type": product.get("product_type"), "granule_name": product.get("granule_name"),
             "reference_date": product.get("reference_date"), "secondary_date": product.get("secondary_date"),
             "track": stats.get("track") or product.get("track"),
-            "look_direction": (str(stats.get("track") or "").split() or [None])[0],
+            "look_direction": product.get("look_direction") or stats.get("look_direction"),
             "maturity": product.get("maturity"), "crid": product.get("crid") or stats.get("crid"),
             "status": product.get("status"), "valid_pixels": product.get("valid_pixels"),
             "grid_pixels_inside_aoi": product.get("grid_pixels_inside_aoi"), "source_sha256": product.get("source_sha256"),
