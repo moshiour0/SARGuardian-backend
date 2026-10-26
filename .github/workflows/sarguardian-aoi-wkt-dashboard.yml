@@ -45,6 +45,16 @@ on:
         required: false
         type: string
         default: ''
+      target_lat:
+        description: "Optional analysis point latitude inside the AOI; needed for target-local floor/time-series diagnostics."
+        required: false
+        type: string
+        default: ''
+      target_lon:
+        description: "Optional analysis point longitude inside the AOI; needed with target_lat."
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       aoi_wkt:
@@ -98,6 +108,16 @@ on:
         default: ''
       request_fingerprint:
         description: "Immutable account request fingerprint. Required with job_id."
+        required: false
+        type: string
+        default: ''
+      target_lat:
+        description: "Optional target latitude inside the AOI. Leave blank for AOI-wide screening only."
+        required: false
+        type: string
+        default: ''
+      target_lon:
+        description: "Optional target longitude inside the AOI. Must be supplied together with target_lat."
         required: false
         type: string
         default: ''
@@ -166,12 +186,12 @@ jobs:
       orchestration_sha: ${{ steps.orch.outputs.sha }}
     env:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
-      AOI_ORCHESTRATION_BRANCH: feat/final-aoi-science-integration
+      AOI_ORCHESTRATION_BRANCH: ${{ github.ref_name }}
     steps:
-      - name: Checkout backend orchestration tools from the isolated feature branch
+      - name: Checkout backend orchestration tools at the exact caller revision
         uses: actions/checkout@v4
         with:
-          ref: feat/final-aoi-science-integration
+          ref: ${{ github.sha }}
 
       - name: Record exact orchestration revision for every downstream product
         id: orch
@@ -211,6 +231,8 @@ jobs:
           DATE_FILTER_MODE: ${{ inputs.date_filter_mode || 'secondary-acquisition-in-window' }}
           RUN_PROFILE: ${{ inputs.run_profile }}
           RETENTION_PROFILE: ${{ inputs.retention_profile }}
+          TARGET_LAT: ${{ inputs.target_lat || '' }}
+          TARGET_LON: ${{ inputs.target_lon || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -221,6 +243,28 @@ jobs:
             --date-filter-mode "$DATE_FILTER_MODE" \
             --run-profile "$RUN_PROFILE" --retention-profile "$RETENTION_PROFILE" \
             --out "$RUNNER_TEMP/sarguardian-aoi/manifest/manifest.json"
+          python - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          path=Path(os.environ["RUNNER_TEMP"])/"sarguardian-aoi"/"manifest"/"manifest.json"
+          lat=os.environ.get("TARGET_LAT","").strip()
+          lon=os.environ.get("TARGET_LON","").strip()
+          if bool(lat) != bool(lon):
+              raise SystemExit("ERROR=TARGET_LAT_AND_TARGET_LON_MUST_BE_SUPPLIED_TOGETHER")
+          data=json.loads(path.read_text(encoding="utf-8"))
+          if lat:
+              try:
+                  lat_value=float(lat); lon_value=float(lon)
+              except ValueError:
+                  raise SystemExit("ERROR=ANALYSIS_TARGET_COORDINATES_MUST_BE_NUMERIC")
+              if not math.isfinite(lat_value) or not math.isfinite(lon_value) or not -90 <= lat_value <= 90 or not -180 <= lon_value <= 180:
+                  raise SystemExit("ERROR=ANALYSIS_TARGET_COORDINATES_OUT_OF_RANGE")
+              data["analysis_target"]={"latitude":lat_value,"longitude":lon_value,"source":"explicit workflow input; AOI membership verified during science aggregation"}
+          else:
+              data["analysis_target"]=None
+          path.write_text(json.dumps(data,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
+          print("ANALYSIS_TARGET_CONFIGURED="+str(bool(lat)))
+          PY
 
       - name: Publish the selected-product manifest
         uses: actions/upload-artifact@v4
