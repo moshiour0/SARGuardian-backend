@@ -45,6 +45,31 @@ on:
         required: false
         type: string
         default: ''
+      place_name:
+        description: "Optional map-selected place name for dashboard context."
+        required: false
+        type: string
+        default: ''
+      place_latitude:
+        description: "Optional selected place latitude (WGS84)."
+        required: false
+        type: string
+        default: ''
+      place_longitude:
+        description: "Optional selected place longitude (WGS84)."
+        required: false
+        type: string
+        default: ''
+      target_latitude:
+        description: "Optional measurement target latitude, permitted only inside the submitted AOI."
+        required: false
+        type: string
+        default: ''
+      target_longitude:
+        description: "Optional measurement target longitude, permitted only inside the submitted AOI."
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       aoi_wkt:
@@ -98,6 +123,31 @@ on:
         default: ''
       request_fingerprint:
         description: "Immutable account request fingerprint. Required with job_id."
+        required: false
+        type: string
+        default: ''
+      place_name:
+        description: "Optional map-selected place name for dashboard context."
+        required: false
+        type: string
+        default: ''
+      place_latitude:
+        description: "Optional selected place latitude (WGS84)."
+        required: false
+        type: string
+        default: ''
+      place_longitude:
+        description: "Optional selected place longitude (WGS84)."
+        required: false
+        type: string
+        default: ''
+      target_latitude:
+        description: "Optional measurement target latitude, permitted only inside the submitted AOI."
+        required: false
+        type: string
+        default: ''
+      target_longitude:
+        description: "Optional measurement target longitude, permitted only inside the submitted AOI."
         required: false
         type: string
         default: ''
@@ -201,7 +251,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
           python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
-          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 rasterio matplotlib
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 rasterio matplotlib pyproj
 
       - name: Validate WKT, search ASF exact polygon and build input manifest
         id: discover
@@ -249,6 +299,8 @@ jobs:
       maturity: ${{ matrix.maturity }}
       expected_source_bytes: ${{ matrix.expected_source_bytes }}
       retention_profile: ${{ inputs.retention_profile }}
+      target_latitude: ${{ inputs.target_latitude }}
+      target_longitude: ${{ inputs.target_longitude }}
       execution_label: initial
     secrets: inherit
 
@@ -326,6 +378,8 @@ jobs:
       maturity: ${{ matrix.maturity }}
       expected_source_bytes: ${{ matrix.expected_source_bytes }}
       retention_profile: ${{ inputs.retention_profile }}
+      target_latitude: ${{ inputs.target_latitude }}
+      target_longitude: ${{ inputs.target_longitude }}
       execution_label: retry-1
     secrets: inherit
 
@@ -341,6 +395,11 @@ jobs:
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       RUN_ID_SAFE: SARGuardian-AOI-${{ github.run_id }}-${{ github.run_attempt }}
       AOI_ORCHESTRATION_SHA: ${{ needs.manifest.outputs.orchestration_sha }}
+      SITE_PLACE_NAME: ${{ inputs.place_name }}
+      SITE_PLACE_LATITUDE: ${{ inputs.place_latitude }}
+      SITE_PLACE_LONGITUDE: ${{ inputs.place_longitude }}
+      SITE_TARGET_LATITUDE: ${{ inputs.target_latitude }}
+      SITE_TARGET_LONGITUDE: ${{ inputs.target_longitude }}
     steps:
       - name: Checkout dashboard orchestration tools at the manifest's exact code revision
         uses: actions/checkout@v4
@@ -355,14 +414,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian-backend
-          ref: f43c8aa1c4db12ed00b3bbb1c11525c6f6b204ab
+          ref: e41fd87d396b342efe63692333243557930d41f5
           path: dashboard-source
 
       - name: Verify pinned interactive-dashboard builder revision
         shell: bash
         run: |
           set -euo pipefail
-          expected="f43c8aa1c4db12ed00b3bbb1c11525c6f6b204ab"
+          expected="e41fd87d396b342efe63692333243557930d41f5"
           actual="$(git -C dashboard-source rev-parse HEAD)"
           test "$actual" = "$expected"
           echo "DASHBOARD_BUILDER_SHA=$actual"

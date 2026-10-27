@@ -20,6 +20,7 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [x] Add unit tests for cross-UTM reprojection, NoData transparency, STAC paths, common scale within the same track group and source TIFF immutability.
 - [ ] Extend tests for missing band descriptions, all-empty bands, multi-export products and deterministic rebuilds.
 - [x] Wire builder into AOI aggregation before ZIP creation and Drive upload. The new visualization build is best-effort and reports its own status so a render issue cannot mark scientific processing as failed.
+- [x] Add a machine-readable per-run science-stage report and embed it in the result manifest; use the pinned `timeseries.py` engine for acquisition-network topology, and visibly gate inversion/floor/velocity/geometry/bound stages when required evidence is absent.
 - [ ] Add generated file list and explicit status to the GitHub workflow step summary; review the private Drive package inventory and preserve the three required account artifacts.
 - [ ] Run the exact committed builder against the downloaded run artifact and compare all source TIFF hashes before/after.
 
@@ -29,6 +30,7 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [x] Add acquisition-pair timeline, Play/Pause, previous/next, playback speed and date labels.
 - [ ] Group observations by track/view geometry; do not interpolate missing acquisitions or join incompatible pairwise measurements as a trend.
 - [x] Add pairwise LOS median chart filtered to one track, valid-pixel support chart, provenance card and always-visible science limitation banner.
+- [x] Add a unit-separated metric selector for GUNW LOS median, GOFF range-offset median, GOFF along-track-offset median and GOFF detection floor; the floor is explicitly labelled as detectability, not measured motion.
 - [ ] Add native GeoTIFF/quicklook export actions inside the static viewer itself; the original bundle currently retains those assets.
 - [x] Add graceful map-library/basemap fallback messaging and explicit OpenStreetMap attribution; note that actual basemap rendering requires network access.
 - [x] Add keyboard-operable native controls, responsive mobile layout and full-screen presentation toggle.
@@ -60,4 +62,6 @@ Statuses: `DONE`, `IN_PROGRESS`, `BLOCKED`, `NOT_STARTED`. A checklist item move
 - [x] Document MapLibre/OpenStreetMap network dependency, offline fallback, native TIFF and bundle behavior.
 - [x] Dashboard builder tests and backend regression CI pass on the feature branch.
 - [ ] Complete review and integration. PR #44 targets `main` for review only; no merge or direct main commit has been made; it does not change backend `main`. Dynamic app PR #6 is separate and remains unmerged.
-- [ ] Update the production workflow's signed-callback helper pin only in an approved integration PR, then run a new processing job and verify that its result summary includes `web_dashboard.status == PASS` before exposing the live button.
+- [ ] Merge the reviewed dashboard integration PR only after CI review. The dynamic workflow currently pins an older dashboard builder, which omits the `web-dashboard/` assets; PR #47 updates that immutable pin and adds a guard test.
+- [ ] After the pin fix is merged, run a dashboard-only smoke test against retained derived outputs (no raw replay), verify `web_dashboard.status == PASS`, and confirm the authenticated in-app route can open the exact result bundle before calling the integration production-ready.
+- [ ] Separately implement and validate common-reference provenance and target-point contracts before enabling numeric cumulative inversion, local target floors, inverse-velocity, or ASC/DESC fusion for arbitrary AOIs.

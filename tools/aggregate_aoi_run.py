@@ -8,6 +8,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import shutil
 import sys
@@ -73,6 +74,146 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: fh.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+def _env_coordinate(name: str, low: float, high: float) -> tuple[float | None, str | None]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None, None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None, "NOT_NUMERIC"
+    if not math.isfinite(value) or value < low or value > high:
+        return None, "OUT_OF_RANGE"
+    return value, None
+
+
+def _point_in_ring(longitude: float, latitude: float, ring: list[list[float]]) -> bool:
+    inside = False
+    for index in range(len(ring) - 1):
+        x1, y1 = ring[index]
+        x2, y2 = ring[index + 1]
+        cross = (longitude - x1) * (y2 - y1) - (latitude - y1) * (x2 - x1)
+        if (abs(cross) <= 1e-10
+                and min(x1, x2) - 1e-10 <= longitude <= max(x1, x2) + 1e-10
+                and min(y1, y2) - 1e-10 <= latitude <= max(y1, y2) + 1e-10):
+            return True
+        if (y1 > latitude) != (y2 > latitude):
+            crossing = (x2 - x1) * (latitude - y1) / (y2 - y1) + x1
+            if longitude < crossing:
+                inside = not inside
+    return inside
+
+
+def build_site_context(ring: list[list[float]]) -> dict[str, Any]:
+    place_name = " ".join(os.environ.get("SITE_PLACE_NAME", "").split())[:200]
+    place_lat, place_lat_error = _env_coordinate("SITE_PLACE_LATITUDE", -90, 90)
+    place_lon, place_lon_error = _env_coordinate("SITE_PLACE_LONGITUDE", -180, 180)
+    target_lat, target_lat_error = _env_coordinate("SITE_TARGET_LATITUDE", -90, 90)
+    target_lon, target_lon_error = _env_coordinate("SITE_TARGET_LONGITUDE", -180, 180)
+    place = None
+    if place_name or place_lat is not None or place_lon is not None:
+        valid_place_pair = place_lat is not None and place_lon is not None and place_lat_error is None and place_lon_error is None
+        place = {
+            "name": place_name or "Selected map point",
+            "latitude": place_lat if valid_place_pair else None,
+            "longitude": place_lon if valid_place_pair else None,
+            "coordinates_status": "VALID" if valid_place_pair else "NOT_AVAILABLE_OR_INVALID",
+            "inside_aoi": _point_in_ring(place_lon, place_lat, ring) if valid_place_pair else None,
+        }
+
+    target = {"status": "NOT_PROVIDED", "latitude": None, "longitude": None,
+              "used_by_reader": False, "is_measurement": False}
+    if target_lat_error or target_lon_error:
+        target.update(status="INVALID_COORDINATE")
+    elif (target_lat is None) != (target_lon is None):
+        target.update(status="INCOMPLETE_COORDINATE_PAIR")
+    elif target_lat is not None and target_lon is not None:
+        target["latitude"], target["longitude"] = target_lat, target_lon
+        if not _point_in_ring(target_lon, target_lat, ring):
+            target["status"] = "REJECTED_OUTSIDE_AOI"
+        else:
+            target["status"] = "IN_AOI_TARGET_CAPTURED"
+            target["used_by_reader"] = False
+            target["used_by_target_tools"] = True
+            # Pair-local extraction is supported, but these coordinates are not
+            # a stable-ground reference and do not authorize cumulative inversion.
+            target["is_measurement"] = False
+            target["usage_limit"] = "Used for pair-local sampling and noise floors only; not a common stable-ground reference."
+    if place is None and target.get("status") == "IN_AOI_TARGET_CAPTURED":
+        place = {
+            "name": "Measurement target (not a hazard alert)",
+            "latitude": target["latitude"],
+            "longitude": target["longitude"],
+            "coordinates_status": "VALID",
+            "inside_aoi": True,
+            "role": "measurement_target_context_not_hazard_evidence",
+        }
+    return {
+        "schema_version": 1,
+        "place": place,
+        "measurement_target": target,
+        "interpretation": (
+            "Place marker is map-selection context, not evidence of hazard. Target-local measurements "
+            "remain per-pair and product-reference dependent until a common cross-pair datum is verified."
+        ),
+    }
+
+
+def collect_target_evidence(artifact: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    floor_path = artifact / "derived" / "local_floor.json"
+    measurement_path = artifact / "derived" / "target-measurement.json"
+    floor: dict[str, Any] = {"status": "NOT_REPORTED", "metrics": {}}
+    measurement: dict[str, Any] = {"status": "NOT_REPORTED", "measurements": {}}
+    try:
+        payload = json.loads(floor_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            floor["status"] = str(payload.get("status") or "UNKNOWN")
+            floor["target"] = payload.get("target")
+            rel = payload.get("csv_path")
+            if isinstance(rel, str) and rel and Path(rel).name == rel and floor["status"] == "PAIRWISE_FLOOR_ROWS_WRITTEN":
+                csv_path = safe_child(artifact, "derived/" + rel)
+                _header, rows = read_csv(csv_path)
+                parsed = []
+                for row in rows:
+                    try:
+                        radius = int(float(row.get("radius_px", "nan")))
+                        value = float(row.get("local_floor_mm_day", "nan"))
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if row.get("status") != "MEASURED" or not math.isfinite(value) or value <= 0:
+                        continue
+                    parsed.append((radius, row, value))
+                chosen = next((item for item in parsed if item[0] == 6), None)
+                if chosen:
+                    _, row, value = chosen
+                    def finite_field(key: str) -> float | None:
+                        try:
+                            number = float(row.get(key, "nan"))
+                            return number if math.isfinite(number) else None
+                        except (TypeError, ValueError, OverflowError):
+                            return None
+                    floor["status"] = "MEASURED"
+                    floor["metrics"] = {
+                        "radius_px": 6, "local_floor_mm_day": value,
+                        "local_floor_ci_lo_mm_day": finite_field("local_floor_ci_lo"),
+                        "local_floor_ci_hi_mm_day": finite_field("local_floor_ci_hi"),
+                        "aoi_floor_mm_day": finite_field("aoi_floor_mm_day"),
+                        "block_median_floor_mm_day": finite_field("block_median_floor_mm_day"),
+                        "window_valid_pixels": int(float(row.get("window_px", 0) or 0)),
+                    }
+                else:
+                    floor["status"] = "UNAVAILABLE_NO_MEASURED_RADIUS_6"
+    except (OSError, ValueError, json.JSONDecodeError):
+        floor["status"] = "UNAVAILABLE_INVALID_FLOOR_REPORT"
+    try:
+        payload = json.loads(measurement_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            measurement = payload
+    except (OSError, ValueError, json.JSONDecodeError):
+        measurement["status"] = "UNAVAILABLE_INVALID_TARGET_MEASUREMENT_REPORT"
+    return floor, measurement
+
 
 def assess_maturity_consistency(
     catalog_maturity: str | None, reader_maturity: str | None
@@ -260,6 +401,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
     sys.path.insert(0, str(args.science_root.resolve() / "src"))
     from aoi_wkt import parse_polygon_wkt
 
+    ring = parse_polygon_wkt(str(manifest["aoi_wkt"]))
+    site_context = build_site_context(ring)
     products = manifest.get("products", [])
     errors: list[dict[str, Any]] = []
     result_rows: list[dict[str, Any]] = []
@@ -343,6 +486,9 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 try:
                     if item.get("grid_pixels_inside_aoi") is not None: grid_counts.append(int(item["grid_pixels_inside_aoi"]))
                 except (TypeError, ValueError): pass
+            local_floor, target_measurement = collect_target_evidence(artifact)
+            record["local_floor"] = local_floor
+            record["target_measurement"] = target_measurement
             record.update({
                 "status":"PASS" if record["science_pixel_support"] and not maturity_warnings and not (validation.get("warnings") or []) else "WARNING",
                 "warnings":record["warnings"] + list(validation.get("warnings") or []) + maturity_warnings,
@@ -394,7 +540,60 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
-    ring = parse_polygon_wkt(str(manifest["aoi_wkt"]))
+    # Build a common-reference diagnostic only from retained GUNW exports.
+    # No raw HDF5 files are needed. This stage may still be withheld if grids,
+    # common pixels, target support or the temporal network do not meet gates.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.common_reference import build_common_reference_report
+        common_reference_report = build_common_reference_report(
+            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+        )
+    except Exception as exc:
+        common_reference_report = {
+            "schema_version": "sarguardian-common-reference-timeseries/1.0",
+            "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
+            "series_are_independent_geophysical_validation": False,
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [], "pairwise_measurements": [], "components": [],
+            "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+        }
+        (out / "common-reference-timeseries.json").write_text(
+            json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
+    # Use the pinned science engine for acquisition-network topology and emit an
+    # explicit eligibility report for every downstream science module.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.science_pipeline import build_science_pipeline_report
+        science_pipeline = build_science_pipeline_report(
+            result_rows, args.science_root, science_diagnostics, site_context,
+            common_reference_report,
+        )
+    except Exception as exc:
+        science_pipeline = {
+            "schema_version": "sarguardian-science-pipeline-readiness/1.0",
+            "overall_status": "REPORT_BUILD_FAILED",
+            "network_assessment_status": "UNAVAILABLE",
+            "science_commit_expected": str(manifest.get("science_commit") or ""),
+            "structural_validation_is_geophysical_validation": False,
+            "networks": [],
+            "modules": [],
+            "warnings": [
+                "The stage-readiness report could not be built.",
+                "No unavailable measurements were replaced by synthetic values.",
+            ],
+            "error": type(exc).__name__ + ":" + str(exc)[:250],
+        }
+    science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
+
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
         "schema_version":"sarguardian-aoi-dashboard-summary/1.0",
@@ -424,11 +623,20 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
         "science_diagnostics":science_diagnostics,
+        "science_pipeline":science_pipeline,
+        "site_context":site_context,
+        "common_reference_timeseries":common_reference_report,
+        "target_measurement_count":sum((x.get("target_measurement") or {}).get("status") == "MEASURED" for x in result_rows),
+        "local_floor_count":sum((x.get("local_floor") or {}).get("status") == "MEASURED" for x in result_rows),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
         "goff_count":sum(x.get("product_type")=="GOFF" for x in result_rows),
         "retention_profile_note":manifest.get("archive_note"),"baseline_policy":manifest.get("baseline_policy"),
         "science_claim_limit":manifest.get("scientific_claim_limit"),"errors":errors,
     }
+    (out/"science-pipeline-report.json").write_text(
+        json.dumps(json_safe(science_pipeline), indent=2, ensure_ascii=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
