@@ -46,27 +46,27 @@ on:
         type: string
         default: ''
       place_name:
-        description: "Optional map-selected place name for dashboard context."
+        description: "Optional place label for the viewer; a name alone does not enable target-local measurements."
         required: false
         type: string
         default: ''
       place_latitude:
-        description: "Optional selected place latitude (WGS84)."
+        description: "Optional place-context latitude in WGS84 decimal degrees. Supply both place coordinates to show a place marker."
         required: false
         type: string
         default: ''
       place_longitude:
-        description: "Optional selected place longitude (WGS84)."
+        description: "Optional place-context longitude in WGS84 decimal degrees. Supply both place coordinates to show a place marker."
         required: false
         type: string
         default: ''
       target_latitude:
-        description: "Optional measurement target latitude, permitted only inside the submitted AOI."
+        description: "For target-local measurements, set BOTH target latitude and longitude to one explicit WGS84 point inside the submitted AOI. Leave blank only when no local target measurement is intended."
         required: false
         type: string
         default: ''
       target_longitude:
-        description: "Optional measurement target longitude, permitted only inside the submitted AOI."
+        description: "For target-local measurements, set BOTH target latitude and longitude to one explicit WGS84 point inside the submitted AOI. An absent/outside point yields NOT_REPORTED, not zero motion."
         required: false
         type: string
         default: ''
@@ -127,27 +127,27 @@ on:
         type: string
         default: ''
       place_name:
-        description: "Optional map-selected place name for dashboard context."
+        description: "Optional place label for the viewer; a name alone does not enable target-local measurements."
         required: false
         type: string
         default: ''
       place_latitude:
-        description: "Optional selected place latitude (WGS84)."
+        description: "Optional place-context latitude in WGS84 decimal degrees. Supply both place coordinates to show a place marker."
         required: false
         type: string
         default: ''
       place_longitude:
-        description: "Optional selected place longitude (WGS84)."
+        description: "Optional place-context longitude in WGS84 decimal degrees. Supply both place coordinates to show a place marker."
         required: false
         type: string
         default: ''
       target_latitude:
-        description: "Optional measurement target latitude, permitted only inside the submitted AOI."
+        description: "For target-local measurements, set BOTH target latitude and longitude to one explicit WGS84 point inside the submitted AOI. Leave blank only when no local target measurement is intended."
         required: false
         type: string
         default: ''
       target_longitude:
-        description: "Optional measurement target longitude, permitted only inside the submitted AOI."
+        description: "For target-local measurements, set BOTH target latitude and longitude to one explicit WGS84 point inside the submitted AOI. An absent/outside point yields NOT_REPORTED, not zero motion."
         required: false
         type: string
         default: ''
@@ -414,14 +414,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian-backend
-          ref: e41fd87d396b342efe63692333243557930d41f5
+          ref: c2605b75c9350a8023b93171fd55e8f0ec7e3e13
           path: dashboard-source
 
       - name: Verify pinned interactive-dashboard builder revision
         shell: bash
         run: |
           set -euo pipefail
-          expected="e41fd87d396b342efe63692333243557930d41f5"
+          expected="c2605b75c9350a8023b93171fd55e8f0ec7e3e13"
           actual="$(git -C dashboard-source rev-parse HEAD)"
           test "$actual" = "$expected"
           echo "DASHBOARD_BUILDER_SHA=$actual"
