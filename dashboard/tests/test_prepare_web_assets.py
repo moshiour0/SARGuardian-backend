@@ -205,7 +205,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("function renderFallbackPreview(layer)", viewer)
             self.assertIn("if(!M)renderFallbackPreview(layer)", viewer)
             self.assertIn('id="targetNotice"', viewer)
-            self.assertIn("This dashboard cannot reconstruct missing target measurements after processing.", viewer)
+            self.assertIn("The current result bundle contains no target-local measurement; a target-aware measurement pass is required before reporting one.", viewer)
             self.assertIn("try {", viewer)
             self.assertIn("maplibregl = await import(", viewer)
             self.assertIn("catch (error)", viewer)
