@@ -40,6 +40,7 @@ def _fake_science_modules():
             return ("D", 48, 71, 28, 4000, "SH", "P05023", "GUNW")
         def network_label(self, short=False):
             return "DESC path 048 frame 071 CRID P05023 GUNW"
+        @property
         def span_days(self):
             return (self.sec - self.ref).days
 
