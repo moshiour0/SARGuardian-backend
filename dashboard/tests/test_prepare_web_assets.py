@@ -82,6 +82,30 @@ class PrepareWebAssetsTests(unittest.TestCase):
             },
             "target_measurement_count": 1,
             "local_floor_count": 1,
+            "common_reference_timeseries": {
+                "schema_version": "sarguardian-common-reference-timeseries/1.0",
+                "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                "reason": "Test-only connected synthetic network passes structural gates; external stable-ground reference is not validated.",
+                "networks": [{
+                    "network": "DESC path 091 frame 01 CRID P05023 GUNW",
+                    "common_pixels_outside_target_buffer": 240,
+                }],
+                "components": [{
+                    "network": "DESC path 091 frame 01 CRID P05023 GUNW",
+                    "component": 1,
+                    "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                    "pairs_count": 4,
+                    "redundancy": 1,
+                    "series": [
+                        {"epoch": "2026-07-21", "cumulative_los_mm": 0.0,
+                         "graph_fit_ci95_low_mm": 0.0, "graph_fit_ci95_high_mm": 0.0},
+                        {"epoch": "2026-08-02", "cumulative_los_mm": 1.5,
+                         "graph_fit_ci95_low_mm": 0.9, "graph_fit_ci95_high_mm": 2.1},
+                        {"epoch": "2026-08-14", "cumulative_los_mm": 2.8,
+                         "graph_fit_ci95_low_mm": 2.0, "graph_fit_ci95_high_mm": 3.6},
+                    ],
+                }],
+            },
         }
         (root / "aoi-run-summary.json").write_text(json.dumps(summary), encoding="utf-8")
         (root / "aoi-processing-report.json").write_text(json.dumps({"summary": summary, "products": [product], "processing_report": {"status": "PASS"}}), encoding="utf-8")
@@ -104,6 +128,9 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["validation"]["visual_assets_status"], "PASS")
             self.assertEqual(manifest["observations"][0]["metrics"]["reader_median_units"], "mm")
             self.assertEqual(manifest["site_context"]["place"]["name"], "Test ridge")
+            self.assertEqual(manifest["common_reference_timeseries"]["status"],
+                             "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
+            self.assertEqual(len(manifest["common_reference_timeseries"]["components"][0]["series"]), 3)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
             site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
@@ -160,6 +187,11 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('id="pairCompare"', viewer)
             self.assertIn('id="scenarioSandbox"', viewer)
             self.assertIn("function compatiblePair(a,b)", viewer)
+            self.assertIn("function renderCommonReferenceChart()", viewer)
+            self.assertIn("manifest.common_reference_timeseries", viewer)
+            self.assertIn("DIAGNOSTIC ONLY", viewer)
+            self.assertIn("No publishable cumulative diagnostic series", viewer)
+            self.assertIn("White bars: fit-only 95% interval", viewer)
             self.assertIn("function renderHypotheticalScenario()", viewer)
             self.assertIn("Comparison withheld", viewer)
             self.assertIn("not a forecast", viewer.lower())
