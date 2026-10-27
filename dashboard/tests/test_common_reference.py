@@ -49,6 +49,7 @@ def _fake_science_modules():
 
     def invert_component(pairs, epochs):
         return {
+            "epochs": list(epochs),
             "dof": len(pairs) - len(epochs) + 1,
             "residual_rms_mm": 0.45,
             "velocity_mm_per_day": 0.08,
