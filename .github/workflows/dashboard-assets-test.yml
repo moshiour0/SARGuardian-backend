@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/interactive-geospatial-dashboard-main-integration
+      - fix/dashboard-map-fallback-20261027
     paths:
       - "dashboard/**"
       - "tools/aggregate_aoi_run.py"
