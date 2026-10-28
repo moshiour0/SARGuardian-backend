@@ -224,6 +224,7 @@ jobs:
           goff = json.loads((out / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
           candidates = json.loads((out / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
           pixel_timeseries = json.loads((out / "aoi-relative-pixel-timeseries.json").read_text(encoding="utf-8"))
+          science_diagnostics = json.loads((out / "science-diagnostics" / "science-diagnostics.json").read_text(encoding="utf-8"))
           candidate_geojson = json.loads((out / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
           receipt = json.loads((out / "web-dashboard-build-receipt.json").read_text(encoding="utf-8"))
           viewer_manifest = json.loads((out / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
@@ -242,6 +243,27 @@ jobs:
               raise SystemExit(f"ERROR=NO_TARGET_GATE_NOT_ENFORCED status={goff.get('status')}")
           if not isinstance(goff.get("components"), list) or not isinstance(goff.get("pairwise_measurements"), list):
               raise SystemExit("ERROR=GOFF_REPORT_SCHEMA_INVALID")
+
+          stack = science_diagnostics.get("pixel_stack")
+          if not isinstance(stack, dict) or not isinstance(stack.get("network_results"), list):
+              raise SystemExit("ERROR=PIXEL_STACK_NETWORK_REPORT_INVALID")
+          if stack.get("status") == "COMPLETED":
+              raise SystemExit("ERROR=LEGACY_PIXEL_STACK_MAY_NOT_REPORT_GENERIC_COMPLETED")
+          network_ids = [str(item.get("network_id", "")) for item in stack["network_results"]]
+          if any(not value for value in network_ids) or len(network_ids) != len(set(network_ids)):
+              raise SystemExit("ERROR=PIXEL_STACK_NETWORK_IDENTITIES_MISSING_OR_DUPLICATED")
+          for item in stack["network_results"]:
+              status = str(item.get("status") or "")
+              evidence = (str(item.get("log_tail") or "") + " " + str(item.get("detail") or "")).lower()
+              reports_no_fit = "nothing to fit" in evidence or (
+                  "pixels with a complete series" in evidence
+                  and __import__("re").search(r"pixels with a complete series\\s*:\\s*0\\s+of\\s+", evidence)
+              )
+              if reports_no_fit and status != "INSUFFICIENT_TEMPORAL_COVERAGE":
+                  raise SystemExit(
+                      "ERROR=PIXEL_STACK_ZERO_SUPPORT_NOT_WITHHELD "
+                      + str(item.get("network_id")) + ":" + status
+                  )
           if receipt.get("status") != "PASS":
               raise SystemExit(f"ERROR=DASHBOARD_BUILD_NOT_PASS status={receipt.get('status')}")
           if int(receipt.get("observations", -1)) != len(source.get("products", [])):
@@ -293,6 +315,9 @@ jobs:
               raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_WIRED_TO_SUMMARY")
           print("AGGREGATION_STATUS=PASS")
           print("PRODUCTS_VALIDATED=" + str(summary.get("products_validated")))
+          print("PIXEL_STACK_STATUS=" + str(stack.get("status")))
+          print("PIXEL_STACK_EXACT_NETWORKS=" + str(len(stack.get("network_results", []))))
+          print("PIXEL_STACK_ZERO_SUPPORT_GATE=PASS")
           print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
           print("GOFF_PAIRWISE_MEASUREMENTS=" + str(len(goff.get("pairwise_measurements", []))))
           print("GOFF_DIAGNOSTIC_COMPONENTS=" + str(len(goff.get("components", []))))
