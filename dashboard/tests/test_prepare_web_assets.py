@@ -131,6 +131,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["common_reference_timeseries"]["status"],
                              "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
             self.assertEqual(len(manifest["common_reference_timeseries"]["components"][0]["series"]), 3)
+            self.assertEqual(manifest["goff_common_reference_timeseries"], {})
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
             site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
@@ -188,6 +189,10 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('id="scenarioSandbox"', viewer)
             self.assertIn("function compatiblePair(a,b)", viewer)
             self.assertIn("function renderCommonReferenceChart()", viewer)
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn('id="goffCumulativeChart"', viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
             self.assertIn("manifest.common_reference_timeseries", viewer)
             self.assertIn("DIAGNOSTIC ONLY", viewer)
             self.assertIn("No publishable cumulative diagnostic series", viewer)
