@@ -298,9 +298,9 @@ def build_goff_common_reference_report(
                         break
                     correlation_tag = _number(tags.get("correlation_min"))
                     threshold = max(correlation_minimum, correlation_tag if correlation_tag is not None else correlation_minimum)
-                    range_values = ds.read(1, masked=True).filled(np.nan).astype("float64")
-                    azimuth_values = ds.read(2, masked=True).filled(np.nan).astype("float64")
-                    correlation = ds.read(3, masked=True).filled(np.nan).astype("float64")
+                    range_values = ds.read(1, masked=True).filled(np.nan).astype("float32")
+                    azimuth_values = ds.read(2, masked=True).filled(np.nan).astype("float32")
+                    correlation = ds.read(3, masked=True).filled(np.nan).astype("float32")
                     valid = (
                         np.isfinite(range_values) & np.isfinite(azimuth_values)
                         & np.isfinite(correlation) & (correlation >= threshold)
@@ -345,7 +345,12 @@ def build_goff_common_reference_report(
         if not inside_aoi[target_row, target_col]:
             networks.append({"network": label, "status": "WITHHELD_TARGET_OUTSIDE_MASK", "pairs": len(grids), "reason": "Target cell is outside the exact AOI mask on the exported grid."})
             continue
-        common = np.logical_and.reduce([item["valid"] for item in grids]) & inside_aoi
+        # Intersect in place: materialising a 3-D array of every pair mask can
+        # double memory for broad user-selected AOIs on the hosted runner.
+        common = np.ones(first["shape"], dtype=bool)
+        for item in grids:
+            common &= item["valid"]
+        common &= inside_aoi
         resolution = (first["res_x"] + first["res_y"]) / 2
         buffer_px = int(round(buffer_km * 1000 / resolution))
         stable = common & ~common_ref.buffer_mask(common.shape, [(target_row, target_col)], buffer_px)
