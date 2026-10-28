@@ -26,7 +26,7 @@ _IDENTITY = re.compile(
     r"^NISAR_L2_(?P<processing>PR|UR)_(?P<product>GUNW|GOFF)_"
     r"(?P<cycle>\d{3})_(?P<path>\d{3})_(?P<direction>[AD])_"
     r"(?P<frame>\d{3})_(?P<subswath>\d{3})_(?P<bandwidth>\d{4})_"
-    r"(?P<polarisation>[A-Z]{2})_.*?_(?P<crid>[PX]\d{5})_N_",
+    r"(?P<polarisation>[A-Z]{2})_.*?_(?P<crid>[PX]\d{5})_(?:N|F)_",
     re.IGNORECASE,
 )
 
@@ -181,9 +181,13 @@ def _read_metric_rasters(
                              "status": "REJECTED_ACQUISITION_DATES",
                              "reason": "Valid, ordered reference and secondary dates are required."})
             continue
+        # Sub-swath is reported as provenance but is not a separate recurrence
+        # group when the exact projected AOI lattice/grid and every other geometry
+        # discriminator match. Pixel masks are unioned per acquisition interval,
+        # so overlapping swaths never count as independent temporal votes.
         network = (
             family, identity["processing"], identity["path"], identity["frame"], identity["direction"],
-            identity["subswath"], identity["bandwidth"], identity["polarisation"], identity["crid"], grid,
+            identity["bandwidth"], identity["polarisation"], identity["crid"], grid,
         )
         for metric_name, values, valid_metric in metrics:
             accepted.append({
@@ -311,9 +315,11 @@ def build_aoi_spatial_candidate_report(
     for group_key, rows in sorted(groups.items(), key=lambda pair: str(pair[0])):
         scored = [item for item in rows if item["score_status"] == "SCORED"]
         sample = rows[0]
+        subswaths = sorted({item["identity"]["subswath"] for item in rows})
+        subswath_label = ",".join(subswaths)
         group_label = (
             f"{sample['product_type']} {sample['identity']['direction']} path {sample['identity']['path']} "
-            f"frame {sample['identity']['frame']} subswath {sample['identity']['subswath']} "
+            f"frame {sample['identity']['frame']} subswaths {subswath_label} "
             f"bandwidth {sample['identity']['bandwidth']} pol {sample['identity']['polarisation']} "
             f"CRID {sample['identity']['crid']} · {sample['metric']}"
         )
@@ -325,59 +331,110 @@ def build_aoi_spatial_candidate_report(
             })
             continue
 
+        # Merge swath exports into one spatial mask per acquisition interval.
+        # A date pair may vote at most once for each pixel, even when overlapping
+        # swaths or duplicate variants were retained.
+        pair_masks: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in sorted(scored, key=lambda value: (
+            value["reference_date"], value["secondary_date"], -int(value["valid_pixels"]), value["product_id"]
+        )):
+            pair_key = (item["reference_date"], item["secondary_date"])
+            if pair_key not in pair_masks:
+                pair_masks[pair_key] = {
+                    "mask": np.zeros(sample["valid"].shape, dtype=bool),
+                    "score": np.zeros(sample["valid"].shape, dtype="float32"),
+                    "product_ids": set(),
+                }
+            pair = pair_masks[pair_key]
+            mask = item["candidate_mask"]
+            pair["mask"] |= mask
+            pair["score"] = np.maximum(pair["score"], item["score"] * mask.astype("float32"))
+            pair["product_ids"].add(item["product_id"])
+
         support = np.zeros(sample["valid"].shape, dtype="uint16")
         maximum_score = np.zeros(sample["valid"].shape, dtype="float32")
-        product_ids_by_pair: dict[tuple[str, str], list[str]] = defaultdict(list)
-        for item in scored:
-            pair_key = (item["reference_date"], item["secondary_date"])
-            # Each acquisition interval contributes at most one vote per cell.
-            if pair_key in product_ids_by_pair:
-                continue
-            product_ids_by_pair[pair_key].append(item["product_id"])
-            mask = item["candidate_mask"]
-            support += mask.astype("uint16")
-            maximum_score = np.maximum(maximum_score, item["score"] * mask.astype("float32"))
-
+        for pair in pair_masks.values():
+            support += pair["mask"].astype("uint16")
+            maximum_score = np.maximum(maximum_score, pair["score"])
         labels, component_count = label(support > 0, structure=np.ones((3, 3), dtype=np.uint8))
         group_features: list[dict[str, Any]] = []
-        for component_id in range(1, component_count + 1):
-            component_mask = labels == component_id
-            pixel_count = int(np.count_nonzero(component_mask))
+
+        def emit_feature(region_mask: np.ndarray, repeated: bool) -> None:
+            pixel_count = int(np.count_nonzero(region_mask))
             if pixel_count < minimum_component_pixels:
-                continue
-            support_values = support[component_mask]
-            max_support = int(np.max(support_values))
-            pair_support = sorted({pair for pair, ids in product_ids_by_pair.items()
-                                   if ids and np.any(component_mask & np.logical_or.reduce([
-                                       item["candidate_mask"] for item in scored
-                                       if (item["reference_date"], item["secondary_date"]) == pair
-                                   ]))})
-            if not pair_support:
-                continue
-            geom_shapes = list(shapes(labels.astype("int32"), mask=component_mask, transform=sample["transform"], connectivity=8))
+                return
+            relevant_pairs = []
+            for pair_key, pair_data in sorted(pair_masks.items()):
+                if np.any(region_mask & pair_data["mask"]):
+                    # A repeated candidate must be spatially co-supported at the same pixels.
+                    if repeated and not np.any(region_mask & (support >= minimum_repeat_pairs) & pair_data["mask"]):
+                        continue
+                    relevant_pairs.append((pair_key, pair_data))
+            if not relevant_pairs:
+                return
+            max_support = int(np.max(support[region_mask]))
+            if repeated and max_support < minimum_repeat_pairs:
+                return
+            geom_shapes = list(shapes(
+                np.ones(region_mask.shape, dtype="uint8"),
+                mask=region_mask,
+                transform=sample["transform"],
+                connectivity=8,
+            ))
             if not geom_shapes:
-                continue
+                return
             geometry = transform_geom(sample["crs"], "EPSG:4326", geom_shapes[0][0], precision=7)
             pixel_width, pixel_height = sample["resolution"]
-            max_score = float(np.max(maximum_score[component_mask]))
+            max_score = float(np.max(maximum_score[region_mask]))
+            pair_keys = [pair_key for pair_key, _ in relevant_pairs]
+            product_ids = sorted({
+                product_id
+                for _, pair_data in relevant_pairs
+                for product_id in pair_data["product_ids"]
+            })
             properties = {
                 "network": group_label,
                 "product_type": sample["product_type"],
                 "metric": sample["metric"],
-                "support_pairs": len(pair_support),
+                "support_pairs": len(pair_keys),
                 "required_repeat_pairs": minimum_repeat_pairs,
                 "max_pixel_pair_support": max_support,
                 "pixel_count": pixel_count,
                 "approx_area_m2": round(pixel_count * pixel_width * pixel_height, 2),
                 "max_robust_score": round(max_score, 3),
-                "product_ids": sorted({pid for pair in pair_support for pid in product_ids_by_pair[pair]}),
-                "pair_intervals": [f"{a}/{b}" for a, b in pair_support],
-                "status": "REPEATED_SPATIAL_CANDIDATE" if len(pair_support) >= minimum_repeat_pairs else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
-                "interpretation": "A candidate spatial anomaly requiring geophysical validation; not a movement or hazard declaration.",
+                "product_ids": product_ids,
+                "pair_intervals": [f"{a}/{b}" for a, b in pair_keys],
+                "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
+                "interpretation": (
+                    "A region has spatial anomaly support in the same pixels across multiple compatible acquisition pairs; "
+                    "validate reference stability, systematic errors and geophysical consistency before calling movement."
+                    if repeated else
+                    "A candidate spatial anomaly requiring temporal/geophysical validation; not a movement or hazard declaration."
+                ),
             }
             feature = {"type": "Feature", "geometry": geometry, "properties": properties}
             group_features.append(feature)
             all_features.append(feature)
+
+        for component_id in range(1, component_count + 1):
+            component_mask = labels == component_id
+            if int(np.count_nonzero(component_mask)) < minimum_component_pixels:
+                continue
+            recurring_mask = component_mask & (support >= minimum_repeat_pairs)
+            recurring_labels, recurring_count = label(recurring_mask, structure=np.ones((3, 3), dtype=np.uint8))
+            emitted_recurring = np.zeros(component_mask.shape, dtype=bool)
+            for recurring_id in range(1, recurring_count + 1):
+                region_mask = recurring_labels == recurring_id
+                if int(np.count_nonzero(region_mask)) >= minimum_component_pixels:
+                    emit_feature(region_mask, repeated=True)
+                    emitted_recurring |= region_mask
+            # Do not label adjacent-but-not-co-supported singleton pixels as repeated.
+            unconfirmed_mask = component_mask & ~emitted_recurring
+            unconfirmed_labels, unconfirmed_count = label(unconfirmed_mask, structure=np.ones((3, 3), dtype=np.uint8))
+            for unconfirmed_id in range(1, unconfirmed_count + 1):
+                region_mask = unconfirmed_labels == unconfirmed_id
+                if int(np.count_nonzero(region_mask)) >= minimum_component_pixels:
+                    emit_feature(region_mask, repeated=False)
 
         group_reports.append({
             "network": group_label,
