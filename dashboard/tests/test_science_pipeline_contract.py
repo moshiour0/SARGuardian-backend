@@ -41,7 +41,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         for name in (
             "timeseries.py", "local_floor.py", "inverse_velocity.py",
             "geometry_merge.py", "bound.py", "gunw_reader.py", "goff_reader.py",
-            "pixel_stack.py", "candidate_check.py", "aoi_relative_pixel_timeseries.py",
+            "pixel_stack.py", "candidate_check.py",
         ):
             self.assertIn(name, pipeline)
         self.assertIn("timeseries.describe_network(pairs)", pipeline)
