@@ -162,6 +162,11 @@ def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, A
                     "source": str(source),
                     "network_id": str(group["network_id"]),
                 })
+                group["status"] = "WITHHELD_DUPLICATE_EXPORT_BASENAME"
+                group["reason"] = (
+                    "Different source rasters share the same legacy pixel-stack basename inside this exact network; "
+                    "the network is withheld rather than overwriting or combining them."
+                )
             continue
         shutil.copy2(source, destination)
         group["files"].append(destination.name)
