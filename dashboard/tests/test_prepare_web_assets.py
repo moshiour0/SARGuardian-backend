@@ -218,6 +218,54 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("web-dashboard/index.html", updated_html)
 
 
+    def test_observed_movement_measurements_reach_the_dashboard_manifest_and_viewer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            summary_path = root / "aoi-run-summary.json"
+            report_path = root / "aoi-processing-report.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            movement = {
+                "schema_version": "sarguardian-observed-movement-measurements/1.0",
+                "status": "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE",
+                "measurement_count": 1,
+                "epoch_count": 3,
+                "measurements": [{
+                    "measurement_id": "GUNW_LOS:test-network:component-1",
+                    "measurement_family": "GUNW_LOS",
+                    "measurement_label": "Cumulative line-of-sight displacement",
+                    "network": "DESC path 091 frame 01 CRID P05023 GUNW",
+                    "component": 1,
+                    "first_epoch": "2026-07-21",
+                    "last_epoch": "2026-08-14",
+                    "duration_days": 24,
+                    "epoch_count": 3,
+                    "net_change_from_first_epoch_mm": 2.8,
+                    "endpoint_rate_mm_per_day": 2.8 / 24,
+                    "graph_fit_velocity_mm_per_day": 0.12,
+                    "reference_status": "AOI_DERIVED_REFERENCE_NOT_INDEPENDENTLY_VALIDATED",
+                    "independent_geophysical_validation": False,
+                    "series": [],
+                }],
+                "warnings": ["Reference not independently validated."],
+            }
+            summary["observed_movement_measurements"] = movement
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["observed_movement_measurements"]["measurement_count"], 1)
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="movementMeasurements"', viewer)
+            self.assertIn("function renderObservedMovementMeasurements()", viewer)
+            self.assertIn("observed_movement_measurements", viewer)
+            self.assertIn("net change", viewer)
+            self.assertIn("common reference unvalidated", viewer)
+
     def test_goff_common_reference_series_reaches_the_dashboard_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
