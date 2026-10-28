@@ -45,7 +45,7 @@ jobs:
       SOURCE_RUN_ID: ${{ inputs.source_run_id || '39942529304' }}
       SITE_TARGET_LATITUDE: ${{ inputs.target_latitude || '' }}
       SITE_TARGET_LONGITUDE: ${{ inputs.target_longitude || '' }}
-      SARGUARDIAN_ROOT: ${{ runner.temp }}/sarguardian-goff-retained
+      SARGUARDIAN_ROOT: ${{ github.workspace }}/.sarguardian-goff-retained
 
     steps:
       - name: Check out this feature branch
