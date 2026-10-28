@@ -619,18 +619,18 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "warnings": ["Candidate screening failed; no movement or hazard result was inferred."],
         }
         (out / "aoi-displacement-candidates.json").write_text(
-            json.dumps(aoi_displacement_candidates, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            json.dumps(aoi_displacement_candidates, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
             encoding="utf-8",
         )
         (out / "aoi-displacement-candidates.geojson").write_text(
             json.dumps({"type": "FeatureCollection", "features": [], "properties": {
                 "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
                 "movement_confirmed": False, "hazard_detected": False,
-            }}, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            }}, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
             encoding="utf-8",
         )
         (out / "aoi-displacement-candidates.csv").write_text(
-            "network,product_type,metric,status,support_pairs,pixel_count,approx_area_m2,max_robust_score,product_ids,pair_intervals\\n",
+            "network,product_type,metric,status,support_pairs,pixel_count,approx_area_m2,max_robust_score,product_ids,pair_intervals" + chr(10),
             encoding="utf-8",
         )
 
