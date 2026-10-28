@@ -27,6 +27,7 @@ def build_science_pipeline_report(
     science_diagnostics: dict[str, Any] | None,
     site_context: dict[str, Any] | None = None,
     common_reference_report: dict[str, Any] | None = None,
+    movement_measurement_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run time-series network topology analysis and gate downstream methods.
 
@@ -116,7 +117,10 @@ def build_science_pipeline_report(
     report["invalid_pair_rows"] = invalid
     report["site_context"] = site_context or {}
     common_reference_report = common_reference_report if isinstance(common_reference_report, dict) else {}
+    movement_measurement_report = movement_measurement_report if isinstance(movement_measurement_report, dict) else {}
     report["common_reference_timeseries"] = common_reference_report
+    report["observed_movement_measurements"] = movement_measurement_report
+    report["movement_measurement_status"] = str(movement_measurement_report.get("status") or "NOT_REPORTED")
     report["network_assessment_log_excerpt"] = captured.getvalue()[-8000:] if "captured" in locals() else ""
     report["network_error"] = network_error
 
@@ -224,6 +228,19 @@ def build_science_pipeline_report(
             "reason": "This module contains fixed source-event/candidate priors and cannot be applied to an arbitrary place without a separately validated event-specific configuration.",
         },
         {
+            "name": "observed_movement_measurements.py",
+            "status": str(movement_measurement_report.get("status") or "NOT_REPORTED"),
+            "measurements": int(movement_measurement_report.get("measurement_count") or 0),
+            "reason": (
+                "Summarizes only graph-inverted GUNW LOS and GOFF range/along-track components that passed their existing common-grid, support, network-redundancy and jackknife gates. "
+                "It reports net change and endpoint rate over actual observed epochs; the AOI-derived datum is not independently validated."
+                if movement_measurement_report.get("status") == "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE"
+                else "No cumulative movement series met the pinned scientific gates; pairwise medians are not promoted into a synthetic time series."
+            ),
+            "independent_geophysical_validation": False,
+            "interpretation": "Movement values are target-relative diagnostics in their own measurement families; they are not absolute or 3-D displacement, a hazard alarm, or a forecast.",
+        },
+        {
             "name": "pixel_stack.py",
             "status": str(stack.get("status") or "NOT_REPORTED"),
             "interpretation": str(stack.get("interpretation") or "Inspect the saved science-diagnostics.json and pixel-stack log."),
@@ -234,12 +251,16 @@ def build_science_pipeline_report(
             "reason": str(candidate.get("detail") or "Inspect saved candidate diagnostics."),
         },
     ])
+    movement_available = movement_measurement_report.get("status") == "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE"
     report["overall_status"] = (
         "REFERENCE_UNVALIDATED_DIAGNOSTIC_SERIES_COMPUTED"
         if has_diagnostic_series else (
-            "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
-            if report["network_assessment_status"] == "COMPLETED"
-            else "PARTIAL_STAGE_ASSESSMENT"
+            "REFERENCE_UNVALIDATED_DIAGNOSTIC_MOVEMENT_MEASUREMENTS_AVAILABLE"
+            if movement_available else (
+                "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
+                if report["network_assessment_status"] == "COMPLETED"
+                else "PARTIAL_STAGE_ASSESSMENT"
+            )
         )
     )
     return report
