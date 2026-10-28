@@ -15,6 +15,7 @@ from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_re
 def _write_product(
     root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int,
     *, subswath: str = "023", crid: str = "X05026", product_flag: str = "N",
+    hotspot_box: tuple[int, int, int, int] = (28, 40, 32, 44),
 ) -> dict:
     granule = (
         f"NISAR_L2_PR_{family}_022_098_A_016_{subswath}_4000_SH_"
@@ -27,7 +28,8 @@ def _write_product(
     path = folder / (f"{family}_{reference.replace('-', '')}_{secondary.replace('-', '')}.tif")
     rng = np.random.default_rng(seed)
     first = rng.normal(0, 1.25, size=(80, 80)).astype("float32")
-    first[28:40, 32:44] += 18.0
+    row_start, row_end, col_start, col_end = hotspot_box
+    first[row_start:row_end, col_start:col_end] += 18.0
     transform = from_origin(500000, 3000000, 80, 80)
     if family == "GUNW":
         data = np.stack([first, np.ones_like(first)])
@@ -40,7 +42,7 @@ def _write_product(
         }
     else:
         second = rng.normal(0, 1.25, size=(80, 80)).astype("float32")
-        second[28:40, 32:44] += 14.0
+        second[row_start:row_end, col_start:col_end] += 14.0
         correlation = np.ones_like(first, dtype="float32")
         data = np.stack([first, second, correlation])
         descriptions = ("slant-range offset (mm)", "along-track offset (mm)", "correlation")
@@ -98,12 +100,51 @@ class AOISpatialCandidateTests(unittest.TestCase):
             )
             report = build_aoi_spatial_candidate_report([first, second], root, "b" * 64)
 
+            # A one-pair region must not inherit a recurrence label merely because
+            # it touches a small repeated patch. The actual same-pixel support is
+            # the criterion, not the maximum support anywhere in a polygon.
+            for feature in report["features"]:
+                props = feature["properties"]
+                if props["status"] == "SINGLE_PAIR_CANDIDATE_UNCONFIRMED":
+                    self.assertLess(props["support_pairs"], 2)
+
             repeated = [f for f in report["features"] if f["properties"]["status"] == "REPEATED_SPATIAL_CANDIDATE"]
             self.assertTrue(repeated)
             self.assertGreaterEqual(repeated[0]["properties"]["support_pairs"], 2)
             self.assertGreaterEqual(repeated[0]["properties"]["max_pixel_pair_support"], 2)
             self.assertIn("subswaths 023,024", repeated[0]["properties"]["network"])
             self.assertIn("REPEATED_SPATIAL_CANDIDATES", report["status"])
+            self.assertFalse(report["movement_confirmed"])
+            self.assertFalse(report["hazard_detected"])
+
+    def test_small_recurrent_patch_is_not_mislabelled_as_single_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = _write_product(root, "GUNW-001", "GUNW", "2026-06-08", "2026-06-20", 11)
+            second = _write_product(
+                root, "GUNW-002", "GUNW", "2026-06-20", "2026-07-02", 22,
+                subswath="024", hotspot_box=(30, 32, 34, 36),
+            )
+            report = build_aoi_spatial_candidate_report(
+                [first, second], root, "d" * 64, minimum_component_pixels=5,
+            )
+            self.assertFalse(report["movement_confirmed"])
+            self.assertFalse(report["hazard_detected"])
+            for feature in report["features"]:
+                props = feature["properties"]
+                if props["status"] == "SINGLE_PAIR_CANDIDATE_UNCONFIRMED":
+                    self.assertEqual(props["support_pairs"], 1)
+
+    def test_goff_offsets_are_explicitly_classified_as_non_movement_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product = _write_product(root, "GOFF-001", "GOFF", "2026-06-08", "2026-06-20", 31)
+            report = build_aoi_spatial_candidate_report([product], root, "e" * 64)
+            self.assertTrue(report["features"])
+            for feature in report["features"]:
+                props = feature["properties"]
+                self.assertEqual(props["evidence_class"], "GOFF_OFFSET_ANOMALY_NOT_GROUND_MOTION")
+                self.assertIn("not ground displacement", props["interpretation"].lower())
             self.assertFalse(report["movement_confirmed"])
             self.assertFalse(report["hazard_detected"])
 
