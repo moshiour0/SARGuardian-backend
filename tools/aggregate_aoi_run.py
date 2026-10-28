@@ -566,6 +566,34 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             encoding="utf-8",
         )
 
+    # Build a guarded common-reference diagnostic from retained GOFF range/
+    # azimuth exports as well. This is independent of the GUNW phase diagnostic:
+    # it never mixes range and azimuth, PR/UR, or different NISAR geometries.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.goff_common_reference import build_goff_common_reference_report
+        goff_common_reference_report = build_goff_common_reference_report(
+            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+        )
+    except Exception as exc:
+        goff_common_reference_report = {
+            "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+            "status": "UNAVAILABLE_GOFF_COMMON_REFERENCE_DIAGNOSTIC",
+            "series_are_independent_geophysical_validation": False,
+            "common_reference_is_independently_validated_stable_ground": False,
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [], "pairwise_measurements": [], "components": [],
+            "warnings": ["GOFF common-reference diagnostics were unavailable; no cumulative values were inferred."],
+        }
+        (out / "goff-common-reference-timeseries.json").write_text(
+            json.dumps(goff_common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
     # Use the pinned science engine for acquisition-network topology and emit an
     # explicit eligibility report for every downstream science module.
     try:
@@ -593,6 +621,17 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "error": type(exc).__name__ + ":" + str(exc)[:250],
         }
     science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
+    science_pipeline["goff_common_reference_timeseries"] = goff_common_reference_report
+    modules = science_pipeline.get("modules")
+    if isinstance(modules, list):
+        modules.append({
+            "name": "goff_common_reference.py",
+            "status": str(goff_common_reference_report.get("status") or "NOT_REPORTED"),
+            "reason": str(goff_common_reference_report.get("reason") or ""),
+            "metric_is_motion": False,
+            "series_are_independent_geophysical_validation": False,
+            "common_reference_is_independently_validated_stable_ground": False,
+        })
 
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
@@ -626,6 +665,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "science_pipeline":science_pipeline,
         "site_context":site_context,
         "common_reference_timeseries":common_reference_report,
+        "goff_common_reference_timeseries":goff_common_reference_report,
         "target_measurement_count":sum((x.get("target_measurement") or {}).get("status") == "MEASURED" for x in result_rows),
         "local_floor_count":sum((x.get("local_floor") or {}).get("status") == "MEASURED" for x in result_rows),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
