@@ -6,6 +6,7 @@ from pathlib import Path
 from tools.run_export_science_diagnostics import (
     candidate_export_mask_policy,
     classify_pixel_stack,
+    collect_pr_gunw_exports,
     export_identity,
     help_has_exact_option,
     parse_gunw_network_identity,
@@ -74,6 +75,48 @@ def test_pixel_stack_network_identity_keeps_track_subswath_and_crid_separate():
     assert parse_gunw_network_identity(other_crid) != first
     assert parse_gunw_network_identity(other_direction) != first
     assert parse_gunw_network_identity("GUNW_20260801_20260813_PR.tif") is None
+
+def test_collector_keeps_different_crids_in_separate_pixel_stack_directories(tmp_path: Path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    exports = tmp_path / "exports"
+
+    def write_export(product_folder: str, basename: str, granule: str) -> None:
+        output = exports / product_folder / "derived" / basename
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with rasterio.open(
+            output, "w", driver="GTiff", height=4, width=4, count=2,
+            dtype="float32", crs="EPSG:32645",
+            transform=from_origin(500000, 3000000, 80, 80), nodata=-9999.0,
+        ) as dataset:
+            dataset.write(np.ones((4, 4), dtype="float32"), 1)
+            dataset.write(np.ones((4, 4), dtype="float32"), 2)
+            dataset.update_tags(source=granule, aoi_mask_applied="true")
+
+    p_pair_1 = "NISAR_L2_PR_GUNW_022_098_A_016_023_4000_SH_20260801T000000_20260801T000030_20260813T000000_20260813T000030_P05023_N_F_J_001.h5"
+    p_pair_2 = "NISAR_L2_PR_GUNW_024_098_A_016_023_4000_SH_20260813T000000_20260813T000030_20260825T000000_20260825T000030_P05023_N_F_J_001.h5"
+    x_pair_1 = p_pair_1.replace("_P05023_N_", "_X05026_N_")
+    basename_1 = "GUNW_20260801_20260813_PR.tif"
+    basename_2 = "GUNW_20260813_20260825_PR.tif"
+    write_export("one", basename_1, p_pair_1)
+    write_export("two", basename_2, p_pair_2)
+    # Same date-derived filename, but a different author release must not collide
+    # with the P05023 input or be added as a second vote to its temporal network.
+    write_export("three", basename_1, x_pair_1)
+
+    inventory = collect_pr_gunw_exports(exports, tmp_path / "pixel-stack-input")
+    networks = inventory["networks"]
+    assert inventory["files_copied"] == 3
+    assert len(networks) == 2
+    p_network = next(row for row in networks if row["identity"][-1] == "P05023")
+    x_network = next(row for row in networks if row["identity"][-1] == "X05026")
+    assert p_network["files_copied"] == 2
+    assert p_network["status"] == "READY"
+    assert x_network["files_copied"] == 1
+    assert x_network["status"] == "INSUFFICIENT_TEMPORAL_COVERAGE"
+    assert Path(p_network["input_directory"]) != Path(x_network["input_directory"])
 
 
 def test_legacy_source_mask_fallback_is_pin_and_provenance_scoped():
