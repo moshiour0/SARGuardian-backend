@@ -99,7 +99,7 @@ def _write_raster(path: Path, source: dict[str, Any], values: np.ndarray, valid:
         )
     return {
         "role": metric,
-        "relative_path": path.relative_to(path.parents[2]).as_posix(),
+        "relative_path": path.relative_to(Path(source["raster_path"]).parents[2]).as_posix(),
         "bytes": path.stat().st_size,
         "valid_pixels": int(np.count_nonzero(valid & np.isfinite(values))),
         "units": units,
