@@ -212,6 +212,38 @@ class GoffCommonReferenceTests(unittest.TestCase):
             self.assertTrue((tmp_path / "goff-common-reference-pairs.csv").is_file())
             self.assertTrue((tmp_path / "goff-common-reference-series.csv").is_file())
 
+    def test_goff_reference_is_withheld_when_common_pixels_outside_target_buffer_are_insufficient(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            tmp_path = Path(temp)
+            science_root = tmp_path / "science"
+            (science_root / "src").mkdir(parents=True)
+            products = _write_products(tmp_path)
+            first_export = tmp_path / products[0]["exports"][0]["relative_path"]
+            with rasterio.open(first_export, "r+") as ds:
+                # Leave valid data only in the target's 11x11 window. Target-local
+                # support remains adequate, but every common pixel falls inside
+                # the required 2-km exclusion buffer at this synthetic posting.
+                for band_index in (1, 2, 3):
+                    values = ds.read(band_index)
+                    keep = np.zeros(values.shape, dtype=bool)
+                    keep[27:38, 27:38] = True
+                    values[~keep] = np.nan
+                    ds.write(values, band_index)
+
+            with patch.dict(sys.modules, _fake_modules()):
+                report = build_goff_common_reference_report(
+                    products, tmp_path, science_root, AOI_WKT, "d" * 64,
+                    {"measurement_target": TARGET},
+                )
+
+            self.assertEqual(report["status"], "CUMULATIVE_SERIES_WITHHELD")
+            self.assertEqual(len(report["networks"]), 1)
+            network = report["networks"][0]
+            self.assertEqual(network["status"], "WITHHELD_INSUFFICIENT_COMMON_REFERENCE_PIXELS")
+            self.assertLess(network["common_pixels_outside_target_buffer"], 200)
+            self.assertEqual(report["pairwise_measurements"], [])
+            self.assertEqual(report["components"], [])
+
     def test_goff_duplicate_intervals_are_withheld_not_silently_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             tmp_path = Path(temp)
