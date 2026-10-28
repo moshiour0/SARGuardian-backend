@@ -217,6 +217,8 @@ jobs:
           summary = json.loads((out / "aoi-run-summary.json").read_text(encoding="utf-8"))
           report = json.loads((out / "aoi-processing-report.json").read_text(encoding="utf-8"))
           goff = json.loads((out / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
+          candidates = json.loads((out / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
+          candidate_geojson = json.loads((out / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
           receipt = json.loads((out / "web-dashboard-build-receipt.json").read_text(encoding="utf-8"))
           viewer_manifest = json.loads((out / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
           html = (out / "web-dashboard" / "index.html").read_text(encoding="utf-8")
@@ -247,11 +249,36 @@ jobs:
               raise SystemExit("ERROR=GOFF_DIAGNOSTIC_VIEWER_SECTION_MISSING")
           if viewer_manifest.get("validation", {}).get("independent_geophysical_validation") != "NOT_PERFORMED":
               raise SystemExit("ERROR=GEOPHYSICAL_VALIDATION_LIMITATION_MISSING")
+          if candidates.get("aoi_wkt_sha256") != source.get("aoi_wkt_sha256"):
+              raise SystemExit("ERROR=CANDIDATE_REPORT_AOI_IDENTITY_MISMATCH")
+          if candidates.get("target_required") is not False:
+              raise SystemExit("ERROR=AOI_CANDIDATE_SCREEN_INCORRECTLY_REQUIRES_TARGET")
+          if candidates.get("movement_confirmed") is not False or candidates.get("hazard_detected") is not False:
+              raise SystemExit("ERROR=SPATIAL_SCREEN_MUST_NOT_CLAIM_CONFIRMED_MOVEMENT_OR_HAZARD")
+          if candidates.get("status") in {"NOT_STARTED", "UNAVAILABLE"}:
+              raise SystemExit(f"ERROR=AOI_CANDIDATE_SCREEN_NOT_EXECUTED status={candidates.get('status')}")
+          if not isinstance(candidates.get("groups"), list) or not isinstance(candidates.get("features"), list):
+              raise SystemExit("ERROR=AOI_CANDIDATE_REPORT_SCHEMA_INVALID")
+          if candidate_geojson.get("type") != "FeatureCollection" or not isinstance(candidate_geojson.get("features"), list):
+              raise SystemExit("ERROR=AOI_CANDIDATE_GEOJSON_INVALID")
+          if len(candidate_geojson.get("features", [])) != len(candidates.get("features", [])):
+              raise SystemExit("ERROR=AOI_CANDIDATE_FEATURE_COUNT_MISMATCH")
+          manifest_candidates = viewer_manifest.get("aoi_displacement_candidates")
+          if not isinstance(manifest_candidates, dict) or manifest_candidates.get("status") != candidates.get("status"):
+              raise SystemExit("ERROR=AOI_CANDIDATES_NOT_WIRED_TO_VIEWER_MANIFEST")
+          if "Target-free AOI displacement candidates" not in html or "aoi-candidate-regions" not in html:
+              raise SystemExit("ERROR=TARGET_FREE_AOI_CANDIDATE_VIEWER_MISSING")
           print("AGGREGATION_STATUS=PASS")
           print("PRODUCTS_VALIDATED=" + str(summary.get("products_validated")))
           print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
           print("GOFF_PAIRWISE_MEASUREMENTS=" + str(len(goff.get("pairwise_measurements", []))))
           print("GOFF_DIAGNOSTIC_COMPONENTS=" + str(len(goff.get("components", []))))
+          print("AOI_CANDIDATE_SCREEN_STATUS=" + str(candidates.get("status")))
+          print("AOI_CANDIDATE_PRODUCTS_EXAMINED=" + str(candidates.get("products_examined")))
+          print("AOI_CANDIDATE_FEATURES=" + str(candidates.get("candidate_features")))
+          print("AOI_CANDIDATE_SCREEN_TARGET_FREE=PASS")
+          print("AOI_CANDIDATE_MOVEMENT_CONFIRMED=false")
+          print("AOI_CANDIDATE_HAZARD_DETECTED=false")
           print("DASHBOARD_BUILD_STATUS=PASS")
           print("DASHBOARD_OBSERVATIONS=" + str(receipt.get("observations")))
           print("DASHBOARD_LAYERS=" + str(receipt.get("layers")))
