@@ -594,6 +594,31 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             encoding="utf-8",
         )
 
+    # Convert only already-gated graph-inverted series into explicit observed
+    # movement measurements. Raw pair medians are never promoted to a time series.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.observed_movement_measurements import build_observed_movement_report
+        movement_measurement_report = build_observed_movement_report(
+            common_reference_report, goff_common_reference_report, out,
+            aoi_wkt_sha256=str(manifest.get("aoi_wkt_sha256") or ""),
+        )
+    except Exception as exc:
+        movement_measurement_report = {
+            "schema_version": "sarguardian-observed-movement-measurements/1.0",
+            "status": "UNAVAILABLE_MOVEMENT_MEASUREMENT_REPORT",
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "measurement_count": 0, "epoch_count": 0, "measurements": [],
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "warnings": ["Movement summary generation failed; no pairwise medians were promoted into a cumulative series."],
+        }
+        (out / "observed-movement-measurements.json").write_text(
+            json.dumps(movement_measurement_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
     # Use the pinned science engine for acquisition-network topology and emit an
     # explicit eligibility report for every downstream science module.
     try:
@@ -603,7 +628,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         from dashboard.science_pipeline import build_science_pipeline_report
         science_pipeline = build_science_pipeline_report(
             result_rows, args.science_root, science_diagnostics, site_context,
-            common_reference_report,
+            common_reference_report, movement_measurement_report,
         )
     except Exception as exc:
         science_pipeline = {
@@ -666,6 +691,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "site_context":site_context,
         "common_reference_timeseries":common_reference_report,
         "goff_common_reference_timeseries":goff_common_reference_report,
+        "observed_movement_measurements":movement_measurement_report,
         "target_measurement_count":sum((x.get("target_measurement") or {}).get("status") == "MEASURED" for x in result_rows),
         "local_floor_count":sum((x.get("local_floor") or {}).get("status") == "MEASURED" for x in result_rows),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
@@ -737,6 +763,9 @@ def main() -> int:
     print("AOI_DASHBOARD_STATUS="+str(summary["status"]))
     print("AOI_PRODUCTS_VALIDATED={}/{}".format(summary["products_validated"],summary["products_expected"]))
     print("AOI_PRODUCTS_WITH_SCIENCE_PIXELS="+str(summary["products_with_science_pixels"]))
+    movement = summary.get("observed_movement_measurements") or {}
+    print("OBSERVED_MOVEMENT_STATUS="+str(movement.get("status", "NOT_REPORTED")))
+    print("OBSERVED_MOVEMENT_COMPONENTS="+str(movement.get("measurement_count", 0)))
     print("AOI_DASHBOARD_HTML="+str(args.out_root.resolve()/"index.html"))
     print("AOI_RESULTS_BUNDLE="+str(args.out_root.resolve()/"aoi-derived-results.zip"))
     return 0 if summary["status"]=="PASS" else 1
