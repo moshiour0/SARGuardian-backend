@@ -24,8 +24,8 @@ from scipy.ndimage import label, median_filter
 
 _IDENTITY = re.compile(
     r"^NISAR_L2_(?P<processing>PR|UR)_(?P<product>GUNW|GOFF)_"
-    r"(?P<path>\d{3})_(?P<frame>\d{3})_(?P<direction>[AD])_"
-    r"(?P<track_segment>\d{3})_(?P<subswath>\d{3})_(?P<bandwidth>\d{4})_"
+    r"(?P<cycle>\d{3})_(?P<path>\d{3})_(?P<direction>[AD])_"
+    r"(?P<frame>\d{3})_(?P<subswath>\d{3})_(?P<bandwidth>\d{4})_"
     r"(?P<polarisation>[A-Z]{2})_.*?_(?P<crid>[PX]\d{5})_N_",
     re.IGNORECASE,
 )
@@ -199,11 +199,11 @@ def _read_metric_rasters(
     return accepted, rejected
 
 
-def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_pixels: int) -> dict[str, Any]:
+def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_pixels: int, minimum_valid_pixels: int) -> dict[str, Any]:
     values = item["values"]
     valid = item["valid"]
     valid_count = int(np.count_nonzero(valid))
-    if valid_count < 200:
+    if valid_count < minimum_valid_pixels:
         return item | {"score_status": "INSUFFICIENT_VALID_PIXELS", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": None,
                        "robust_local_sigma": None, "valid_pixels": valid_count}
@@ -297,7 +297,8 @@ def build_aoi_spatial_candidate_report(
         return report
 
     accepted = [
-        _score_pair(item, threshold_z=threshold_robust_z, background_window_pixels=background_window_pixels)
+        _score_pair(item, threshold_z=threshold_robust_z, background_window_pixels=background_window_pixels,
+                    minimum_valid_pixels=minimum_valid_pixels)
         for item in accepted
     ]
     report["product_metrics_examined"] = len(accepted)
