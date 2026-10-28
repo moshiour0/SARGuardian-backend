@@ -41,7 +41,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         for name in (
             "timeseries.py", "local_floor.py", "inverse_velocity.py",
             "geometry_merge.py", "bound.py", "gunw_reader.py", "goff_reader.py",
-            "pixel_stack.py", "candidate_check.py",
+            "pixel_stack.py", "candidate_check.py", "aoi_relative_pixel_timeseries.py",
         ):
             self.assertIn(name, pipeline)
         self.assertIn("timeseries.describe_network(pairs)", pipeline)
@@ -54,6 +54,11 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("build_science_pipeline_report", aggregator)
         self.assertIn("build_goff_common_reference_report", aggregator)
         self.assertIn("goff_common_reference.py", aggregator)
+        self.assertIn("build_aoi_relative_pixel_timeseries_report", aggregator)
+        self.assertIn("aoi_relative_pixel_timeseries", aggregator)
+        self.assertIn("AOI-relative GUNW LOS velocity", builder)
+        self.assertIn("function renderDerivedLayer()", builder)
+        self.assertIn("target_required", builder)
         self.assertIn("goff_common_reference_timeseries", builder)
         self.assertIn("manifest.goff_common_reference_timeseries", builder)
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
