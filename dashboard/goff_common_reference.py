@@ -48,6 +48,8 @@ def _empty_report(status: str, reason: str, aoi_wkt_sha256: str | None) -> dict[
         "warnings": [
             "GOFF range and azimuth offsets are not automatically vertical motion or full 3-D displacement.",
             "The common datum is inferred from this AOI's common pixels and is not independently certified stable ground.",
+            "Median re-referencing does not remove pair-varying spatial ramps, atmospheric residuals or correlated offset errors; graph-fit uncertainty omits these systematic terms.",
+            "Range and along-track components remain separate; do not merge them into 3-D ground motion without independently verified product look and terrain geometry.",
             "Cumulative graph solutions are diagnostic only; they are not a hazard alarm or forecast.",
         ],
     }
