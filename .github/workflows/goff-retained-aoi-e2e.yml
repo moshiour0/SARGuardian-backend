@@ -257,7 +257,7 @@ jobs:
               evidence = (str(item.get("log_tail") or "") + " " + str(item.get("detail") or "")).lower()
               reports_no_fit = "nothing to fit" in evidence or (
                   "pixels with a complete series" in evidence
-                  and __import__("re").search(r"pixels with a complete series\\s*:\\s*0\\s+of\\s+", evidence)
+                  and __import__("re").search(r"pixels with a complete series\s*:\s*0\s+of\s+", evidence)
               )
               if reports_no_fit and status != "INSUFFICIENT_TEMPORAL_COVERAGE":
                   raise SystemExit(
