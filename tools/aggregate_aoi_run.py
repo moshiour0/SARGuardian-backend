@@ -628,7 +628,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "name": "goff_common_reference.py",
             "status": str(goff_common_reference_report.get("status") or "NOT_REPORTED"),
             "reason": str(goff_common_reference_report.get("reason") or ""),
-            "metric_is_motion": False,
+            "interpretation": "GOFF range and along-track offset diagnostics; not a validated full 3-D ground-motion solution.",
             "series_are_independent_geophysical_validation": False,
             "common_reference_is_independently_validated_stable_ground": False,
         })
