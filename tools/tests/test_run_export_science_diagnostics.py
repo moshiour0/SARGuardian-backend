@@ -8,6 +8,7 @@ from tools.run_export_science_diagnostics import (
     classify_pixel_stack,
     export_identity,
     help_has_exact_option,
+    parse_gunw_network_identity,
     read_candidate_points,
     write_target_log,
 )
@@ -45,6 +46,34 @@ def test_pixel_stack_result_is_not_misreported_as_hazard_confirmation():
     assert classify_pixel_stack(0, "VERDICT: NO DETECTION in chain A; chain B cluster exceeds the noise-only 95th percentile") == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
     assert classify_pixel_stack(1, "No contiguous chain of 2+ pairs; nothing to stack.") == "INSUFFICIENT_TEMPORAL_COVERAGE"
     assert classify_pixel_stack(1, "Traceback: invalid raster grid") == "FAIL"
+
+def test_success_exit_with_zero_complete_pixel_support_is_not_completion():
+    output = """
+    pixels with a complete series : 0 of 6,794 (0%)
+    nothing to fit
+    """
+    assert classify_pixel_stack(0, output) == "INSUFFICIENT_TEMPORAL_COVERAGE"
+
+
+def test_completed_fit_without_recognized_verdict_remains_indeterminate():
+    output = "pixels with a complete series : 1,234 of 6,794 (18%)"
+    assert classify_pixel_stack(0, output) == "COMPLETED_INDETERMINATE"
+
+
+def test_pixel_stack_network_identity_keeps_track_subswath_and_crid_separate():
+    base = "NISAR_L2_PR_GUNW_022_098_A_016_023_4000_SH_20260801T000000_20260801T000030_20260813T000000_20260813T000030_P05023_N_F_J_001.h5"
+    next_epoch = "NISAR_L2_PR_GUNW_024_098_A_016_023_4000_SH_20260813T000000_20260813T000030_20260825T000000_20260825T000030_P05023_N_F_J_001.h5"
+    other_subswath = base.replace("_016_023_4000_", "_016_024_4000_")
+    other_crid = base.replace("_P05023_N_", "_X05026_N_")
+    other_direction = base.replace("_098_A_", "_048_D_")
+
+    first = parse_gunw_network_identity(base)
+    assert first is not None
+    assert parse_gunw_network_identity(next_epoch) == first
+    assert parse_gunw_network_identity(other_subswath) != first
+    assert parse_gunw_network_identity(other_crid) != first
+    assert parse_gunw_network_identity(other_direction) != first
+    assert parse_gunw_network_identity("GUNW_20260801_20260813_PR.tif") is None
 
 
 def test_legacy_source_mask_fallback_is_pin_and_provenance_scoped():
