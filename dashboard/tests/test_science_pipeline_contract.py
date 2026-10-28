@@ -41,7 +41,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         for name in (
             "timeseries.py", "local_floor.py", "inverse_velocity.py",
             "geometry_merge.py", "bound.py", "gunw_reader.py", "goff_reader.py",
-            "pixel_stack.py", "candidate_check.py",
+            "pixel_stack.py", "candidate_check.py", "observed_movement_measurements.py",
         ):
             self.assertIn(name, pipeline)
         self.assertIn("timeseries.describe_network(pairs)", pipeline)
@@ -52,6 +52,14 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("measured_targets", pipeline)
         self.assertIn("NOT_APPLICABLE_GENERIC_AOI", pipeline)
         self.assertIn("build_science_pipeline_report", aggregator)
+        self.assertIn("build_goff_common_reference_report", aggregator)
+        self.assertIn("build_observed_movement_report", aggregator)
+        self.assertIn("observed_movement_measurements", aggregator)
+        self.assertIn('"observed_movement_measurements": summary.get("observed_movement_measurements") or {}', builder)
+        self.assertIn("function renderObservedMovementMeasurements()", builder)
+        self.assertIn("goff_common_reference.py", aggregator)
+        self.assertIn("goff_common_reference_timeseries", builder)
+        self.assertIn("manifest.goff_common_reference_timeseries", builder)
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
         self.assertIn('science-pipeline-report.json', aggregator)
         self.assertIn('"science_pipeline": summary.get("science_pipeline") or {}', builder)

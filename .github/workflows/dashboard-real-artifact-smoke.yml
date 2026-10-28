@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/interactive-geospatial-dashboard-main-integration
+      - feat/dynamic-goff-reference-timeseries
     paths:
       - "dashboard/**"
       - ".github/workflows/dashboard-real-artifact-smoke.yml"

@@ -61,6 +61,30 @@ class SciencePipelineReportTests(unittest.TestCase):
         self.assertEqual(stages["bound.py"], "NOT_APPLICABLE_GENERIC_AOI")
         self.assertFalse(report["structural_validation_is_geophysical_validation"])
 
+    def test_observed_movement_report_is_a_separate_explicit_pipeline_stage(self) -> None:
+        fake = ModuleType("timeseries")
+        fake.granule_metadata = lambda name: None
+        fake.Pair = object
+        fake.describe_network = lambda pairs: {}
+        movement = {
+            "status": "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE",
+            "measurement_count": 2,
+            "measurements": [{"measurement_family": "GUNW_LOS"}, {"measurement_family": "GOFF_OFFSET"}],
+        }
+        with patch.dict("sys.modules", {"timeseries": fake}):
+            report = build_science_pipeline_report(
+                [], Path(tempfile.gettempdir()), {},
+                common_reference_report={"status": "BLOCKED_NO_VALID_IN_AOI_TARGET"},
+                movement_measurement_report=movement,
+            )
+        stages = {row["name"]: row for row in report["modules"]}
+        self.assertEqual(stages["observed_movement_measurements.py"]["status"],
+                         "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE")
+        self.assertEqual(stages["observed_movement_measurements.py"]["measurements"], 2)
+        self.assertEqual(report["movement_measurement_status"], "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE")
+        self.assertEqual(report["overall_status"], "REFERENCE_UNVALIDATED_DIAGNOSTIC_MOVEMENT_MEASUREMENTS_AVAILABLE")
+        self.assertFalse(stages["observed_movement_measurements.py"]["independent_geophysical_validation"])
+
     def test_no_data_run_keeps_downstream_methods_blocked_and_reports_reader_coverage(self) -> None:
         fake = ModuleType("timeseries")
         fake.granule_metadata = lambda name: None

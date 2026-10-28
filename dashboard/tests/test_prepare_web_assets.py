@@ -131,6 +131,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["common_reference_timeseries"]["status"],
                              "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
             self.assertEqual(len(manifest["common_reference_timeseries"]["components"][0]["series"]), 3)
+            self.assertEqual(manifest["goff_common_reference_timeseries"], {})
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
             site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
@@ -188,6 +189,10 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('id="scenarioSandbox"', viewer)
             self.assertIn("function compatiblePair(a,b)", viewer)
             self.assertIn("function renderCommonReferenceChart()", viewer)
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn('id="goffCumulativeChart"', viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
             self.assertIn("manifest.common_reference_timeseries", viewer)
             self.assertIn("DIAGNOSTIC ONLY", viewer)
             self.assertIn("No publishable cumulative diagnostic series", viewer)
@@ -212,6 +217,116 @@ class PrepareWebAssetsTests(unittest.TestCase):
             updated_html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("web-dashboard/index.html", updated_html)
 
+
+    def test_observed_movement_measurements_reach_the_dashboard_manifest_and_viewer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            summary_path = root / "aoi-run-summary.json"
+            report_path = root / "aoi-processing-report.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            movement = {
+                "schema_version": "sarguardian-observed-movement-measurements/1.0",
+                "status": "OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE",
+                "measurement_count": 1,
+                "epoch_count": 3,
+                "measurements": [{
+                    "measurement_id": "GUNW_LOS:test-network:component-1",
+                    "measurement_family": "GUNW_LOS",
+                    "measurement_label": "Cumulative line-of-sight displacement",
+                    "network": "DESC path 091 frame 01 CRID P05023 GUNW",
+                    "component": 1,
+                    "first_epoch": "2026-07-21",
+                    "last_epoch": "2026-08-14",
+                    "duration_days": 24,
+                    "epoch_count": 3,
+                    "net_change_from_first_epoch_mm": 2.8,
+                    "endpoint_rate_mm_per_day": 2.8 / 24,
+                    "graph_fit_velocity_mm_per_day": 0.12,
+                    "reference_status": "AOI_DERIVED_REFERENCE_NOT_INDEPENDENTLY_VALIDATED",
+                    "independent_geophysical_validation": False,
+                    "series": [],
+                }],
+                "warnings": ["Reference not independently validated."],
+            }
+            summary["observed_movement_measurements"] = movement
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["observed_movement_measurements"]["measurement_count"], 1)
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="movementMeasurements"', viewer)
+            self.assertIn("function renderObservedMovementMeasurements()", viewer)
+            self.assertIn("observed_movement_measurements", viewer)
+            self.assertIn("net change", viewer)
+            self.assertIn("common reference unvalidated", viewer)
+
+    def test_goff_common_reference_series_reaches_the_dashboard_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            summary_path = root / "aoi-run-summary.json"
+            report_path = root / "aoi-processing-report.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            goff_report = {
+                "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+                "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                "reason": "Synthetic integration fixture; stable-ground reference is unvalidated.",
+                "common_reference_is_independently_validated_stable_ground": False,
+                "networks": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "common_pixels_outside_target_buffer": 240,
+                }],
+                "components": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "component": "range_offset",
+                    "component_index": 1,
+                    "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                    "pairs_count": 4,
+                    "redundancy": 1,
+                    "series": [
+                        {"epoch": "2026-07-21", "cumulative_offset_mm": 0.0,
+                         "graph_fit_ci95_low_mm": -0.2, "graph_fit_ci95_high_mm": 0.2},
+                        {"epoch": "2026-08-02", "cumulative_offset_mm": 1.5,
+                         "graph_fit_ci95_low_mm": 0.8, "graph_fit_ci95_high_mm": 2.2},
+                        {"epoch": "2026-08-14", "cumulative_offset_mm": 2.8,
+                         "graph_fit_ci95_low_mm": 1.9, "graph_fit_ci95_high_mm": 3.7},
+                    ],
+                }],
+            }
+            summary["goff_common_reference_timeseries"] = goff_report
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads(
+                (root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["goff_common_reference_timeseries"]["status"],
+                "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+            )
+            component = manifest["goff_common_reference_timeseries"]["components"][0]
+            self.assertEqual(component["component"], "range_offset")
+            self.assertEqual(len(component["series"]), 3)
+            self.assertFalse(
+                manifest["goff_common_reference_timeseries"][
+                    "common_reference_is_independently_validated_stable_ground"
+                ]
+            )
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn("Cumulative GOFF", viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
 
     def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
