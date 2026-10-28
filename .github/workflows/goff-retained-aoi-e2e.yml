@@ -7,9 +7,12 @@ on:
     paths:
       - ".github/workflows/goff-retained-aoi-e2e.yml"
       - "dashboard/goff_common_reference.py"
+      - "dashboard/aoi_displacement_candidates.py"
+      - "dashboard/tests/test_aoi_displacement_candidates.py"
       - "dashboard/science_pipeline.py"
       - "dashboard/assets/prepare_web_assets.py"
       - "tools/aggregate_aoi_run.py"
+      - "tools/requirements-retention.txt"
   workflow_dispatch:
     inputs:
       source_run_id:
