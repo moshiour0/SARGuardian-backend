@@ -22,6 +22,12 @@ from typing import Any
 
 LEGACY_SOURCE_SCIENCE_COMMIT = "ab547ecc82bcc4d6ccef545a59852536c2beacc6"
 EXPORT_NAME = re.compile(r"^GUNW_(\d{8})_(\d{8})(?:_([A-Z]{2}))?\.tif$", re.IGNORECASE)
+GRANULE_NETWORK = re.compile(
+    r"NISAR_L2_(?P<processing>PR|UR)_GUNW_\d{3}_(?P<path>\d{3})_"
+    r"(?P<direction>[AD])_(?P<frame>\d{3})_(?P<subswath>\d{3})_"
+    r"(?P<bandwidth>\d{4})_(?P<polarisation>[A-Z]{2})_.*?_(?P<crid>[PX]\d{5})_(?:N|F)_",
+    re.IGNORECASE,
+)
 KNOWN_INSUFFICIENT = (
     "no winter rasters", "no summer rasters", "no all rasters",
     "no contiguous chain of 2+ pairs", "no rasters",
@@ -54,50 +60,166 @@ def export_identity(path: Path) -> tuple[str, str, str] | None:
     return match.group(1), match.group(2), processing
 
 
+def parse_gunw_network_identity(granule_name: str) -> tuple[str, ...] | None:
+    """Return the exact acquisition-network identity used to isolate legacy pixel stacks.
+
+    Dates and cycle may vary along a temporal series. Processing, path, direction,
+    frame, subswath, bandwidth, polarization, and CRID may not be silently mixed.
+    """
+    match = GRANULE_NETWORK.search(Path(str(granule_name or "")).name)
+    if not match:
+        return None
+    fields = ("processing", "path", "direction", "frame", "subswath",
+              "bandwidth", "polarisation", "crid")
+    values = match.groupdict()
+    return tuple(values[key].upper() if key in {"processing", "direction", "polarisation", "crid"}
+                 else values[key] for key in fields)
+
+
 def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, Any]:
-    """Flatten PR GUNW exports so pixel_stack's non-recursive input scan sees them."""
+    """Collect PR GUNW rasters into isolated, exact-identity network directories.
+
+    The legacy pixel_stack.py chains on dates and coarse orbit geometry only.
+    Invoking it once over a mixed directory can combine different subswaths or
+    CRIDs. A separate input folder per exact network prevents that accidental
+    cross-product chaining. Unknown source identity is withheld rather than guessed.
+    """
+    import rasterio
+
     if target_dir.exists():
         shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    candidates: list[Path] = []
-    for path in sorted(exports_root.rglob("*.tif")):
-        identity = export_identity(path)
-        if identity and identity[2] == "PR":
-            candidates.append(path)
+    candidates = [
+        path for path in sorted(exports_root.rglob("*.tif"))
+        if (identity := export_identity(path)) and identity[2] == "PR"
+    ]
 
-    copied: list[str] = []
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    rejected: list[dict[str, Any]] = []
     collisions: list[dict[str, str]] = []
+    total_copied = 0
+
     for source in candidates:
-        target = target_dir / source.name
-        if target.exists():
-            # Two distinct source products must never be allowed to overwrite one another.
-            if file_sha256(source) != file_sha256(target):
-                collisions.append({"name": source.name, "source": str(source)})
+        try:
+            with rasterio.open(source) as dataset:
+                source_name = dataset.tags().get("source", "")
+                granule_identity = parse_gunw_network_identity(source_name)
+                if granule_identity is None:
+                    rejected.append({
+                        "source": source.name,
+                        "status": "WITHHELD_UNPARSEABLE_SOURCE_IDENTITY",
+                        "reason": "The raster source tag does not identify a full NISAR GUNW network; safe temporal grouping is not possible.",
+                    })
+                    continue
+                if dataset.crs is None:
+                    raise ValueError("SOURCE_CRS_MISSING")
+                transform = dataset.transform
+                grid_identity = (
+                    dataset.crs.to_string(),
+                    round(float(transform.a), 9),
+                    round(float(transform.b), 9),
+                    round(float(transform.d), 9),
+                    round(float(transform.e), 9),
+                )
+        except Exception as exc:
+            rejected.append({
+                "source": source.name,
+                "status": "WITHHELD_INVALID_RASTER_IDENTITY",
+                "reason": type(exc).__name__ + ":" + str(exc)[:180],
+            })
             continue
-        shutil.copy2(source, target)
-        copied.append(target.name)
+
+        key = (*granule_identity, *grid_identity)
+        if key not in groups:
+            label = (
+                f"{granule_identity[2]}{granule_identity[1]} "
+                f"frame {granule_identity[3]} subswath {granule_identity[4]} "
+                f"bw {granule_identity[5]} pol {granule_identity[6]} CRID {granule_identity[7]}"
+            )
+            digest = hashlib.sha256("|".join(map(str, key)).encode("utf-8")).hexdigest()[:12]
+            network_dir = target_dir / f"network-{digest}"
+            network_dir.mkdir(parents=True, exist_ok=True)
+            groups[key] = {
+                "network_id": digest,
+                "network_label": label,
+                "identity": list(granule_identity),
+                "grid_identity": list(grid_identity),
+                "input_directory": str(network_dir),
+                "source_files_matched": 0,
+                "files_copied": 0,
+                "files": [],
+                "duplicate_intervals": [],
+                "status": "READY",
+            }
+
+        group = groups[key]
+        group["source_files_matched"] += 1
+        destination = Path(group["input_directory"]) / source.name
+        if destination.exists():
+            if file_sha256(source) != file_sha256(destination):
+                collisions.append({
+                    "name": source.name,
+                    "source": str(source),
+                    "network_id": str(group["network_id"]),
+                })
+            continue
+        shutil.copy2(source, destination)
+        group["files"].append(destination.name)
+        group["files_copied"] += 1
+        total_copied += 1
+
+    network_rows: list[dict[str, Any]] = []
+    for key, group in sorted(groups.items(), key=lambda item: str(item[0])):
+        intervals = [export_identity(Path(name))[:2] for name in group["files"]]
+        counts: dict[tuple[str, str], int] = {}
+        for interval in intervals:
+            counts[interval] = counts.get(interval, 0) + 1
+        duplicates = sorted(f"{left}->{right}" for (left, right), count in counts.items() if count > 1)
+        group["duplicate_intervals"] = duplicates
+        if duplicates:
+            group["status"] = "WITHHELD_DUPLICATE_ACQUISITION_INTERVALS"
+            group["reason"] = (
+                "Duplicate pair intervals exist within this exact network; they cannot add temporal redundancy."
+            )
+        elif group["files_copied"] < 2:
+            group["status"] = "INSUFFICIENT_TEMPORAL_COVERAGE"
+            group["reason"] = "Fewer than two distinct retained pairs are available in this exact network."
+        network_rows.append(group)
+
     return {
         "source_root": str(exports_root),
         "input_directory": str(target_dir),
         "source_files_matched": len(candidates),
-        "files_copied": len(copied),
-        "files": copied,
+        "files_copied": total_copied,
+        "files": [name for group in network_rows for name in group["files"]],
         "filename_collisions": collisions,
+        "rejected_files": rejected,
+        "networks": network_rows,
     }
 
 
 def classify_pixel_stack(returncode: int, output: str) -> str:
     lower = output.lower()
-    if returncode == 0:
-        # One invocation can report multiple temporal/geometry chains.
-        # A candidate in any chain must not be hidden by another chain's null.
-        if "cluster exceeds the noise-only 95th percentile" in lower:
-            return "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
-        if "verdict: no detection" in lower:
-            return "COMPLETED_NO_DETECTION"
-        return "COMPLETED"
+    # A zero exit code only means the script completed. It does not mean a
+    # per-pixel fit existed: pixel_stack.py exits 0 after "nothing to fit".
+    if "cluster exceeds the noise-only 95th percentile" in lower:
+        return "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" if returncode == 0 else "FAIL"
+    if "pixels with a complete series" in lower and re.search(
+        r"pixels with a complete series\\s*:\\s*0\\s+of\\s+", lower
+    ):
+        return "INSUFFICIENT_TEMPORAL_COVERAGE"
+    if "nothing to fit" in lower:
+        return "INSUFFICIENT_TEMPORAL_COVERAGE"
     if any(fragment in lower for fragment in KNOWN_INSUFFICIENT):
         return "INSUFFICIENT_TEMPORAL_COVERAGE"
+    if "verdict: no detection" in lower:
+        return "COMPLETED_NO_DETECTION" if returncode == 0 else "FAIL"
+    if returncode == 0:
+        # A fit was calculated but no recognized verdict was emitted. Keep it
+        # explicitly indeterminate; never convert it to a no-detection result.
+        if "pixels with a complete series" in lower:
+            return "COMPLETED_INDETERMINATE"
+        return "COMPLETED_INDETERMINATE"
     return "FAIL"
 
 
@@ -262,58 +384,116 @@ def run_diagnostics(
     report["export_inventory"] = inventory
     if inventory["filename_collisions"]:
         report["errors"].append({
-            "problem": "DUPLICATE_GUNW_EXPORT_BASENAME",
+            "problem": "DUPLICATE_GUNW_EXPORT_BASENAME_WITHIN_NETWORK",
             "collisions": inventory["filename_collisions"],
         })
-
+    if inventory["rejected_files"]:
+        report["warnings"].append("PIXEL_STACK_SOURCE_IDENTITY_WITHHELD")
     pixel_script = science_root / "src" / "pixel_stack.py"
+    network_results: list[dict[str, Any]] = []
     if not pixel_script.is_file():
-        report["pixel_stack"] = {"status": "FAIL", "problem": "SCRIPT_MISSING"}
+        report["pixel_stack"] = {"status": "FAIL", "problem": "SCRIPT_MISSING", "network_results": []}
         report["errors"].append({"problem": "PIXEL_STACK_SCRIPT_MISSING"})
     elif inventory["files_copied"] < 1:
         report["pixel_stack"] = {
             "status": "NO_INPUT_EXPORTS",
-            "input_count": inventory["files_copied"],
-            "detail": "No matching PR GUNW GeoTIFF exports were retained.",
+            "input_count": 0,
+            "detail": "No parseable, provenance-identified PR GUNW GeoTIFF exports were retained.",
+            "network_results": [],
         }
         report["warnings"].append("PIXEL_STACK_NOT_RUN_NO_GUNW_EXPORTS")
     else:
-        argv = [
-            sys.executable, str(pixel_script), "--dir", str(flat_dir), "--season", "all",
-        ]
-        done = subprocess.run(
-            argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, check=False, timeout=1800,
-        )
-        (logs / "pixel_stack.log").write_text(done.stdout or "", encoding="utf-8")
-        state = classify_pixel_stack(done.returncode, done.stdout or "")
+        for network in inventory["networks"]:
+            result = {
+                "network_id": network["network_id"],
+                "network": network["network_label"],
+                "status": network["status"],
+                "input_count": network["files_copied"],
+                "input_files": network["files"],
+                "duplicate_intervals": network["duplicate_intervals"],
+                "log": None,
+                "detail": network.get("reason"),
+            }
+            if network["status"] != "READY":
+                network_results.append(result)
+                continue
+            argv = [
+                sys.executable, str(pixel_script),
+                "--dir", str(network["input_directory"]), "--season", "all",
+            ]
+            done = subprocess.run(
+                argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, check=False, timeout=1800,
+            )
+            log_name = f"pixel_stack-{network['network_id']}.log"
+            (logs / log_name).write_text(done.stdout or "", encoding="utf-8")
+            state = classify_pixel_stack(done.returncode, done.stdout or "")
+            result.update({
+                "status": state,
+                "argv": argv,
+                "returncode": done.returncode,
+                "log": f"logs/{log_name}",
+                "log_tail": (done.stdout or "")[-2000:],
+                "interpretation": (
+                    "A significant per-pixel spatial cluster is unconfirmed and requires independent geometry/season/time cross-checks."
+                    if state == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" else
+                    "No candidate exceeded this script's internal noise null; this does not prove zero movement or absence of hazard."
+                    if state == "COMPLETED_NO_DETECTION" else
+                    "No complete per-pixel fit was available in this network; the missing fit is not a zero-motion observation."
+                    if state == "INSUFFICIENT_TEMPORAL_COVERAGE" else
+                    "The script returned without a recognized candidate/no-detection verdict; treat as indeterminate until its log is reviewed."
+                    if state == "COMPLETED_INDETERMINATE" else
+                    "The per-network pixel-stack command failed; inspect its log before interpreting this stage."
+                ),
+            })
+            if state == "FAIL":
+                report["errors"].append({
+                    "problem": "PIXEL_STACK_NETWORK_FAILED",
+                    "network_id": network["network_id"],
+                    "network": network["network_label"],
+                    "returncode": done.returncode,
+                    "log_tail": (done.stdout or "")[-1600:],
+                })
+            network_results.append(result)
+
+        states = [str(row["status"]) for row in network_results]
+        if "FAIL" in states:
+            overall = "FAIL"
+        elif "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" in states:
+            overall = "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
+        elif states and all(state == "COMPLETED_NO_DETECTION" for state in states):
+            overall = "COMPLETED_NO_DETECTION"
+        elif "COMPLETED_NO_DETECTION" in states:
+            overall = "COMPLETED_WITH_INSUFFICIENT_NETWORKS"
+        elif "COMPLETED_INDETERMINATE" in states:
+            overall = "COMPLETED_INDETERMINATE"
+        else:
+            overall = "INSUFFICIENT_TEMPORAL_COVERAGE"
+
         report["pixel_stack"] = {
-            "status": state,
-            "argv": argv,
-            "returncode": done.returncode,
-            "log": "logs/pixel_stack.log",
+            "status": overall,
             "input_count": inventory["files_copied"],
+            "network_count": len(inventory["networks"]),
+            "network_results": network_results,
+            "identity_policy": [
+                "Each legacy pixel_stack invocation receives one exact processing/path/direction/frame/subswath/bandwidth/polarization/CRID network and one CRS/resolution grid.",
+                "Unparseable source identities and duplicate intervals are withheld.",
+                "The strict AOI-relative pixel inversion report is separate and remains the preferred target-free time-series gate.",
+            ],
             "interpretation": (
-                "A completed/no-detection result is not evidence that no hazard exists."
-                if state == "COMPLETED_NO_DETECTION" else
-                "A significant spatial cluster is only a candidate and requires independent geometry/season/time evidence."
-                if state == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" else
-                "The exported time series did not support a per-pixel fit; this is unobserved/insufficient evidence, not a negative hazard finding."
-                if state == "INSUFFICIENT_TEMPORAL_COVERAGE" else
-                "Inspect the log and resolve the processing error before interpreting this stage."
-                if state == "FAIL" else
-                "The script completed; inspect its log for pixel support, noise-null and geometry diagnostics."
+                "A significant spatial cluster is a candidate that needs independent geometry, season and temporal checks."
+                if overall == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" else
+                "No tested network exceeded this script's noise null; insufficient or unsupported networks remain visible and this is not proof of stability."
+                if overall in {"COMPLETED_NO_DETECTION", "COMPLETED_WITH_INSUFFICIENT_NETWORKS"} else
+                "No complete pixel fit was available for all current networks that need it; this is insufficient evidence, not zero motion."
+                if overall == "INSUFFICIENT_TEMPORAL_COVERAGE" else
+                "At least one network produced an indeterminate result; inspect per-network logs before interpretation."
+                if overall == "COMPLETED_INDETERMINATE" else
+                "At least one per-network pixel-stack command failed; resolve its log before interpreting this stage."
             ),
         }
-        if state == "FAIL":
-            report["errors"].append({
-                "problem": "PIXEL_STACK_FAILED",
-                "returncode": done.returncode,
-                "log_tail": (done.stdout or "")[-1600:],
-            })
-        elif state in {"NO_INPUT_EXPORTS", "INSUFFICIENT_TEMPORAL_COVERAGE"}:
-            report["warnings"].append("PIXEL_STACK_INSUFFICIENT_DATA")
-
+        if overall in {"INSUFFICIENT_TEMPORAL_COVERAGE", "COMPLETED_WITH_INSUFFICIENT_NETWORKS"}:
+            report["warnings"].append("PIXEL_STACK_INSUFFICIENT_NETWORK_OR_COMPLETE_PIXEL_SUPPORT")
     if not run_candidate_check:
         report["candidate_checks"] = {
             "status": "NOT_REQUESTED",
