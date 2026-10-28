@@ -162,7 +162,7 @@ jobs:
           tif_count = sum(1 for p in granule_root.rglob("*") if p.is_file() and p.suffix.lower() in {".tif", ".tiff"})
           if tif_count == 0:
               raise SystemExit("ERROR=NO_RETAINED_RASTER_EXPORTS")
-          crids = sorted({m.group(1) for p in products for m in [re.search(r"_([PX]\\d{5})_N_", str(p.get("granule_name", "")))] if m})
+          crids = sorted({m.group(1) for p in products for m in [re.search(r"_([PX]\d{5})_N_", str(p.get("granule_name", "")))] if m})
           print("SOURCE_RUN_MANIFEST=PASS")
           print(f"PRODUCTS_EXPECTED={len(products)}")
           print(f"GUNW_PRODUCTS={counts['GUNW']}")
