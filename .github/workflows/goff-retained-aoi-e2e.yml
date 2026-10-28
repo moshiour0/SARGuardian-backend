@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/dynamic-goff-reference-timeseries
+      - feat/find-displacements-science-measurements
     paths:
       - ".github/workflows/goff-retained-aoi-e2e.yml"
       - "dashboard/goff_common_reference.py"
@@ -219,6 +220,7 @@ jobs:
           goff = json.loads((out / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
           receipt = json.loads((out / "web-dashboard-build-receipt.json").read_text(encoding="utf-8"))
           viewer_manifest = json.loads((out / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+          movement = json.loads((out / "observed-movement-measurements.json").read_text(encoding="utf-8"))
           html = (out / "web-dashboard" / "index.html").read_text(encoding="utf-8")
 
           if summary.get("status") != "PASS":
@@ -234,6 +236,20 @@ jobs:
               raise SystemExit(f"ERROR=NO_TARGET_GATE_NOT_ENFORCED status={goff.get('status')}")
           if not isinstance(goff.get("components"), list) or not isinstance(goff.get("pairwise_measurements"), list):
               raise SystemExit("ERROR=GOFF_REPORT_SCHEMA_INVALID")
+          if movement.get("status") not in {"OBSERVED_MOVEMENT_MEASUREMENTS_AVAILABLE", "NO_QUALIFYING_DIAGNOSTIC_MOVEMENT_SERIES"}:
+              raise SystemExit(f"ERROR=MOVEMENT_REPORT_STATUS_INVALID status={movement.get('status')}")
+          if int(movement.get("measurement_count", -1)) != len(movement.get("measurements", [])):
+              raise SystemExit("ERROR=MOVEMENT_MEASUREMENT_COUNT_MISMATCH")
+          if movement.get("aoi_wkt_sha256") != source.get("aoi_wkt_sha256"):
+              raise SystemExit("ERROR=MOVEMENT_REPORT_AOI_IDENTITY_MISMATCH")
+          if movement.get("status") == "NO_QUALIFYING_DIAGNOSTIC_MOVEMENT_SERIES" and movement.get("measurements"):
+              raise SystemExit("ERROR=PAIRWISE_VALUES_PROMOTED_WITHOUT_ELIGIBLE_SERIES")
+          if summary.get("observed_movement_measurements", {}).get("status") != movement.get("status"):
+              raise SystemExit("ERROR=MOVEMENT_REPORT_NOT_IN_RUN_SUMMARY")
+          if viewer_manifest.get("observed_movement_measurements", {}).get("status") != movement.get("status"):
+              raise SystemExit("ERROR=MOVEMENT_REPORT_NOT_IN_VIEWER_MANIFEST")
+          if "movementMeasurements" not in html or "function renderObservedMovementMeasurements()" not in html:
+              raise SystemExit("ERROR=MOVEMENT_SUMMARY_VIEWER_SECTION_MISSING")
           if receipt.get("status") != "PASS":
               raise SystemExit(f"ERROR=DASHBOARD_BUILD_NOT_PASS status={receipt.get('status')}")
           if int(receipt.get("observations", -1)) != len(source.get("products", [])):
@@ -252,6 +268,8 @@ jobs:
           print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
           print("GOFF_PAIRWISE_MEASUREMENTS=" + str(len(goff.get("pairwise_measurements", []))))
           print("GOFF_DIAGNOSTIC_COMPONENTS=" + str(len(goff.get("components", []))))
+          print("OBSERVED_MOVEMENT_STATUS=" + str(movement.get("status")))
+          print("OBSERVED_MOVEMENT_COMPONENTS=" + str(movement.get("measurement_count")))
           print("DASHBOARD_BUILD_STATUS=PASS")
           print("DASHBOARD_OBSERVATIONS=" + str(receipt.get("observations")))
           print("DASHBOARD_LAYERS=" + str(receipt.get("layers")))
