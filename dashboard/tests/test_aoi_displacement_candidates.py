@@ -12,12 +12,15 @@ from rasterio.transform import from_origin
 from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_report
 
 
-def _write_product(root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int) -> dict:
+def _write_product(
+    root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int,
+    *, subswath: str = "023", crid: str = "X05026", product_flag: str = "N",
+) -> dict:
     granule = (
-        f"NISAR_L2_PR_{family}_022_098_A_016_023_4000_SH_"
+        f"NISAR_L2_PR_{family}_022_098_A_016_{subswath}_4000_SH_"
         f"{reference.replace('-', '')}T000000_{reference.replace('-', '')}T000030_"
         f"{secondary.replace('-', '')}T000000_{secondary.replace('-', '')}T000030_"
-        "X05026_N_F_J_001"
+        f"{crid}_{product_flag}_F_J_001"
     )
     folder = root / "product-data" / product_id
     folder.mkdir(parents=True, exist_ok=True)
@@ -86,12 +89,20 @@ class AOISpatialCandidateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             first = _write_product(root, "GUNW-001", "GUNW", "2026-06-08", "2026-06-20", 7)
-            second = _write_product(root, "GUNW-002", "GUNW", "2026-06-20", "2026-07-02", 19)
+            # A different sub-swath on the same exact projected AOI lattice is
+            # eligible as another spatial support source; its interval still gets
+            # only one vote per pixel. The F/F processing suffix is valid too.
+            second = _write_product(
+                root, "GUNW-002", "GUNW", "2026-06-20", "2026-07-02", 19,
+                subswath="024", crid="X05026", product_flag="F",
+            )
             report = build_aoi_spatial_candidate_report([first, second], root, "b" * 64)
 
             repeated = [f for f in report["features"] if f["properties"]["status"] == "REPEATED_SPATIAL_CANDIDATE"]
             self.assertTrue(repeated)
             self.assertGreaterEqual(repeated[0]["properties"]["support_pairs"], 2)
+            self.assertGreaterEqual(repeated[0]["properties"]["max_pixel_pair_support"], 2)
+            self.assertIn("subswaths 023,024", repeated[0]["properties"]["network"])
             self.assertIn("REPEATED_SPATIAL_CANDIDATES", report["status"])
             self.assertFalse(report["movement_confirmed"])
             self.assertFalse(report["hazard_detected"])
