@@ -58,7 +58,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("aoi_relative_pixel_timeseries", aggregator)
         self.assertIn("AOI-relative GUNW LOS velocity", builder)
         self.assertIn("function renderDerivedLayer()", builder)
-        self.assertIn("target_required", builder)
+        self.assertIn("target-free AOI-wide derived layer", builder)
         self.assertIn("goff_common_reference_timeseries", builder)
         self.assertIn("manifest.goff_common_reference_timeseries", builder)
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
