@@ -55,7 +55,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("build_goff_common_reference_report", aggregator)
         self.assertIn("build_observed_movement_report", aggregator)
         self.assertIn("observed_movement_measurements", aggregator)
-        self.assertIn("manifest.get(\"observed_movement_measurements\")", builder)
+        self.assertIn('"observed_movement_measurements": summary.get("observed_movement_measurements") or {}', builder)
         self.assertIn("function renderObservedMovementMeasurements()", builder)
         self.assertIn("goff_common_reference.py", aggregator)
         self.assertIn("goff_common_reference_timeseries", builder)
