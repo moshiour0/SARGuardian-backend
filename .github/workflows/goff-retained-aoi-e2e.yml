@@ -288,8 +288,9 @@ jobs:
           manifest_pixels = viewer_manifest.get("aoi_relative_pixel_timeseries")
           if not isinstance(manifest_pixels, dict) or manifest_pixels.get("status") != pixel_timeseries.get("status"):
               raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_WIRED_TO_VIEWER_MANIFEST")
-          if "aoi-relative-pixel-timeseries.json" not in (out / "aoi-run-summary.json").read_text(encoding="utf-8"):
-              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_REFERENCED_IN_SUMMARY")
+          summary_pixels = summary.get("aoi_relative_pixel_timeseries")
+          if not isinstance(summary_pixels, dict) or summary_pixels.get("status") != pixel_timeseries.get("status"):
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_WIRED_TO_SUMMARY")
           print("AGGREGATION_STATUS=PASS")
           print("PRODUCTS_VALIDATED=" + str(summary.get("products_validated")))
           print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
