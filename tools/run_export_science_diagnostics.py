@@ -205,7 +205,7 @@ def classify_pixel_stack(returncode: int, output: str) -> str:
     if "cluster exceeds the noise-only 95th percentile" in lower:
         return "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" if returncode == 0 else "FAIL"
     if "pixels with a complete series" in lower and re.search(
-        r"pixels with a complete series\\s*:\\s*0\\s+of\\s+", lower
+        r"pixels with a complete series\s*:\s*0\s+of\s+", lower
     ):
         return "INSUFFICIENT_TEMPORAL_COVERAGE"
     if "nothing to fit" in lower:
