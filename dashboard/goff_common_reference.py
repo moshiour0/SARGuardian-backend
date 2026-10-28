@@ -290,7 +290,10 @@ def build_goff_common_reference_report(
                     if tags.get("grid_policy") != "common_aoi_lattice":
                         grid_problem = "GOFF export is not on the reader's fixed common AOI lattice."
                         break
-                    if Path(str(tags.get("source") or "")).name != row["name"]:
+                    source_name = Path(str(tags.get("source") or "")).name
+                    source_stem = source_name[:-3] if source_name.lower().endswith(".h5") else source_name
+                    row_stem = row["name"][:-3] if row["name"].lower().endswith(".h5") else row["name"]
+                    if source_stem != row_stem:
                         grid_problem = "GOFF export's embedded source identity does not match the exact selected granule."
                         break
                     correlation_tag = _number(tags.get("correlation_min"))
