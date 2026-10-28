@@ -1,0 +1,272 @@
+name: GOFF retained-AOI end-to-end audit (no raw replay)
+
+on:
+  push:
+    branches:
+      - feat/dynamic-goff-reference-timeseries
+    paths:
+      - ".github/workflows/goff-retained-aoi-e2e.yml"
+      - "dashboard/goff_common_reference.py"
+      - "dashboard/science_pipeline.py"
+      - "dashboard/assets/prepare_web_assets.py"
+      - "tools/aggregate_aoi_run.py"
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful AOI run ID whose retained derived product artifacts are reassembled; no raw download"
+        required: true
+        type: string
+        default: "39942529304"
+      target_latitude:
+        description: "Optional explicit WGS84 target latitude inside the source run's exact AOI"
+        required: false
+        type: string
+        default: ""
+      target_longitude:
+        description: "Optional explicit WGS84 target longitude inside the source run's exact AOI"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: goff-retained-aoi-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  retained-aoi-e2e:
+    name: Reassemble retained GUNW+GOFF outputs and build the current dashboard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id || '39942529304' }}
+      SITE_TARGET_LATITUDE: ${{ inputs.target_latitude || '' }}
+      SITE_TARGET_LONGITUDE: ${{ inputs.target_longitude || '' }}
+      SARGUARDIAN_ROOT: ${{ runner.temp }}/sarguardian-goff-retained
+
+    steps:
+      - name: Check out this feature branch
+        uses: actions/checkout@v4
+
+      - name: Validate source run and target input shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]{5,15}$ ]] || { echo "ERROR=SOURCE_RUN_ID_MUST_BE_NUMERIC"; exit 2; }
+          if [[ -n "$SITE_TARGET_LATITUDE" && -z "$SITE_TARGET_LONGITUDE" ]] || [[ -z "$SITE_TARGET_LATITUDE" && -n "$SITE_TARGET_LONGITUDE" ]]; then
+            echo "ERROR=TARGET_COORDINATES_MUST_BE_PROVIDED_AS_A_PAIR"
+            exit 2
+          fi
+          python - <<'PY'
+          import math, os
+          for name, low, high in (
+              ("SITE_TARGET_LATITUDE", -90.0, 90.0),
+              ("SITE_TARGET_LONGITUDE", -180.0, 180.0),
+          ):
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  continue
+              try:
+                  number = float(value)
+              except ValueError:
+                  raise SystemExit(f"ERROR={name}_MUST_BE_NUMERIC")
+              if not math.isfinite(number) or not low <= number <= high:
+                  raise SystemExit(f"ERROR={name}_OUT_OF_WGS84_RANGE")
+          print("TARGET_INPUT_SHAPE=PASS")
+          print("TARGET_EXPLICITLY_SUPPLIED=" + str(bool(os.environ.get("SITE_TARGET_LATITUDE", "").strip())).lower())
+          PY
+          mkdir -p "$SARGUARDIAN_ROOT/manifest" "$SARGUARDIAN_ROOT/granules" "$SARGUARDIAN_ROOT/output"
+          echo "SOURCE_RUN_ID=$SOURCE_RUN_ID"
+          echo "RAW_REPLAY=NOT_RUN"
+
+      - name: Download the source AOI manifest only
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-aoi-run-manifest
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ env.SARGUARDIAN_ROOT }}/manifest
+
+      - name: Download retained per-product artifacts only (no HDF5 source data)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sarguardian-granule-*
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          merge-multiple: false
+          path: ${{ env.SARGUARDIAN_ROOT }}/granules
+
+      - name: Check out the exact science revision referenced by the source manifest
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: 10639a916c9829850775410b3ed7de62e527770d
+          path: science-source
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned scientific and retention dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 rasterio matplotlib
+
+      - name: Verify retained-artifact inventory, AOI identity and CRID variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          root = Path(os.environ["SARGUARDIAN_ROOT"])
+          manifest_path = root / "manifest" / "manifest.json"
+          granule_root = root / "granules"
+          if not manifest_path.is_file():
+              raise SystemExit("ERROR=SOURCE_MANIFEST_MISSING")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("schema_version") != "sarguardian-aoi-run-manifest/1.0":
+              raise SystemExit("ERROR=SOURCE_MANIFEST_SCHEMA_UNSUPPORTED")
+          source_run = str(manifest.get("run_id", "")).split("-")[0]
+          if source_run != os.environ["SOURCE_RUN_ID"]:
+              raise SystemExit(f"ERROR=SOURCE_RUN_ID_MISMATCH manifest={source_run}")
+          if not manifest.get("aoi_wkt") or not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("aoi_wkt_sha256", ""))):
+              raise SystemExit("ERROR=SOURCE_AOI_IDENTITY_INVALID")
+          if manifest.get("retention_profile") == "full-lossless":
+              raise SystemExit("ERROR=FULL_LOSSLESS_SOURCE_PROFILE_NOT_ALLOWED_FOR_THIS_DERIVED_ONLY_SMOKE")
+          products = manifest.get("products")
+          if not isinstance(products, list) or not products:
+              raise SystemExit("ERROR=SOURCE_PRODUCTS_MISSING")
+          ids = [str(p.get("id", "")) for p in products]
+          if len(ids) != len(set(ids)) or not all(ids):
+              raise SystemExit("ERROR=SOURCE_PRODUCT_IDS_INVALID")
+          counts = {kind: sum(str(p.get("product_type", "")).upper() == kind for p in products) for kind in ("GUNW", "GOFF")}
+          if not counts["GUNW"] or not counts["GOFF"]:
+              raise SystemExit(f"ERROR=SOURCE_MUST_HAVE_BOTH_GUNW_AND_GOFF count={counts}")
+          available = {p.name.removeprefix("sarguardian-granule-") for p in granule_root.iterdir() if p.is_dir() and p.name.startswith("sarguardian-granule-")}
+          missing = sorted(set(ids) - available)
+          unexpected = sorted(available - set(ids))
+          if missing or unexpected or len(available) != len(products):
+              raise SystemExit(f"ERROR=RETAINED_ARTIFACT_SET_MISMATCH missing={missing} unexpected={unexpected}")
+          raw_files = [str(p) for p in granule_root.rglob("*") if p.is_file() and p.suffix.lower() in {".h5", ".hdf5"}]
+          if raw_files:
+              raise SystemExit("ERROR=RAW_HDF5_FOUND_IN_RETAINED_FIXTURE")
+          tif_count = sum(1 for p in granule_root.rglob("*") if p.is_file() and p.suffix.lower() in {".tif", ".tiff"})
+          if tif_count == 0:
+              raise SystemExit("ERROR=NO_RETAINED_RASTER_EXPORTS")
+          crids = sorted({m.group(1) for p in products for m in [re.search(r"_([PX]\\d{5})_N_", str(p.get("granule_name", "")))] if m})
+          print("SOURCE_RUN_MANIFEST=PASS")
+          print(f"PRODUCTS_EXPECTED={len(products)}")
+          print(f"GUNW_PRODUCTS={counts['GUNW']}")
+          print(f"GOFF_PRODUCTS={counts['GOFF']}")
+          print(f"RETAINED_PRODUCT_ARTIFACTS={len(available)}")
+          print(f"RETAINED_RASTER_EXPORTS={tif_count}")
+          print("RAW_HDF5_FILES=0")
+          print("SOURCE_CRID_VARIANTS=" + ",".join(crids))
+          print("SOURCE_VARIANT_SCOPE=software integration only; not author-paper parity")
+          PY
+
+      - name: Hash retained source rasters before reassembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          find "$SARGUARDIAN_ROOT/granules" -type f \( -iname '*.tif' -o -iname '*.tiff' \) -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 > "$SARGUARDIAN_ROOT/source-raster-hash-before.txt"
+          cat "$SARGUARDIAN_ROOT/source-raster-hash-before.txt"
+
+      - name: Re-run current AOI aggregation and common-reference diagnostics from retained exports
+        shell: bash
+        env:
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          python tools/aggregate_aoi_run.py \
+            --manifest "$SARGUARDIAN_ROOT/manifest/manifest.json" \
+            --artifact-root "$SARGUARDIAN_ROOT/granules" \
+            --science-root "$PWD/science-source" \
+            --out-root "$SARGUARDIAN_ROOT/output"
+
+      - name: Build the interactive dashboard from reassembled products
+        shell: bash
+        env:
+          PYTHONPATH: .
+        run: |
+          set -euo pipefail
+          python dashboard/assets/prepare_web_assets.py --dashboard-root "$SARGUARDIAN_ROOT/output"
+
+      - name: Verify stage report, dashboard wiring and source immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          find "$SARGUARDIAN_ROOT/granules" -type f \( -iname '*.tif' -o -iname '*.tiff' \) -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1 > "$SARGUARDIAN_ROOT/source-raster-hash-after.txt"
+          cmp "$SARGUARDIAN_ROOT/source-raster-hash-before.txt" "$SARGUARDIAN_ROOT/source-raster-hash-after.txt"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          root = Path(os.environ["SARGUARDIAN_ROOT"])
+          source = json.loads((root / "manifest" / "manifest.json").read_text(encoding="utf-8"))
+          out = root / "output"
+          summary = json.loads((out / "aoi-run-summary.json").read_text(encoding="utf-8"))
+          report = json.loads((out / "aoi-processing-report.json").read_text(encoding="utf-8"))
+          goff = json.loads((out / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
+          receipt = json.loads((out / "web-dashboard-build-receipt.json").read_text(encoding="utf-8"))
+          viewer_manifest = json.loads((out / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+          html = (out / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+
+          if summary.get("status") != "PASS":
+              raise SystemExit(f"ERROR=AGGREGATION_STATUS_NOT_PASS status={summary.get('status')}")
+          if int(summary.get("products_expected", -1)) != len(source.get("products", [])):
+              raise SystemExit("ERROR=AGGREGATION_PRODUCT_COUNT_MISMATCH")
+          if int(summary.get("products_validated", -1)) != len(source.get("products", [])):
+              raise SystemExit("ERROR=AGGREGATION_VALIDATED_COUNT_MISMATCH")
+          if goff.get("aoi_wkt_sha256") != source.get("aoi_wkt_sha256"):
+              raise SystemExit("ERROR=GOFF_REPORT_AOI_IDENTITY_MISMATCH")
+          expected_goff_status = "BLOCKED_NO_VALID_IN_AOI_TARGET" if not os.environ.get("SITE_TARGET_LATITUDE", "").strip() else None
+          if expected_goff_status and goff.get("status") != expected_goff_status:
+              raise SystemExit(f"ERROR=NO_TARGET_GATE_NOT_ENFORCED status={goff.get('status')}")
+          if not isinstance(goff.get("components"), list) or not isinstance(goff.get("pairwise_measurements"), list):
+              raise SystemExit("ERROR=GOFF_REPORT_SCHEMA_INVALID")
+          if receipt.get("status") != "PASS":
+              raise SystemExit(f"ERROR=DASHBOARD_BUILD_NOT_PASS status={receipt.get('status')}")
+          if int(receipt.get("observations", -1)) != len(source.get("products", [])):
+              raise SystemExit("ERROR=DASHBOARD_OBSERVATION_COUNT_MISMATCH")
+          if int(receipt.get("layers", 0)) < len(source.get("products", [])):
+              raise SystemExit("ERROR=DASHBOARD_LAYER_COUNT_TOO_LOW")
+          manifest_goff = viewer_manifest.get("goff_common_reference_timeseries")
+          if not isinstance(manifest_goff, dict) or manifest_goff.get("status") != goff.get("status"):
+              raise SystemExit("ERROR=GOFF_REPORT_NOT_WIRED_TO_VIEWER_MANIFEST")
+          if "goffCumulativeChart" not in html or "Common-reference cumulative GOFF offset diagnostic" not in html:
+              raise SystemExit("ERROR=GOFF_DIAGNOSTIC_VIEWER_SECTION_MISSING")
+          if viewer_manifest.get("validation", {}).get("independent_geophysical_validation") != "NOT_PERFORMED":
+              raise SystemExit("ERROR=GEOPHYSICAL_VALIDATION_LIMITATION_MISSING")
+          print("AGGREGATION_STATUS=PASS")
+          print("PRODUCTS_VALIDATED=" + str(summary.get("products_validated")))
+          print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
+          print("GOFF_PAIRWISE_MEASUREMENTS=" + str(len(goff.get("pairwise_measurements", []))))
+          print("GOFF_DIAGNOSTIC_COMPONENTS=" + str(len(goff.get("components", []))))
+          print("DASHBOARD_BUILD_STATUS=PASS")
+          print("DASHBOARD_OBSERVATIONS=" + str(receipt.get("observations")))
+          print("DASHBOARD_LAYERS=" + str(receipt.get("layers")))
+          print("GOFF_REPORT_WIRED_TO_DASHBOARD=PASS")
+          print("INDEPENDENT_GEOPHYSICAL_VALIDATION=NOT_PERFORMED")
+          print("SOURCE_RASTERS_UNCHANGED=PASS")
+          print("RAW_REPLAY=NOT_RUN")
+          PY
+
+      - name: Upload derived dashboard and scientific gate reports for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-goff-retained-aoi-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SARGUARDIAN_ROOT }}/output
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
