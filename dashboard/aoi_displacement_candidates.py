@@ -392,10 +392,18 @@ def build_aoi_spatial_candidate_report(
                 for _, pair_data in relevant_pairs
                 for product_id in pair_data["product_ids"]
             })
+            product_family = sample["product_type"]
+            metric_name = sample["metric"]
+            evidence_class = (
+                "GOFF_OFFSET_ANOMALY_NOT_GROUND_MOTION"
+                if product_family == "GOFF"
+                else "GUNW_LOS_DISPLACEMENT_ANOMALY_UNCONFIRMED"
+            )
             properties = {
                 "network": group_label,
-                "product_type": sample["product_type"],
-                "metric": sample["metric"],
+                "product_type": product_family,
+                "metric": metric_name,
+                "evidence_class": evidence_class,
                 # support_pairs is the maximum same-pixel temporal support;
                 # intervals that merely touch different parts of a connected
                 # candidate polygon are reported separately and do not count as
@@ -411,10 +419,27 @@ def build_aoi_spatial_candidate_report(
                 "pair_intervals": [f"{a}/{b}" for a, b in pair_keys],
                 "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
                 "interpretation": (
-                    "A region has spatial anomaly support in the same pixels across multiple compatible acquisition pairs; "
-                    "validate reference stability, systematic errors and geophysical consistency before calling movement."
+                    (
+                        "GOFF range/along-track offset anomaly recurs in the same pixels across compatible pairs. "
+                        "This remains an image-offset anomaly, not ground displacement; validate correlation, geometry, "
+                        "systematic error and independent geophysical evidence."
+                    )
+                    if product_family == "GOFF" and repeated else
+                    (
+                        "GOFF range/along-track offset anomaly from one pair only. This is not ground displacement; "
+                        "validate correlation, geometry and systematic error before any movement interpretation."
+                    )
+                    if product_family == "GOFF" else
+                    (
+                        "A GUNW LOS displacement-field anomaly recurs in the same pixels across compatible pairs. "
+                        "It is still relative to product/AOI reference and requires reference-stability, uncertainty "
+                        "and independent geophysical validation; it is not a hazard declaration."
+                    )
                     if repeated else
-                    "A candidate spatial anomaly requiring temporal/geophysical validation; not a movement or hazard declaration."
+                    (
+                        "A single-pair GUNW LOS displacement-field anomaly. It requires temporal/reference validation "
+                        "before it can support a movement interpretation; it is not a hazard declaration."
+                    )
                 ),
             }
             feature = {"type": "Feature", "geometry": geometry, "properties": properties}
@@ -433,8 +458,11 @@ def build_aoi_spatial_candidate_report(
                 if int(np.count_nonzero(region_mask)) >= minimum_component_pixels:
                     emit_feature(region_mask, repeated=True)
                     emitted_recurring |= region_mask
-            # Do not label adjacent-but-not-co-supported singleton pixels as repeated.
-            unconfirmed_mask = component_mask & ~emitted_recurring
+            # Single-pair candidates must contain only pixels whose own temporal support
+            # is below the recurrence threshold. Do not let a small recurring patch
+            # fall back into a larger single-pair polygon merely because the recurring
+            # patch was below the minimum polygon-size gate.
+            unconfirmed_mask = component_mask & (support < minimum_repeat_pairs)
             unconfirmed_labels, unconfirmed_count = label(unconfirmed_mask, structure=np.ones((3, 3), dtype=np.uint8))
             for unconfirmed_id in range(1, unconfirmed_count + 1):
                 region_mask = unconfirmed_labels == unconfirmed_id
