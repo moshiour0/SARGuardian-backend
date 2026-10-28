@@ -131,6 +131,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["common_reference_timeseries"]["status"],
                              "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
             self.assertEqual(len(manifest["common_reference_timeseries"]["components"][0]["series"]), 3)
+            self.assertEqual(manifest["goff_common_reference_timeseries"], {})
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
             site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
@@ -188,6 +189,10 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('id="scenarioSandbox"', viewer)
             self.assertIn("function compatiblePair(a,b)", viewer)
             self.assertIn("function renderCommonReferenceChart()", viewer)
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn('id="goffCumulativeChart"', viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
             self.assertIn("manifest.common_reference_timeseries", viewer)
             self.assertIn("DIAGNOSTIC ONLY", viewer)
             self.assertIn("No publishable cumulative diagnostic series", viewer)
@@ -212,6 +217,160 @@ class PrepareWebAssetsTests(unittest.TestCase):
             updated_html = (root / "index.html").read_text(encoding="utf-8")
             self.assertIn("web-dashboard/index.html", updated_html)
 
+
+    def test_goff_common_reference_series_reaches_the_dashboard_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            summary_path = root / "aoi-run-summary.json"
+            report_path = root / "aoi-processing-report.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            goff_report = {
+                "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+                "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                "reason": "Synthetic integration fixture; stable-ground reference is unvalidated.",
+                "common_reference_is_independently_validated_stable_ground": False,
+                "networks": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "common_pixels_outside_target_buffer": 240,
+                }],
+                "components": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "component": "range_offset",
+                    "component_index": 1,
+                    "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                    "pairs_count": 4,
+                    "redundancy": 1,
+                    "series": [
+                        {"epoch": "2026-07-21", "cumulative_offset_mm": 0.0,
+                         "graph_fit_ci95_low_mm": -0.2, "graph_fit_ci95_high_mm": 0.2},
+                        {"epoch": "2026-08-02", "cumulative_offset_mm": 1.5,
+                         "graph_fit_ci95_low_mm": 0.8, "graph_fit_ci95_high_mm": 2.2},
+                        {"epoch": "2026-08-14", "cumulative_offset_mm": 2.8,
+                         "graph_fit_ci95_low_mm": 1.9, "graph_fit_ci95_high_mm": 3.7},
+                    ],
+                }],
+            }
+            summary["goff_common_reference_timeseries"] = goff_report
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads(
+                (root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["goff_common_reference_timeseries"]["status"],
+                "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+            )
+            component = manifest["goff_common_reference_timeseries"]["components"][0]
+            self.assertEqual(component["component"], "range_offset")
+            self.assertEqual(len(component["series"]), 3)
+            self.assertFalse(
+                manifest["goff_common_reference_timeseries"][
+                    "common_reference_is_independently_validated_stable_ground"
+                ]
+            )
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn("Cumulative GOFF", viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
+
+    def test_target_free_pixel_velocity_raster_is_exposed_as_a_separate_analysis_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product_tif, product_before_hash = self._fixture(root)
+            pixel_dir = root / "aoi-relative-pixel-timeseries"
+            pixel_dir.mkdir(parents=True)
+            pixel_tif = pixel_dir / "gunw-los-velocity-mm-year-test-network.tif"
+            with rasterio.open(product_tif) as source:
+                profile = source.profile.copy()
+            profile.update(count=1, dtype="float32", nodata=np.nan, compress="deflate")
+            velocity = np.array([
+                [-6.0, -4.0, -2.0, 0.0],
+                [-3.0, -1.0, 1.0, 3.0],
+                [0.0, 2.0, 4.0, 6.0],
+                [1.0, 2.0, np.nan, 4.0],
+            ], dtype="float32")
+            with rasterio.open(pixel_tif, "w", **profile) as destination:
+                destination.write(velocity, 1)
+                destination.set_band_description(1, "AOI-relative GUNW LOS velocity (mm/year)")
+                destination.update_tags(
+                    schema_version="sarguardian-aoi-relative-pixel-timeseries/1.0",
+                    target_required="false",
+                    reference_policy="AOI-derived background; not independently validated stable ground",
+                    movement_confirmed="false",
+                    hazard_detected="false",
+                )
+            pixel_sha = hashlib.sha256(pixel_tif.read_bytes()).hexdigest()
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["site_context"]["measurement_target"] = {"status": "NOT_PROVIDED"}
+            summary["target_measurement_count"] = 0
+            summary["local_floor_count"] = 0
+            summary["aoi_relative_pixel_timeseries"] = {
+                "schema_version": "sarguardian-aoi-relative-pixel-timeseries/1.0",
+                "status": "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE",
+                "target_required": False,
+                "movement_confirmed": False,
+                "hazard_detected": False,
+                "reference_independently_validated": False,
+                "networks_calculated": 1,
+                "networks": [{
+                    "network": "ASC path 098 frame 016 subswath 023 CRID X05026",
+                    "status": "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_REFERENCE_UNVALIDATED",
+                    "pair_count": 3,
+                    "epoch_count": 3,
+                    "redundancy": 1,
+                    "common_valid_pixels": 15,
+                    "reference_pixels": 14,
+                    "artifacts": [{
+                        "role": "AOI-relative GUNW LOS velocity",
+                        "relative_path": pixel_tif.relative_to(root).as_posix(),
+                        "units": "mm/year",
+                        "valid_pixels": 15,
+                        "sha256": pixel_sha,
+                    }],
+                }],
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report["products"][0]["target_measurement"] = {"status": "NOT_MEASURED", "measurements": {}}
+            report["products"][0]["local_floor"] = {"status": "NOT_MEASURED", "metrics": {}}
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+
+            self.assertEqual(receipt["status"], "PASS")
+            self.assertEqual(receipt["derived_layers"], 1)
+            self.assertEqual(receipt["aoi_relative_pixel_timeseries_status"],
+                             "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE")
+            self.assertEqual(receipt["derived_layer_errors"], 0)
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertFalse(manifest["aoi_relative_pixel_timeseries"]["target_required"])
+            self.assertFalse(manifest["aoi_relative_pixel_timeseries"]["reference_independently_validated"])
+            self.assertEqual(len(manifest["derived_layers"]), 1)
+            layer = manifest["derived_layers"][0]
+            self.assertEqual(layer["analysis_role"], "AOI-relative GUNW LOS velocity")
+            self.assertEqual(layer["units"], "mm/year")
+            self.assertFalse(layer["movement_confirmed"])
+            self.assertFalse(layer["hazard_detected"])
+            self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
+            dashboard_data = (root / "web-dashboard" / "dashboard-data.js").read_text(encoding="utf-8")
+            self.assertIn("SARGUARDIAN_DERIVED_LAYER_DATA", dashboard_data)
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="derivedLayerSelect"', viewer)
+            self.assertIn("function renderDerivedLayer()", viewer)
+            self.assertIn("AOI-derived background", viewer)
+            self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
+            self.assertEqual(hashlib.sha256(pixel_tif.read_bytes()).hexdigest(), pixel_sha)
 
     def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
