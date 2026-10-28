@@ -682,7 +682,10 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         "aoi": feature, "aoi_bbox": bbox,
         "time_window": {"start_date": summary.get("date_start"), "end_date": summary.get("date_end"),
                         "date_basis": summary.get("date_basis"), "date_filter_mode": summary.get("date_filter_mode")},
-        "observations": observations, "layers": public_layers, "science_limitations": limitations,
+        "observations": observations, "layers": public_layers, "derived_layers": derived_layers,
+        "derived_layer_errors": derived_layer_errors,
+        "aoi_relative_pixel_timeseries": pixel_report,
+        "science_limitations": limitations,
         "science_pipeline": summary.get("science_pipeline") or {},
         "site_context": summary.get("site_context") or {},
         "common_reference_timeseries": summary.get("common_reference_timeseries") or {},
@@ -744,11 +747,15 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     for layer in public_layers:
         image = safe_path(webroot, layer["preview_asset"])
         image_data[layer["id"]] = "data:image/png;base64," + base64.b64encode(image.read_bytes()).decode("ascii")
+    derived_image_data = {}
+    for layer in derived_layers:
+        image = safe_path(webroot, layer["preview_asset"])
+        derived_image_data[layer["id"]] = "data:image/png;base64," + base64.b64encode(image.read_bytes()).decode("ascii")
     manifest_blob = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     manifest_blob = manifest_blob.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     (webroot / "dashboard-data.js").write_text(
         "window.SARGUARDIAN_DASHBOARD=" + manifest_blob + ";\nwindow.SARGUARDIAN_LAYER_DATA=" +
-        json.dumps(image_data, separators=(",", ":"), allow_nan=False) + ";\n", encoding="utf-8"
+        json.dumps(image_data, separators=(",", ":"), allow_nan=False) + ";\nwindow.SARGUARDIAN_DERIVED_LAYER_DATA=" + json.dumps(derived_image_data, separators=(",", ":"), allow_nan=False) + ";\n", encoding="utf-8"
     )
 
     stac_root = webroot / "stac"
@@ -818,7 +825,9 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                "viewer_data": "web-dashboard/dashboard-data.js", "aoi_geojson": "web-dashboard/aoi.geojson",
                "timeline": "web-dashboard/timeline.json", "metrics": "web-dashboard/metrics.json",
                "stac_catalog": "web-dashboard/stac/catalog.json", "observations": len(observations),
-               "layers": len(public_layers), "source_geotiffs_unchanged": True}
+               "layers": len(public_layers), "derived_layers": len(derived_layers),
+               "aoi_relative_pixel_timeseries_status": pixel_report.get("status", "NOT_REPORTED"),
+               "derived_layer_errors": len(derived_layer_errors), "source_geotiffs_unchanged": True}
     (root / "web-dashboard-build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     return receipt
 
