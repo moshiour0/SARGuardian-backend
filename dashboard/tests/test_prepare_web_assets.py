@@ -218,6 +218,68 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("web-dashboard/index.html", updated_html)
 
 
+    def test_goff_common_reference_series_reaches_the_dashboard_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            summary_path = root / "aoi-run-summary.json"
+            report_path = root / "aoi-processing-report.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            goff_report = {
+                "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+                "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                "reason": "Synthetic integration fixture; stable-ground reference is unvalidated.",
+                "common_reference_is_independently_validated_stable_ground": False,
+                "networks": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "common_pixels_outside_target_buffer": 240,
+                }],
+                "components": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "component": "range_offset",
+                    "component_index": 1,
+                    "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                    "pairs_count": 4,
+                    "redundancy": 1,
+                    "series": [
+                        {"epoch": "2026-07-21", "cumulative_offset_mm": 0.0,
+                         "graph_fit_ci95_low_mm": -0.2, "graph_fit_ci95_high_mm": 0.2},
+                        {"epoch": "2026-08-02", "cumulative_offset_mm": 1.5,
+                         "graph_fit_ci95_low_mm": 0.8, "graph_fit_ci95_high_mm": 2.2},
+                        {"epoch": "2026-08-14", "cumulative_offset_mm": 2.8,
+                         "graph_fit_ci95_low_mm": 1.9, "graph_fit_ci95_high_mm": 3.7},
+                    ],
+                }],
+            }
+            summary["goff_common_reference_timeseries"] = goff_report
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads(
+                (root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["goff_common_reference_timeseries"]["status"],
+                "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+            )
+            component = manifest["goff_common_reference_timeseries"]["components"][0]
+            self.assertEqual(component["component"], "range_offset")
+            self.assertEqual(len(component["series"]), 3)
+            self.assertFalse(
+                manifest["goff_common_reference_timeseries"][
+                    "common_reference_is_independently_validated_stable_ground"
+                ]
+            )
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn("Cumulative GOFF", viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
+
     def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
