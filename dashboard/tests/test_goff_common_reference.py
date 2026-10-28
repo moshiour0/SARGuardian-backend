@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import unittest
 from datetime import date
 from pathlib import Path
 from types import ModuleType
@@ -169,63 +170,74 @@ def _write_products(root: Path):
     return products
 
 
-def test_no_explicit_target_blocks_goff_reference_without_fabricated_values(tmp_path: Path) -> None:
-    (tmp_path / "science" / "src").mkdir(parents=True)
-    report = build_goff_common_reference_report(
-        [], tmp_path, tmp_path / "science", AOI_WKT, "a" * 64,
-        {"measurement_target": {"status": "NOT_PROVIDED"}},
-    )
-    assert report["status"] == "BLOCKED_NO_VALID_IN_AOI_TARGET"
-    assert report["pairwise_measurements"] == []
-    saved = json.loads((tmp_path / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
-    assert saved["status"] == report["status"]
+class GoffCommonReferenceTests(unittest.TestCase):
+    def test_no_explicit_target_blocks_goff_reference_without_fabricated_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            tmp_path = Path(temp)
+            (tmp_path / "science" / "src").mkdir(parents=True)
+            report = build_goff_common_reference_report(
+                [], tmp_path, tmp_path / "science", AOI_WKT, "a" * 64,
+                {"measurement_target": {"status": "NOT_PROVIDED"}},
+            )
+            self.assertEqual(report["status"], "BLOCKED_NO_VALID_IN_AOI_TARGET")
+            self.assertEqual(report["pairwise_measurements"], [])
+            saved = json.loads((tmp_path / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], report["status"])
+
+    def test_goff_range_and_azimuth_use_common_reference_and_gated_graph_inversion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            tmp_path = Path(temp)
+            science_root = tmp_path / "science"
+            (science_root / "src").mkdir(parents=True)
+            products = _write_products(tmp_path)
+            with patch.dict(sys.modules, _fake_modules()):
+                report = build_goff_common_reference_report(
+                    products, tmp_path, science_root, AOI_WKT, "b" * 64,
+                    {"measurement_target": TARGET},
+                )
+
+            self.assertEqual(report["status"], "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
+            self.assertFalse(report["common_reference_is_independently_validated_stable_ground"])
+            self.assertEqual(len(report["pairwise_measurements"]), 10)
+            self.assertEqual(
+                {row["component"] for row in report["pairwise_measurements"]},
+                {"range_offset", "azimuth_offset"},
+            )
+            self.assertEqual(len(report["components"]), 2)
+            self.assertTrue(all(
+                row["status"] == "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED"
+                for row in report["components"]
+            ))
+            self.assertTrue(all(len(row["series"]) == 4 for row in report["components"]))
+            self.assertTrue((tmp_path / "goff-common-reference-pairs.csv").is_file())
+            self.assertTrue((tmp_path / "goff-common-reference-series.csv").is_file())
+
+    def test_goff_duplicate_intervals_are_withheld_not_silently_deduplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            tmp_path = Path(temp)
+            science_root = tmp_path / "science"
+            (science_root / "src").mkdir(parents=True)
+            products = _write_products(tmp_path)
+            duplicate = dict(products[0])
+            duplicate["id"] = "GOFF-DUPLICATE"
+            duplicate["exports"] = [dict(products[0]["exports"][0])]
+            duplicate_folder = tmp_path / "product-data" / "GOFF-DUPLICATE"
+            duplicate_folder.mkdir()
+            duplicate_raster = duplicate_folder / products[0]["exports"][0]["name"]
+            _write_goff(duplicate_raster, duplicate["granule_name"], 99.0)
+            duplicate["exports"][0]["relative_path"] = duplicate_raster.relative_to(tmp_path).as_posix()
+            products.append(duplicate)
+
+            with patch.dict(sys.modules, _fake_modules()):
+                report = build_goff_common_reference_report(
+                    products, tmp_path, science_root, AOI_WKT, "c" * 64,
+                    {"measurement_target": TARGET},
+                )
+            networks = report["networks"]
+            self.assertEqual(len(networks), 1)
+            self.assertEqual(networks[0]["status"], "WITHHELD_AMBIGUOUS_DUPLICATE_INTERVALS")
+            self.assertEqual(report["pairwise_measurements"], [])
 
 
-def test_goff_range_and_azimuth_use_common_reference_and_gated_graph_inversion(tmp_path: Path) -> None:
-    science_root = tmp_path / "science"
-    (science_root / "src").mkdir(parents=True)
-    products = _write_products(tmp_path)
-    with patch.dict(sys.modules, _fake_modules()):
-        report = build_goff_common_reference_report(
-            products, tmp_path, science_root, AOI_WKT, "b" * 64,
-            {"measurement_target": TARGET},
-        )
-
-    assert report["status"] == "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED"
-    assert report["common_reference_is_independently_validated_stable_ground"] is False
-    assert len(report["pairwise_measurements"]) == 10
-    assert {row["component"] for row in report["pairwise_measurements"]} == {
-        "range_offset", "azimuth_offset"
-    }
-    assert len(report["components"]) == 2
-    assert all(row["status"] == "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED"
-               for row in report["components"])
-    assert all(len(row["series"]) == 4 for row in report["components"])
-    assert (tmp_path / "goff-common-reference-pairs.csv").is_file()
-    assert (tmp_path / "goff-common-reference-series.csv").is_file()
-
-
-def test_goff_duplicate_intervals_are_withheld_not_silently_deduplicated(tmp_path: Path) -> None:
-    science_root = tmp_path / "science"
-    (science_root / "src").mkdir(parents=True)
-    products = _write_products(tmp_path)
-    duplicate = dict(products[0])
-    duplicate["id"] = "GOFF-DUPLICATE"
-    duplicate["granule_name"] = products[0]["granule_name"].replace("_P05023_", "_P05023_")
-    duplicate["exports"] = [dict(products[0]["exports"][0])]
-    duplicate_folder = tmp_path / "product-data" / "GOFF-DUPLICATE"
-    duplicate_folder.mkdir()
-    duplicate_raster = duplicate_folder / products[0]["exports"][0]["name"]
-    _write_goff(duplicate_raster, duplicate["granule_name"], 99.0)
-    duplicate["exports"][0]["relative_path"] = duplicate_raster.relative_to(tmp_path).as_posix()
-    products.append(duplicate)
-
-    with patch.dict(sys.modules, _fake_modules()):
-        report = build_goff_common_reference_report(
-            products, tmp_path, science_root, AOI_WKT, "c" * 64,
-            {"measurement_target": TARGET},
-        )
-    networks = report["networks"]
-    assert len(networks) == 1
-    assert networks[0]["status"] == "WITHHELD_AMBIGUOUS_DUPLICATE_INTERVALS"
-    assert report["pairwise_measurements"] == []
+if __name__ == "__main__":
+    unittest.main()
