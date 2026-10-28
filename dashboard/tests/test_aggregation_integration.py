@@ -43,6 +43,24 @@ def test_account_workflow_reports_dashboard_status_and_uses_retry_enabled_callba
     assert "REQUEST_FINGERPRINT" in workflow
 
 
+def test_find_displacements_runs_target_free_candidate_screen_and_pixelwise_inversion() -> None:
+    aggregator = AGGREGATOR.read_text(encoding="utf-8")
+    builder = DASHBOARD_BUILDER.read_text(encoding="utf-8")
+    assert "build_aoi_spatial_candidate_report(" in aggregator
+    assert "build_aoi_relative_pixel_timeseries_report(" in aggregator
+    assert '"aoi_relative_pixel_timeseries":aoi_relative_pixel_timeseries' in aggregator
+    assert '"name": "aoi_relative_pixel_timeseries.py"' in aggregator
+    assert "target_required" in aggregator
+    assert "movement_confirmed" in aggregator
+    assert "hazard_detected" in aggregator
+    assert '"aoi_relative_pixel_timeseries": pixel_report' in builder
+    assert '"derived_layers": derived_layers' in builder
+    assert "function renderDerivedLayer()" in builder
+    assert "function renderAOIPixelTimeseriesStatus()" in builder
+    assert "SARGUARDIAN_DERIVED_LAYER_DATA" in builder
+    assert "aoiCandidateRegions" in builder or "aoi-candidate-regions" in builder
+
+
 def test_display_builder_does_not_mutate_source_or_redownload_raw_data() -> None:
     builder = DASHBOARD_BUILDER.read_text(encoding="utf-8")
     assert "reproject_band(raster_path, band, geometry)" in builder
