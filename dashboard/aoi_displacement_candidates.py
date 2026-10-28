@@ -396,7 +396,12 @@ def build_aoi_spatial_candidate_report(
                 "network": group_label,
                 "product_type": sample["product_type"],
                 "metric": sample["metric"],
-                "support_pairs": len(pair_keys),
+                # support_pairs is the maximum same-pixel temporal support;
+                # intervals that merely touch different parts of a connected
+                # candidate polygon are reported separately and do not count as
+                # repeated support.
+                "support_pairs": max_support,
+                "overlapping_pair_count": len(pair_keys),
                 "required_repeat_pairs": minimum_repeat_pairs,
                 "max_pixel_pair_support": max_support,
                 "pixel_count": pixel_count,
