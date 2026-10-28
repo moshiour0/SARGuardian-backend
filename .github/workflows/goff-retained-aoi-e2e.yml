@@ -8,7 +8,9 @@ on:
       - ".github/workflows/goff-retained-aoi-e2e.yml"
       - "dashboard/goff_common_reference.py"
       - "dashboard/aoi_displacement_candidates.py"
+      - "dashboard/aoi_relative_pixel_timeseries.py"
       - "dashboard/tests/test_aoi_displacement_candidates.py"
+      - "dashboard/tests/test_aoi_relative_pixel_timeseries.py"
       - "dashboard/science_pipeline.py"
       - "dashboard/assets/prepare_web_assets.py"
       - "tools/aggregate_aoi_run.py"
@@ -221,6 +223,7 @@ jobs:
           report = json.loads((out / "aoi-processing-report.json").read_text(encoding="utf-8"))
           goff = json.loads((out / "goff-common-reference-timeseries.json").read_text(encoding="utf-8"))
           candidates = json.loads((out / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
+          pixel_timeseries = json.loads((out / "aoi-relative-pixel-timeseries.json").read_text(encoding="utf-8"))
           candidate_geojson = json.loads((out / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
           receipt = json.loads((out / "web-dashboard-build-receipt.json").read_text(encoding="utf-8"))
           viewer_manifest = json.loads((out / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
@@ -271,6 +274,22 @@ jobs:
               raise SystemExit("ERROR=AOI_CANDIDATES_NOT_WIRED_TO_VIEWER_MANIFEST")
           if "Target-free AOI displacement candidates" not in html or "aoi-candidate-regions" not in html:
               raise SystemExit("ERROR=TARGET_FREE_AOI_CANDIDATE_VIEWER_MISSING")
+
+          if pixel_timeseries.get("aoi_wkt_sha256") != source.get("aoi_wkt_sha256"):
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_AOI_IDENTITY_MISMATCH")
+          if pixel_timeseries.get("target_required") is not False:
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_MUST_NOT_REQUIRE_A_TARGET")
+          if pixel_timeseries.get("movement_confirmed") is not False or pixel_timeseries.get("hazard_detected") is not False:
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_OVERCLAIMS_MOVEMENT_OR_HAZARD")
+          if pixel_timeseries.get("status") in {"NOT_STARTED", "UNAVAILABLE"}:
+              raise SystemExit(f"ERROR=AOI_PIXEL_TIMESERIES_NOT_EXECUTED status={pixel_timeseries.get('status')}")
+          if not isinstance(pixel_timeseries.get("networks"), list) or not isinstance(pixel_timeseries.get("artifacts"), list):
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_REPORT_SCHEMA_INVALID")
+          manifest_pixels = viewer_manifest.get("aoi_relative_pixel_timeseries")
+          if not isinstance(manifest_pixels, dict) or manifest_pixels.get("status") != pixel_timeseries.get("status"):
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_WIRED_TO_VIEWER_MANIFEST")
+          if "aoi-relative-pixel-timeseries.json" not in (out / "aoi-run-summary.json").read_text(encoding="utf-8"):
+              raise SystemExit("ERROR=AOI_PIXEL_TIMESERIES_NOT_REFERENCED_IN_SUMMARY")
           print("AGGREGATION_STATUS=PASS")
           print("PRODUCTS_VALIDATED=" + str(summary.get("products_validated")))
           print("GOFF_REFERENCE_STATUS=" + str(goff.get("status")))
@@ -288,6 +307,11 @@ jobs:
           print("GOFF_REPORT_WIRED_TO_DASHBOARD=PASS")
           print("INDEPENDENT_GEOPHYSICAL_VALIDATION=NOT_PERFORMED")
           print("SOURCE_RASTERS_UNCHANGED=PASS")
+          print("AOI_SPATIAL_CANDIDATE_STATUS=" + str(candidates.get("status")))
+          print("AOI_SPATIAL_CANDIDATE_FEATURES=" + str(len(candidates.get("features", []))))
+          print("AOI_PIXEL_TIMESERIES_STATUS=" + str(pixel_timeseries.get("status")))
+          print("AOI_PIXEL_TIMESERIES_NETWORKS=" + str(len(pixel_timeseries.get("networks", []))))
+          print("AOI_PIXEL_TIMESERIES_ARTIFACTS=" + str(len(pixel_timeseries.get("artifacts", []))))
           print("RAW_REPLAY=NOT_RUN")
           PY
 
