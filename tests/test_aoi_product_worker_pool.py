@@ -41,7 +41,7 @@ def test_aoi_workflow_bounds_initial_and_retry_workers_at_fifteen():
 
 def test_manifest_pins_worker_tools_to_the_dispatch_revision():
     text = WORKFLOW.read_text(encoding="utf-8")
-    manifest = text.split("  manifest:\\n", 1)[1].split("  process-products:\\n", 1)[0]
+    manifest = text.split("  manifest:\n", 1)[1].split("  process-products:\n", 1)[0]
     assert "AOI_ORCHESTRATION_BRANCH: ${{ github.ref_name }}" in manifest
     assert "Checkout backend orchestration tools at the dispatched workflow revision" in manifest
     checkout = manifest.split("Checkout backend orchestration tools at the dispatched workflow revision", 1)[1].split(
