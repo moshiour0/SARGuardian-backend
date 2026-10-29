@@ -278,41 +278,91 @@ def run_diagnostics(
         }
         report["warnings"].append("PIXEL_STACK_NOT_RUN_NO_GUNW_EXPORTS")
     else:
-        argv = [
+        # Broad AOI-wide motion can be removed by per-pair common-mode
+        # subtraction. Produce BOTH variants and keep them separately named
+        # so a candidate cannot depend on a silent/default-only choice.
+        maps_root = out_root / "pixel-stack-maps"
+        removed_dir = maps_root / "common-mode-removed"
+        retained_dir = maps_root / "common-mode-retained"
+        removed_base = removed_dir / "GUNW_LOS_velocity.tif"
+        retained_base = retained_dir / "GUNW_LOS_velocity.tif"
+        removed_dir.mkdir(parents=True, exist_ok=True)
+        retained_dir.mkdir(parents=True, exist_ok=True)
+
+        def execute_stack_variant(argv: list[str], log_path: Path) -> dict[str, Any]:
+            try:
+                done = subprocess.run(
+                    argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, check=False, timeout=1800,
+                )
+                output = done.stdout or ""
+                returncode = int(done.returncode)
+            except subprocess.TimeoutExpired as exc:
+                partial = exc.stdout or ""
+                output = partial.decode("utf-8", errors="replace") if isinstance(partial, bytes) else str(partial)
+                output += "\\nERROR=PIXEL_STACK_TIMEOUT"
+                returncode = 124
+            except OSError as exc:
+                output = "ERROR=PIXEL_STACK_EXECUTION_FAILED:" + type(exc).__name__ + ":" + str(exc)
+                returncode = 127
+            log_path.write_text(output, encoding="utf-8")
+            state = classify_pixel_stack(returncode, output)
+            output_base = Path(argv[argv.index("--geotiff") + 1])
+            variant_dir = output_base.parent
+            output_files = sorted(
+                path.relative_to(out_root).as_posix()
+                for path in variant_dir.glob("*.tif")
+                if path.is_file()
+            )
+            return {
+                "status": state,
+                "argv": argv,
+                "returncode": returncode,
+                "log": log_path.relative_to(out_root).as_posix(),
+                "output_files": output_files,
+                "output_directory": variant_dir.relative_to(out_root).as_posix(),
+                "log_tail": output[-1000:],
+            }
+
+        removed_argv = [
             sys.executable, str(pixel_script), "--dir", str(flat_dir), "--season", "all",
+            "--geotiff", str(removed_base),
         ]
-        done = subprocess.run(
-            argv, cwd=science_root, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, check=False, timeout=1800,
-        )
-        (logs / "pixel_stack.log").write_text(done.stdout or "", encoding="utf-8")
-        state = classify_pixel_stack(done.returncode, done.stdout or "")
+        removed_result = execute_stack_variant(removed_argv, logs / "pixel_stack_common_mode_removed.log")
         report["pixel_stack"] = {
-            "status": state,
-            "argv": argv,
-            "returncode": done.returncode,
-            "log": "logs/pixel_stack.log",
-            "input_count": inventory["files_copied"],
+            **removed_result,
+            "common_mode_policy": "PAIRWISE_MEDIAN_REMOVED",
             "interpretation": (
-                "A completed/no-detection result is not evidence that no hazard exists."
-                if state == "COMPLETED_NO_DETECTION" else
-                "A significant spatial cluster is only a candidate and requires independent geometry/season/time evidence."
-                if state == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK" else
-                "The exported time series did not support a per-pixel fit; this is unobserved/insufficient evidence, not a negative hazard finding."
-                if state == "INSUFFICIENT_TEMPORAL_COVERAGE" else
-                "Inspect the log and resolve the processing error before interpreting this stage."
-                if state == "FAIL" else
-                "The script completed; inspect its log for pixel support, noise-null and geometry diagnostics."
-            ),
+                "Common-mode-removed relative LOS diagnostic. This can suppress real broad/AOI-wide motion; "
+                "interpret together with common_mode_sensitivity and never as an independently validated velocity."
+            ) if removed_result["status"] != "FAIL" else
+                "The common-mode-removed pixel stack failed; inspect the log and resolve before interpreting."
         }
-        if state == "FAIL":
+        if removed_result["status"] == "FAIL":
             report["errors"].append({
                 "problem": "PIXEL_STACK_FAILED",
-                "returncode": done.returncode,
-                "log_tail": (done.stdout or "")[-1600:],
+                "returncode": removed_result["returncode"],
+                "log_tail": removed_result["log_tail"],
             })
-        elif state in {"NO_INPUT_EXPORTS", "INSUFFICIENT_TEMPORAL_COVERAGE"}:
+        elif removed_result["status"] in {"NO_INPUT_EXPORTS", "INSUFFICIENT_TEMPORAL_COVERAGE"}:
             report["warnings"].append("PIXEL_STACK_INSUFFICIENT_DATA")
+
+        retained_argv = [
+            sys.executable, str(pixel_script), "--dir", str(flat_dir), "--season", "all",
+            "--keep-common-mode", "--geotiff", str(retained_base),
+        ]
+        retained_result = execute_stack_variant(retained_argv, logs / "pixel_stack_common_mode_retained.log")
+        report["common_mode_sensitivity"] = {
+            **retained_result,
+            "common_mode_policy": "PAIRWISE_MEDIAN_RETAINED",
+            "interpretation": (
+                "Sensitivity-only relative LOS diagnostic retaining pairwise scene medians. "
+                "Atmospheric/orbit bias may dominate; it is not a preferred truth or an alert."
+            ) if retained_result["status"] != "FAIL" else
+                "The common-mode-retained sensitivity run failed; broad-motion sensitivity remains unresolved."
+        }
+        if retained_result["status"] in {"FAIL", "NO_INPUT_EXPORTS", "INSUFFICIENT_TEMPORAL_COVERAGE"}:
+            report["warnings"].append("COMMON_MODE_SENSITIVITY_UNAVAILABLE")
 
     if not run_candidate_check:
         report["candidate_checks"] = {

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from types import SimpleNamespace
+
+import rasterio
+from rasterio.transform import from_origin
+
+import tools.run_export_science_diagnostics as science_diagnostics
 
 from tools.run_export_science_diagnostics import (
     candidate_export_mask_policy,
@@ -100,3 +106,53 @@ def test_target_log_preserves_candidate_checker_line_contract(tmp_path: Path):
     }])
     text = target.read_text(encoding="utf-8")
     assert "2025-11-25 -> 2025-12-07 : 1.2000 mm (25 px, coh 0.8000)" in text
+
+
+def test_pixel_stack_runs_and_exports_both_common_mode_variants(tmp_path, monkeypatch):
+    science_root = tmp_path / "science"
+    pixel_script = science_root / "src" / "pixel_stack.py"
+    pixel_script.parent.mkdir(parents=True)
+    pixel_script.write_text("# fixture pixel stack entry point\n", encoding="utf-8")
+    exports_root = tmp_path / "exports"
+    exports_root.mkdir()
+    raster_path = exports_root / "GUNW_20260101_20260113_PR.tif"
+    with rasterio.open(
+        raster_path, "w", driver="GTiff", width=3, height=3, count=1,
+        dtype="float32", crs="EPSG:32645",
+        transform=from_origin(500000, 3200000, 80, 80), nodata=float("nan"),
+    ) as ds:
+        ds.write(__import__("numpy").ones((3, 3), dtype="float32"), 1)
+
+    calls = []
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        if argv[0] == "git":
+            return SimpleNamespace(returncode=0, stdout="expected-science-sha\n")
+        return SimpleNamespace(
+            returncode=0,
+            stdout="VERDICT: NO DETECTION. Cluster is within noise null.\n",
+        )
+
+    monkeypatch.setattr(science_diagnostics.subprocess, "run", fake_run)
+    report = science_diagnostics.run_diagnostics(
+        science_root, exports_root, tmp_path / "diagnostics",
+        expected_science_commit="expected-science-sha",
+    )
+
+    stack_calls = [argv for argv in calls if "pixel_stack.py" in " ".join(argv)]
+    assert len(stack_calls) == 2, "both common-mode policies must be executed"
+    removed, retained = stack_calls
+    assert "--keep-common-mode" not in removed
+    assert "--keep-common-mode" in retained
+    assert removed[removed.index("--geotiff") + 1].endswith(
+        "pixel-stack-maps/common-mode-removed/GUNW_LOS_velocity.tif"
+    )
+    assert retained[retained.index("--geotiff") + 1].endswith(
+        "pixel-stack-maps/common-mode-retained/GUNW_LOS_velocity.tif"
+    )
+    assert report["pixel_stack"]["common_mode_policy"] == "PAIRWISE_MEDIAN_REMOVED"
+    assert report["common_mode_sensitivity"]["common_mode_policy"] == "PAIRWISE_MEDIAN_RETAINED"
+    assert report["pixel_stack"]["status"] == "COMPLETED_NO_DETECTION"
+    assert report["common_mode_sensitivity"]["status"] == "COMPLETED_NO_DETECTION"
+    written = (tmp_path / "diagnostics" / "science-diagnostics.json").read_text(encoding="utf-8")
+    assert '"common_mode_sensitivity"' in written

@@ -55,3 +55,17 @@ def test_goff_stats_match_granule_without_suffix_and_keep_only_layer2():
     ]
 
     assert matching_product_stats_rows(rows, "NISAR_L2_PR_GOFF_EXAMPLE", "GOFF") == [rows[1]]
+
+
+
+def test_find_displacements_screen_is_target_free_and_family_separated():
+    source = (Path(__file__).resolve().parents[1] / "aggregate_aoi_run.py").read_text(encoding="utf-8")
+    screen = (Path(__file__).resolve().parents[1] / "aoi_wide_displacement_screen.py").read_text(encoding="utf-8")
+    assert "run_aoi_wide_screen(" in source
+    assert '"aoi_wide_displacement_screen":aoi_wide_screen' in source
+    assert '"target_required": False' in screen
+    assert '"target_coordinates_used": False' in screen
+    assert '"family": "GOFF_ONLY"' in screen
+    assert "GUNW LOS time-series output is calculated separately; no cross-family fusion is performed." in screen
+    assert "TARGET_LATITUDE" not in screen
+    assert "TARGET_LONGITUDE" not in screen
