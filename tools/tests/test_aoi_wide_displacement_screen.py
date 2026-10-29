@@ -20,6 +20,7 @@ def _write_goff(
     seed: int = 1,
     add_patch: bool = True,
     low_quality_patch: bool = False,
+    patch_sign: float = 1.0,
     crid: str = "P05023",
     transform: Affine | None = None,
 ) -> dict:
@@ -30,8 +31,8 @@ def _write_goff(
     azimuth_mm = rng.normal(0.0, 4.0, (height, width)).astype(np.float32)
     corr = np.full((height, width), 0.9, dtype=np.float32)
     if add_patch:
-        range_mm[45:66, 50:71] += 1000.0
-        azimuth_mm[45:66, 50:71] += 250.0
+        range_mm[45:66, 50:71] += 1000.0 * patch_sign
+        azimuth_mm[45:66, 50:71] += 250.0 * patch_sign
     if low_quality_patch:
         corr[45:66, 50:71] = 0.1
     name = (
@@ -168,3 +169,23 @@ def test_different_crids_are_kept_in_separate_series(tmp_path: Path) -> None:
     assert len(result["series"]) == 2
     assert {series["crid"] for series in result["series"]} == {"P05023", "X05026"}
     assert result["candidate_count"] == 0
+
+
+
+def test_opposing_pairwise_directions_do_not_pass_persistence_gate(tmp_path: Path) -> None:
+    rows = [
+        _write_goff(tmp_path, "GOFF-001", "20260620", "20260702", seed=1, patch_sign=1.0),
+        _write_goff(tmp_path, "GOFF-003", "20260702", "20260714", seed=2, patch_sign=-1.0),
+    ]
+    result = run_aoi_wide_screen(
+        rows, tmp_path, tmp_path / "aoi-wide-displacement-screen", _aoi_wkt(),
+        local_window_px=41, direction_window_px=5, minimum_offset_anomaly_m=0.25,
+        minimum_robust_z=4.0, minimum_directional_coherence=0.75,
+        minimum_cross_pair_directional_coherence=0.75,
+        minimum_pairs=2, minimum_component_pixels=10,
+    )
+    assert result["status"] == "COMPLETED_EXPLORATORY_RANKING"
+    assert result["candidate_count"] == 0
+    series = result["series"][0]
+    assert series["persistent_pixels_before_direction_gate"] > 0
+    assert series["persistent_pixels_after_direction_gate"] == 0
