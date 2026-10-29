@@ -39,6 +39,33 @@ def test_aoi_workflow_bounds_initial_and_retry_workers_at_fifteen():
     assert not any(line.strip() == "max-parallel: 1" for line in text.splitlines())
 
 
+def test_manifest_pins_worker_tools_to_the_dispatch_revision():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    manifest = text.split("  manifest:\\n", 1)[1].split("  process-products:\\n", 1)[0]
+    assert "AOI_ORCHESTRATION_BRANCH: ${{ github.ref_name }}" in manifest
+    assert "Checkout backend orchestration tools at the dispatched workflow revision" in manifest
+    checkout = manifest.split("Checkout backend orchestration tools at the dispatched workflow revision", 1)[1].split(
+        "- name:", 1
+    )[0]
+    assert "ref: ${{ github.sha }}" in checkout
+
+
+def test_worker_records_explicit_no_valid_pixels_without_masking_real_reader_errors():
+    worker = (ROOT / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
+    reader = worker.split("- name: Run the original single-product reader with dynamic WKT-AOI settings", 1)[1].split(
+        "- name: Measure target-local detection floors", 1
+    )[0]
+    assert 'reader_log="$CURATED_DIR/derived/science-reader.log"' in reader
+    assert '2>&1 | tee "$reader_log"' in reader
+    missing_guard = reader.index('if [[ ! -s "$stats" ]]')
+    helper = reader.index("tools/write_no_valid_pixel_stats.py", missing_guard)
+    final_check = reader.index('test -s "$stats"', helper)
+    assert missing_guard < helper < final_check
+    assert '--reader-log "$reader_log"' in reader
+    assert '--raw-product "$RAW_PATH" --product-type "$PRODUCT_TYPE"' in reader
+    assert "NO VALID PIXELS" in (ROOT / "tools" / "write_no_valid_pixel_stats.py").read_text(encoding="utf-8")
+
+
 def test_drive_shared_folders_are_prepared_before_parallel_matrix():
     text = WORKFLOW.read_text(encoding="utf-8")
     manifest = text.split("  manifest:\n", 1)[1].split("  process-products:\n", 1)[0]
