@@ -88,6 +88,7 @@ def _screen_pair(
     path: Path,
     aoi_geometry: dict[str, Any],
     *,
+    expected_crid: str,
     window: int,
     direction_window: int,
     min_offset_m: float,
@@ -98,6 +99,11 @@ def _screen_pair(
         if src.crs is None or src.count < 3:
             raise ValueError("GOFF_EXPORT_NEEDS_CRS_AND_THREE_BANDS:" + path.name)
         tags = src.tags()
+        if not src.crs.is_projected or str(src.crs.linear_units).lower() not in {"metre", "meter", "metres", "meters"}:
+            raise ValueError("GOFF_EXPORT_GRID_MUST_BE_PROJECTED_METRES:" + path.name)
+        tagged_crid = str(tags.get("crid") or "").strip().upper()
+        if tagged_crid and tagged_crid != expected_crid:
+            raise ValueError("GOFF_EXPORT_CRID_MISMATCH_EXPECTED_" + expected_crid + "_GOT_" + tagged_crid)
         if str(tags.get("aoi_mask_applied", "")).lower() != "true":
             raise ValueError("GOFF_EXPORT_AOI_MASK_PROVENANCE_MISSING:" + path.name)
         if tags.get("grid_policy") != "common_aoi_lattice":
@@ -272,7 +278,9 @@ def _component_features(
     return result
 
 
-def _write_count_raster(path: Path, array: np.ndarray, meta: dict[str, Any], nodata: int) -> None:
+def _write_count_raster(
+    path: Path, array: np.ndarray, meta: dict[str, Any], nodata: int, description: str
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
         path, "w", driver="GTiff", width=array.shape[1], height=array.shape[0],
@@ -280,7 +288,7 @@ def _write_count_raster(path: Path, array: np.ndarray, meta: dict[str, Any], nod
         nodata=nodata, compress="deflate", predictor=2,
     ) as dst:
         dst.write(array, 1)
-        dst.set_band_description(1, "Number of compatible GOFF pairs with an AOI-wide offset anomaly")
+        dst.set_band_description(1, description)
         dst.update_tags(
             schema=SCHEMA, interpretation="EXPLORATORY_REVIEW_CANDIDATE_NOT_HAZARD",
             target_required="false", family="GOFF", series_id=path.stem,
@@ -410,7 +418,8 @@ def run_aoi_wide_screen(
         for item in items:
             try:
                 pair = _screen_pair(
-                    item["path"], aoi_geometry, window=local_window_px,
+                    item["path"], aoi_geometry, expected_crid=identity["crid"],
+                    window=local_window_px,
                     direction_window=direction_window_px,
                     min_offset_m=minimum_offset_anomaly_m,
                     min_robust_z=minimum_robust_z,
@@ -510,8 +519,14 @@ def run_aoi_wide_screen(
         mask_out[~grid["inside_aoi"]] = np.uint8(255)
         counts_path = group_dir / "candidate_pair_count.tif"
         mask_path = group_dir / "persistent_candidate_mask.tif"
-        _write_count_raster(counts_path, counts_out, grid, 65535)
-        _write_count_raster(mask_path, mask_out, grid, 255)
+        _write_count_raster(
+            counts_path, counts_out, grid, 65535,
+            "Number of compatible GOFF pairs with an AOI-wide offset anomaly",
+        )
+        _write_count_raster(
+            mask_path, mask_out, grid, 255,
+            "Persistent AOI-wide candidate mask; 1=review candidate, not hazard",
+        )
 
         for row in pair_results:
             row.pop("_arrays", None)
@@ -585,7 +600,6 @@ def run_aoi_wide_screen(
         "candidate_count": len(all_features),
         "candidates_geojson": str(geojson_path.relative_to(root.resolve())).replace("\\", "/"),
         "candidates_csv": str(csv_path.relative_to(root.resolve())).replace("\\", "/"),
-        "candidate_features": all_features,
         "duplicate_intervals_excluded": duplicate_exclusions,
         "rejected_products": rejected,
         "warnings": [
