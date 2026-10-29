@@ -66,8 +66,10 @@ def write_no_valid_pixel_stats(
         raise ValueError("REFUSING_TO_REPLACE_EXISTING_READER_STATS")
     if not reader_log.is_file():
         raise ValueError("READER_LOG_MISSING")
-    if not raw_product.is_file() and not raw_product.name.endswith(".h5"):
-        raise ValueError("RAW_PRODUCT_IDENTITY_INVALID")
+    if raw_product.suffix.lower() != ".h5":
+        raise ValueError("RAW_PRODUCT_SUFFIX_INVALID")
+    if not raw_product.is_file():
+        raise ValueError("RAW_PRODUCT_NOT_FOUND")
 
     text = reader_log.read_text(encoding="utf-8", errors="replace")
     layer_names = no_valid_pixel_layers(text, product_type)
