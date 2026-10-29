@@ -8,7 +8,11 @@ import rasterio
 from pyproj import Transformer
 from rasterio.transform import Affine
 
-from tools.aoi_wide_displacement_screen import _box_sum, run_aoi_wide_screen
+from tools.aoi_wide_displacement_screen import (
+    _box_sum,
+    _pair_offset_threshold_m,
+    run_aoi_wide_screen,
+)
 
 
 def _write_goff(
@@ -203,3 +207,21 @@ def test_different_bandwidths_have_distinct_output_series_ids(tmp_path: Path) ->
     )
     assert len(result["series"]) == 2
     assert len({series["series_id"] for series in result["series"]}) == 2
+
+
+def test_pair_threshold_uses_reader_floor_and_elapsed_days() -> None:
+    identity = {
+        "reference_date": "2026-06-20",
+        "secondary_date": "2026-07-02",
+    }
+    threshold, floor = _pair_offset_threshold_m(
+        {"stats": {"detect_floor_mm_day": 40.0}}, identity, 0.25,
+    )
+    assert floor == 40.0
+    assert threshold == 0.48
+
+    fallback_threshold, fallback_floor = _pair_offset_threshold_m(
+        {"stats": {}}, identity, 0.25,
+    )
+    assert fallback_threshold == 0.25
+    assert fallback_floor is None
