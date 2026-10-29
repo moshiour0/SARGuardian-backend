@@ -357,5 +357,75 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("Global-MAD outliers retained for review", viewer)
 
 
+    def test_aoi_wide_candidate_geojson_reaches_the_interactive_map_manifest(self) -> None:
+        """Candidate polygons must survive summary → GeoJSON → manifest → map viewer."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            screen_dir = root / "aoi-wide-displacement-screen"
+            screen_dir.mkdir(parents=True)
+            candidate = {
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "id": "candidate-P05023-C001",
+                    "properties": {
+                        "candidate_id": "GOFF_PR_P05023_A098_F016_BW4000_SH-C001",
+                        "series_id": "GOFF_PR_P05023_A098_F016_BW4000_SH",
+                        "direction": "ASC",
+                        "track": "098",
+                        "area_km2_approx": 0.12,
+                        "pairs_with_candidate": 5,
+                        "status": "CANDIDATE_FOR_REVIEW",
+                    },
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [90.4050, 24.7440], [90.4070, 24.7440],
+                            [90.4070, 24.7460], [90.4050, 24.7460],
+                            [90.4050, 24.7440],
+                        ]],
+                    },
+                }],
+            }
+            candidate_path = screen_dir / "candidates.geojson"
+            candidate_path.write_text(json.dumps(candidate), encoding="utf-8")
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["aoi_wide_displacement_screen"] = {
+                "schema_version": "sarguardian-find-displacements-aoi-screen/1.0",
+                "status": "COMPLETED_EXPLORATORY_RANKING",
+                "purpose": "FIND_DISPLACEMENTS_AOI_WIDE",
+                "target_required": False,
+                "target_coordinates_used": False,
+                "series_count": 1,
+                "candidate_count": 1,
+                "candidates_geojson": "aoi-wide-displacement-screen/candidates.geojson",
+                "warnings": ["Review candidate only; not a confirmed hazard."],
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            processing = json.loads(report_path.read_text(encoding="utf-8"))
+            processing["summary"] = summary
+            report_path.write_text(json.dumps(processing), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            screen = manifest["aoi_wide_displacement_screen"]
+            self.assertEqual(screen["status"], "COMPLETED_EXPLORATORY_RANKING")
+            self.assertFalse(screen["target_required"])
+            self.assertFalse(screen["target_coordinates_used"])
+            self.assertEqual(screen["candidate_count"], 1)
+            self.assertEqual(len(screen["candidate_feature_collection"]["features"]), 1)
+            feature = screen["candidate_feature_collection"]["features"][0]
+            self.assertEqual(feature["properties"]["candidate_id"], "GOFF_PR_P05023_A098_F016_BW4000_SH-C001")
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("aoi-wide-candidate-fill", viewer)
+            self.assertIn("candidate_feature_collection", viewer)
+            self.assertIn("not a hazard detection", viewer.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
