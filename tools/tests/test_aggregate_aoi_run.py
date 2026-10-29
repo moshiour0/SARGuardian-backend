@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from tools.aggregate_aoi_run import assess_maturity_consistency, matching_product_stats_rows
+import numpy as np
+import rasterio
+from rasterio.transform import from_bounds
+
+from tools.aggregate_aoi_run import (
+    assess_maturity_consistency,
+    count_aoi_cells_on_export_grid,
+    matching_product_stats_rows,
+)
 
 
 def test_matching_catalog_and_reader_maturity_is_passable():
@@ -55,3 +63,25 @@ def test_goff_stats_match_granule_without_suffix_and_keep_only_layer2():
     ]
 
     assert matching_product_stats_rows(rows, "NISAR_L2_PR_GOFF_EXAMPLE", "GOFF") == [rows[1]]
+
+
+def test_export_grid_aoi_denominator_is_independent_of_nodata_pixels(tmp_path):
+    raster = tmp_path / "empty-export.tif"
+    with rasterio.open(
+        raster,
+        "w",
+        driver="GTiff",
+        width=4,
+        height=4,
+        count=1,
+        dtype="float32",
+        crs="EPSG:4326",
+        transform=from_bounds(0, 0, 4, 4, 4, 4),
+        nodata=np.nan,
+    ) as dataset:
+        dataset.write(np.full((4, 4), np.nan, dtype="float32"), 1)
+
+    ring = [(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)]
+    # Four 1-degree pixel centres lie within the AOI even though all science
+    # values are NoData. This denominator is not the source radarGrid count.
+    assert count_aoi_cells_on_export_grid(raster, ring) == 4
