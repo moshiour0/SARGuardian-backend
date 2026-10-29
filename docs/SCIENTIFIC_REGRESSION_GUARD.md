@@ -2,8 +2,8 @@
 
 This backend's Find Displacements pipeline is subject to the **canonical mandatory guard** in the science repository:
 
-- Canonical document: [`docs/SCIENTIFIC_REGRESSION_GUARD.md`](https://github.com/moshiour0/SARGuardian/blob/456d64a66c96c6326acba7013d33514df4ae9dc7/docs/SCIENTIFIC_REGRESSION_GUARD.md)
-- Immutable revision containing the guard: `456d64a66c96c6326acba7013d33514df4ae9dc7`
+- Canonical document: [`docs/SCIENTIFIC_REGRESSION_GUARD.md`](https://github.com/moshiour0/SARGuardian/blob/428ffb96e2889cd83e62b4299989419c278c1baf/docs/SCIENTIFIC_REGRESSION_GUARD.md)
+- Immutable revision containing the guard: `428ffb96e2889cd83e62b4299989419c278c1baf`
 - Dashboard/aggregator source pin with dual common-mode stack outputs: `ecd125f68ed61c276406f73a1d77eb27979e204e`
 - Canonical working branch for the associated science fixes: `fix/science-regression-guards-20261029`
 
