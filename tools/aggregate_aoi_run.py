@@ -420,7 +420,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "boundary_pair_included_by_secondary_date_policy": product.get("boundary_pair_included_by_secondary_date_policy"),
             "status": "FAIL", "warnings": [],
             "science_maturity": None, "maturity_validation": None,
-            "science_pixel_support": False, "measurement_pixel_support": False,
+            "science_pixel_support": False, "screen_pixel_support": False,
+            "measurement_pixel_support": False,
             "valid_pixels": None, "screen_valid_pixels": None, "screen_outlier_pixels": None,
             "metric_name": None, "metric_value": None,
             "quicklook": None, "source_sha256": None, "export_count": 0, "grid_pixels_inside_aoi": None,
@@ -485,8 +486,12 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             valid_pixels = max(measurement_counts) if measurement_counts else 0
             screen_valid_pixels = max(screen_valid_counts) if screen_valid_counts else 0
             screen_outlier_pixels = max(outlier_counts) if outlier_counts else 0
-            record["science_pixel_support"] = screen_valid_pixels > 0
+            # Preserve legacy meaning: science_pixel_support reflects strict
+            # measurement-valid pixels. The broader mask is explicitly a
+            # separate screen support used by Find Displacements.
+            record["science_pixel_support"] = valid_pixels > 0
             record["measurement_pixel_support"] = valid_pixels > 0
+            record["screen_pixel_support"] = screen_valid_pixels > 0
             for item in validation_exports:
                 if not isinstance(item, dict): continue
                 source = safe_child(artifact, str(meta.get("export_dir", "derived")) + "/" + str(item.get("name","")))
@@ -508,7 +513,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             record["local_floor"] = local_floor
             record["target_measurement"] = target_measurement
             record.update({
-                "status":"PASS" if record["science_pixel_support"] and not maturity_warnings and not (validation.get("warnings") or []) else "WARNING",
+                "status":"PASS" if record["science_pixel_support"] and record["screen_pixel_support"] and not maturity_warnings and not (validation.get("warnings") or []) else "WARNING",
                 "warnings":record["warnings"] + list(validation.get("warnings") or []) + maturity_warnings,
                 "science_maturity":science_maturity or None,"maturity_validation":maturity_validation,
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
@@ -681,6 +686,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
         "products_with_measurement_pixels":sum(bool(x.get("measurement_pixel_support")) for x in result_rows),
+        "products_with_screen_pixels":sum(bool(x.get("screen_pixel_support")) for x in result_rows),
         "screen_valid_pixels_total":sum(int(x.get("screen_valid_pixels") or 0) for x in result_rows),
         "screen_outlier_pixels_total":sum(int(x.get("screen_outlier_pixels") or 0) for x in result_rows),
         "science_diagnostics":science_diagnostics,
