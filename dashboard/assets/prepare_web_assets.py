@@ -108,11 +108,23 @@ def reproject_band(path: Path, band: int, aoi_geometry: dict[str, Any]) -> tuple
         unit = (src.units[band - 1] if src.units else None) or ""
         if not unit:
             found = re.search(r"\(([^()]*)\)\s*$", description)
-            unit = found.group(1).strip() if found else ("dimensionless" if "coherence" in description.lower() else "source units not declared")
+            if found:
+                unit = found.group(1).strip()
+            elif "robust inlier flag" in description.lower():
+                unit = "binary flag (1=inlier, 0=global-MAD outlier retained for review)"
+            elif "coherence" in description.lower():
+                unit = "dimensionless"
+            else:
+                unit = "source units not declared"
+        source_tags = {str(k): str(v) for k, v in src.tags().items()}
         return out, (float(west), float(south), float(east), float(north)), {
             "description": description.strip(), "units": unit, "source_crs": src.crs.to_string(),
             "source_transform": [float(v) for v in src.transform[:6]],
             "source_width": src.width, "source_height": src.height, "source_valid_pixels": source_valid,
+            "source_tags": source_tags,
+            "robust_inlier_pixels": int(source_tags["robust_inlier_pixels"]) if source_tags.get("robust_inlier_pixels", "").isdigit() else None,
+            "screen_valid_pixels": int(source_tags["screen_valid_pixels"]) if source_tags.get("screen_valid_pixels", "").isdigit() else source_valid,
+            "screen_outlier_pixels": int(source_tags["robust_outlier_pixels"]) if source_tags.get("robust_outlier_pixels", "").isdigit() else 0,
             "data_type": src.dtypes[band - 1], "source_nodata": float(src.nodata) if src.nodata is not None and math.isfinite(float(src.nodata)) else None,
             "preview_crs": WEB_CRS, "preview_transform": [float(v) for v in transform[:6]],
             "preview_width": width, "preview_height": height,
@@ -128,6 +140,11 @@ def write_rgba(values: np.ndarray, lo: float, hi: float, kind: str, path: Path) 
         palette = "viridis" if kind == "coherence" else "RdBu_r"
         rgba[..., :3] = (colormaps[palette](normalized)[..., :3] * 255).astype(np.uint8)
         rgba[..., 3] = np.where(valid, 220, 0).astype(np.uint8)
+        if kind == "binary_mask":
+            # Band 4 is review metadata, not displacement: 1=inlier, 0=global
+            # MAD outlier retained specifically for spatial candidate screening.
+            rgba[valid & (values < 0.5), :3] = np.array([255, 110, 95], dtype=np.uint8)
+            rgba[valid & (values >= 0.5), :3] = np.array([55, 190, 155], dtype=np.uint8)
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(rgba, mode="RGBA").save(path, format="PNG", optimize=True)
     return count, (float(np.nanmin(values)) if count else None), (float(np.nanmax(values)) if count else None)
@@ -397,6 +414,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         if not exports:
             exports = [{"relative_path": next((p.relative_to(root).as_posix() for p in (root / "product-data" / pid).glob("*.tif")), "")}]
         band1_source_counts: list[int] = []
+        band1_robust_inlier_counts: list[int] = []
         for export_index, export in enumerate(exports):
             relative = str(export.get("relative_path") or "")
             if not relative:
@@ -415,11 +433,20 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 valid = values[np.isfinite(values)]
                 if band == 1:
                     band1_source_counts.append(meta["source_valid_pixels"])
+                    robust_inliers = meta.get("robust_inlier_pixels")
+                    if robust_inliers is not None:
+                        band1_robust_inlier_counts.append(int(robust_inliers))
                 if not valid.size:
                     continue
                 track_value = (product.get("stats") or {}).get("track") or product.get("track")
                 track = str(track_value) if track_value else "geometry-unclassified:" + pid
-                kind = "coherence" if "coherence" in meta["description"].lower() else "continuous"
+                description_lower = meta["description"].lower()
+                if "robust inlier flag" in description_lower:
+                    kind = "binary_mask"
+                elif "coherence" in description_lower:
+                    kind = "coherence"
+                else:
+                    kind = "continuous"
                 group_key = (str(product.get("product_type") or "UNKNOWN"), track, meta["description"])
                 groups.setdefault(group_key, []).append(valid.astype("float32", copy=False))
                 layer_id = f"{pid}-e{export_index+1}-band-{band}"
@@ -429,7 +456,11 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                     "kind": kind, "source_sha256": original_hash, "source_asset": relative,
                     "source_crs": meta["source_crs"], "source_transform": meta["source_transform"],
                     "source_width": meta["source_width"], "source_height": meta["source_height"],
-                    "source_valid_pixels": meta["source_valid_pixels"], "data_type": meta["data_type"],
+                    "source_valid_pixels": meta["source_valid_pixels"],
+                    "screen_valid_pixels": meta.get("screen_valid_pixels"),
+                    "robust_inlier_pixels": meta.get("robust_inlier_pixels"),
+                    "screen_outlier_pixels": meta.get("screen_outlier_pixels"),
+                    "data_type": meta["data_type"],
                     "preview_crs": WEB_CRS, "preview_transform": meta["preview_transform"],
                     "preview_width": meta["preview_width"], "preview_height": meta["preview_height"],
                     "bounds_wgs84": list(bounds),
@@ -444,8 +475,20 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 expected_valid = int(product["valid_pixels"])
             except (TypeError, ValueError):
                 expected_valid = -1
-            if expected_valid >= 0 and max(band1_source_counts) != expected_valid:
-                raise ValueError(f"Product valid-pixel summary mismatch for {pid}: record={expected_valid}, max_export={max(band1_source_counts)}")
+            # Find Displacements exports keep pre-global-MAD quality-valid
+            # offsets to avoid losing compact real movement patches. Compare
+            # the normal reader summary only with an explicit robust-inlier
+            # count; legacy exports without the tag retain the old equality.
+            count_for_validation = (
+                max(band1_robust_inlier_counts)
+                if band1_robust_inlier_counts else max(band1_source_counts)
+            )
+            if expected_valid >= 0 and count_for_validation != expected_valid:
+                raise ValueError(
+                    f"Product robust-inlier pixel summary mismatch for {pid}: "
+                    f"record={expected_valid}, export_robust_inliers={count_for_validation}, "
+                    f"screen_valid={max(band1_source_counts)}"
+                )
 
     webroot = root / "web-dashboard"
     public_layers = []
