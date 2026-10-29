@@ -53,7 +53,7 @@ def _safe_id(identity: dict[str, str]) -> str:
     return (
         "GOFF_" + identity["processing"] + "_" + identity["crid"] + "_"
         + identity["direction"] + identity["track"] + "_F" + identity["frame"]
-        + "_" + identity["polarization"]
+        + "_BW" + identity["bandwidth"] + "_" + identity["polarization"]
     )
 
 
