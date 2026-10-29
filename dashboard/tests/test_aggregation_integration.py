@@ -21,6 +21,10 @@ def test_map_assets_are_built_before_zip_and_final_status_is_packaged() -> None:
     assert status_at < final_report_at < zip_at
     assert "WEB_DASHBOARD_STATUS=" in aggregator
     assert "source_geotiffs_unchanged" in aggregator
+    assert "count_aoi_cells_on_export_grid(source, ring)" in aggregator
+    assert "EXPORT_AOI_GRID_COUNT_MISMATCH" in aggregator
+    assert "preflight_source_grid_pixels_inside_aoi_min" in aggregator
+    assert "export AOI-grid px" in aggregator
 
 
 def test_existing_private_drive_upload_and_required_account_files_remain() -> None:
