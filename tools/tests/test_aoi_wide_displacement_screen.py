@@ -22,6 +22,7 @@ def _write_goff(
     low_quality_patch: bool = False,
     patch_sign: float = 1.0,
     crid: str = "P05023",
+    bandwidth: str = "4000",
     transform: Affine | None = None,
 ) -> dict:
     width, height = 120, 100
@@ -36,7 +37,7 @@ def _write_goff(
     if low_quality_patch:
         corr[45:66, 50:71] = 0.1
     name = (
-        f"NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_"
+        f"NISAR_L2_PR_GOFF_023_098_A_016_024_{bandwidth}_SH_"
         f"{reference}T233921_{reference}T233956_"
         f"{secondary}T233920_{secondary}T233955_{crid}_N_F_J_001.h5"
     )
@@ -189,3 +190,16 @@ def test_opposing_pairwise_directions_do_not_pass_persistence_gate(tmp_path: Pat
     series = result["series"][0]
     assert series["persistent_pixels_before_direction_gate"] > 0
     assert series["persistent_pixels_after_direction_gate"] == 0
+
+
+
+def test_different_bandwidths_have_distinct_output_series_ids(tmp_path: Path) -> None:
+    rows = [
+        _write_goff(tmp_path, "GOFF-001", "20260620", "20260702", bandwidth="4000"),
+        _write_goff(tmp_path, "GOFF-003", "20260702", "20260714", bandwidth="2000"),
+    ]
+    result = run_aoi_wide_screen(
+        rows, tmp_path, tmp_path / "aoi-wide-displacement-screen", _aoi_wkt(),
+    )
+    assert len(result["series"]) == 2
+    assert len({series["series_id"] for series in result["series"]}) == 2
