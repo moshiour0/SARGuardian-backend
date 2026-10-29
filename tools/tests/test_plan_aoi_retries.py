@@ -196,3 +196,18 @@ def test_mixed_baseline_retries_only_the_product_with_a_missing_checkpoint(tmp_p
     assert decisions["GOFF-001"]["reasons"] == []
     assert decisions["GUNW-002"]["status"] == "RETRY"
     assert "PRODUCT_PROCESSING_RECEIPT_MISSING" in decisions["GUNW-002"]["reasons"]
+
+
+def test_workflow_audits_failed_checkpoints_without_automatically_redownloading() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml").read_text(encoding="utf-8")
+    worker = (root / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
+
+    # Keep the retry-plan artifact as evidence, but do not launch a second
+    # product worker that would repeat a multi-GB raw granule download.
+    assert "  retry-plan:\n" in workflow
+    assert "sarguardian-aoi-retry-plan" in workflow
+    assert "  retry-products:\n" not in workflow
+    assert "needs: [manifest, process-products, retry-plan]" in workflow
+    assert "needs: [report-running, manifest, process-products, retry-plan, dashboard]" in workflow
+    assert "max_attempts=1" in worker
