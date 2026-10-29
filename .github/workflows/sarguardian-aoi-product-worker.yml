@@ -9,6 +9,9 @@ on:
       orchestration_sha:
         required: true
         type: string
+      orchestration_branch:
+        required: true
+        type: string
       product_id:
         required: true
         type: string
@@ -56,7 +59,7 @@ jobs:
       AOI_NAME: custom
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
       AOI_ORCHESTRATION_SHA: ${{ inputs.orchestration_sha }}
-      AOI_ORCHESTRATION_BRANCH: feat/final-aoi-science-integration
+      AOI_ORCHESTRATION_BRANCH: ${{ inputs.orchestration_branch }}
       SCIENCE_COMMIT: 10639a916c9829850775410b3ed7de62e527770d
       RETENTION_PROFILE: ${{ inputs.retention_profile }}
       PRODUCT_EXECUTION_LABEL: ${{ inputs.execution_label }}
