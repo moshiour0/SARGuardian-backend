@@ -216,6 +216,7 @@ def _same_grid(first: dict[str, Any], other: dict[str, Any]) -> bool:
 def _component_features(
     mask: np.ndarray,
     hit_count: np.ndarray,
+    pair_direction_coherence: np.ndarray,
     transform: Any,
     crs: Any,
     series_id: str,
@@ -274,6 +275,9 @@ def _component_features(
                 "pairs_with_candidate": persistence_min,
                 "pair_persistence_median": persistence_median,
                 "pair_persistence_max": persistence_max,
+                "mean_cross_pair_directional_coherence": round(
+                    float(np.nanmean(pair_direction_coherence[component_mask])), 4
+                ) if np.isfinite(pair_direction_coherence[component_mask]).any() else None,
                 "pixels_approx": pixels,
                 "area_km2_approx": round(area_m2 / 1e6, 6),
                 "centroid_lon": round(float(center_wgs[0]), 6),
@@ -585,7 +589,7 @@ def run_aoi_wide_screen(
         "candidate_id", "series_id", "product_family", "track", "direction", "frame",
         "crid", "pairs_in_series", "pairs_with_candidate", "pair_persistence_median",
         "pair_persistence_max", "pixels_approx", "area_km2_approx", "centroid_lon",
-        "centroid_lat", "interpretation",
+        "centroid_lat", "mean_cross_pair_directional_coherence", "interpretation",
     ]
     import csv
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
