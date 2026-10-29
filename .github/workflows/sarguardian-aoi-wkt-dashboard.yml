@@ -216,12 +216,12 @@ jobs:
       orchestration_sha: ${{ steps.orch.outputs.sha }}
     env:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
-      AOI_ORCHESTRATION_BRANCH: feat/final-aoi-science-integration
+      AOI_ORCHESTRATION_BRANCH: ${{ github.ref_name }}
     steps:
-      - name: Checkout backend orchestration tools from the isolated feature branch
+      - name: Checkout backend orchestration tools at the dispatched workflow revision
         uses: actions/checkout@v4
         with:
-          ref: feat/final-aoi-science-integration
+          ref: ${{ github.sha }}
 
       - name: Record exact orchestration revision for every downstream product
         id: orch
