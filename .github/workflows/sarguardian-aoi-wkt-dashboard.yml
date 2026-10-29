@@ -437,14 +437,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian-backend
-          ref: e41fd87d396b342efe63692333243557930d41f5
+          ref: 01a82871a60c4b60ba5449b527c75c2932a4b192
           path: dashboard-source
 
       - name: Verify pinned interactive-dashboard builder revision
         shell: bash
         run: |
           set -euo pipefail
-          expected="e41fd87d396b342efe63692333243557930d41f5"
+          expected="01a82871a60c4b60ba5449b527c75c2932a4b192"
           actual="$(git -C dashboard-source rev-parse HEAD)"
           test "$actual" = "$expected"
           echo "DASHBOARD_BUILDER_SHA=$actual"
