@@ -84,3 +84,80 @@ def test_folder_preflight_rejects_empty_manifest_before_drive_mutation():
     with pytest.raises(ValueError, match="AOI_MANIFEST_HAS_NO_SELECTED_PRODUCTS"):
         prepare_drive_folders({"products": []}, drive, parent_id="root-parent", version_tag="12345-1")
     assert drive.created == []
+
+from write_no_valid_pixel_stats import write_no_valid_pixel_stats
+
+
+def test_no_valid_pixels_creates_warning_row_without_invented_measurement(tmp_path):
+    raw = tmp_path / "NISAR_L2_PR_GOFF_EXAMPLE.h5"
+    raw.write_bytes(b"identity-only test file")
+    log = tmp_path / "reader.log"
+    log.write_text(
+        "=== product ===\n"
+        "  --- HH/layer2 ---\n"
+        "    finite 1000\n"
+        "    inside AOI 0\n"
+        "    NO VALID PIXELS\n"
+        "  --- VV/layer2 ---\n"
+        "    finite 2000\n"
+        "    inside AOI 0\n"
+        "    NO VALID PIXELS\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "derived" / "stats.csv"
+
+    result = write_no_valid_pixel_stats(log, out, raw, "GOFF")
+
+    import csv
+    with out.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert result["status"] == "NO_VALID_PIXELS_AFTER_AOI_AND_QUALITY_GATES"
+    assert result["valid_pixels"] == 0
+    assert result["measurement_reported"] is False
+    assert len(rows) == 1
+    assert rows[0]["file"] == raw.name
+    assert rows[0]["layer"] == "layer2 (no valid pixels)"
+    assert rows[0]["valid_px"] == "0"
+    assert rows[0]["maturity"] == "UNKNOWN"
+    assert rows[0]["science_status"] == "NO_VALID_PIXELS_AFTER_AOI_AND_QUALITY_GATES"
+    assert not any("median" in field.lower() or "velocity" in field.lower() for field in rows[0])
+
+
+def test_no_valid_pixels_helper_fails_closed_for_missing_or_mixed_markers(tmp_path):
+    raw = tmp_path / "NISAR_L2_PR_GOFF_EXAMPLE.h5"
+    raw.write_bytes(b"test")
+    log = tmp_path / "reader.log"
+    log.write_text(
+        "--- HH/layer2 ---\nNO VALID PIXELS\n"
+        "--- VV/layer2 ---\nrange offset median 23 mm\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="NO_VALID_PIXEL_MARKER_NOT_CONFIRMED"):
+        write_no_valid_pixel_stats(log, tmp_path / "stats.csv", raw, "GOFF")
+    assert not (tmp_path / "stats.csv").exists()
+
+
+def test_no_valid_pixels_helper_does_not_overwrite_existing_reader_csv(tmp_path):
+    raw = tmp_path / "NISAR_L2_PR_GOFF_EXAMPLE.h5"
+    raw.write_bytes(b"test")
+    log = tmp_path / "reader.log"
+    log.write_text("--- HH/layer2 ---\nNO VALID PIXELS\n", encoding="utf-8")
+    out = tmp_path / "stats.csv"
+    out.write_text("file,layer\nexisting,layer2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="REFUSING_TO_REPLACE_EXISTING_READER_STATS"):
+        write_no_valid_pixel_stats(log, out, raw, "GOFF")
+    assert out.read_text(encoding="utf-8").startswith("file,layer")
+
+
+def test_no_valid_pixels_helper_supports_gunw_without_fake_metrics(tmp_path):
+    raw = tmp_path / "NISAR_L2_PR_GUNW_EXAMPLE.h5"
+    raw.write_bytes(b"test")
+    log = tmp_path / "reader.log"
+    log.write_text(
+        "--- unwrappedInterferogram/HH ---\nNO VALID PIXELS\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "gunw-stats.csv"
+    result = write_no_valid_pixel_stats(log, out, raw, "GUNW")
+    assert result["valid_pixels"] == 0
+    assert "median" not in out.read_text(encoding="utf-8").lower()
