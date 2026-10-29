@@ -155,11 +155,19 @@ def _screen_pair(
     range_residual = range_m - range_mean
     azimuth_residual = azimuth_m - azimuth_mean
     magnitude = np.hypot(range_residual, azimuth_residual).astype(np.float32)
-    magnitude_mean, _ = _local_mean(magnitude, valid & np.isfinite(magnitude), window)
-    abs_deviation = np.abs(magnitude - magnitude_mean)
-    local_mad_proxy, _ = _local_mean(abs_deviation, valid & np.isfinite(abs_deviation), window)
-    robust_scale = np.maximum(1.4826 * local_mad_proxy, 0.03)
-    robust_z = magnitude / robust_scale
+    # Estimate the background noise scale robustly over the AOI after local
+    # detrending. A local MAD computed from anomaly magnitude itself is biased
+    # upward inside a coherent moving patch and can suppress the very signal
+    # being screened. The global component-wise MAD is resilient while fewer
+    # than half the valid AOI cells belong to an anomaly.
+    rr = range_residual[valid & np.isfinite(range_residual)].astype(np.float64)
+    ar = azimuth_residual[valid & np.isfinite(azimuth_residual)].astype(np.float64)
+    range_median = float(np.median(rr)) if rr.size else 0.0
+    azimuth_median = float(np.median(ar)) if ar.size else 0.0
+    range_sigma = 1.4826 * float(np.median(np.abs(rr - range_median))) if rr.size else 0.0
+    azimuth_sigma = 1.4826 * float(np.median(np.abs(ar - azimuth_median))) if ar.size else 0.0
+    robust_scale_m = max(range_sigma, azimuth_sigma, 0.03)
+    robust_z = magnitude / robust_scale_m
 
     vector_valid = valid & np.isfinite(magnitude) & (magnitude > 1e-5)
     ux = np.zeros(magnitude.shape, dtype=np.float32)
@@ -185,6 +193,7 @@ def _screen_pair(
         "directional_coherence": direction_coherence.astype(np.float32),
         "candidate_pixels": int(candidate.sum()),
         "max_offset_anomaly_m": float(np.nanmax(magnitude[candidate])) if candidate.any() else None,
+        "robust_background_scale_m": float(robust_scale_m),
         "status": "SCREENED_NOT_DETECTION",
     })
     return result
@@ -569,6 +578,7 @@ def run_aoi_wide_screen(
             "minimum_pairs_for_persistence": minimum_pairs,
             "minimum_component_pixels": minimum_component_pixels,
             "quality": "Uses the exported reader-valid mask and the GOFF product's correlation gate. It does not recover SNR or redo raw-HDF5 processing.",
+            "background_scale": "Global component-wise robust MAD after local detrending, with a 0.03 m floor; exploratory noise proxy, not a validated per-pixel detection floor.",
         },
         "series_count": len(series_reports),
         "series": series_reports,
