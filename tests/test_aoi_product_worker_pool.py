@@ -36,7 +36,7 @@ def sample_manifest():
 def test_aoi_workflow_bounds_initial_and_retry_workers_at_fifteen():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert text.count("max-parallel: 15") == 2
-    assert "max-parallel: 1" not in text
+    assert not any(line.strip() == "max-parallel: 1" for line in text.splitlines())
 
 
 def test_drive_shared_folders_are_prepared_before_parallel_matrix():
