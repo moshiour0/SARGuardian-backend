@@ -57,6 +57,32 @@ def _safe_id(identity: dict[str, str]) -> str:
     )
 
 
+def _pair_offset_threshold_m(
+    row: dict[str, Any], identity: dict[str, str], fallback_m: float
+) -> tuple[float, float | None]:
+    """Use the reader's 3-sigma range floor over this pair when it is reported.
+
+    The reader's detect_floor_mm_day is 3 * robust range sigma / pair span.
+    Multiplying by this pair's actual elapsed days returns the corresponding
+    3-sigma offset floor. It is a conservative AOI-wide screen gate, not a local
+    candidate-specific floor or a formal probability of detection.
+    """
+    stats = row.get("stats") if isinstance(row.get("stats"), dict) else {}
+    try:
+        floor_rate = float(stats.get("detect_floor_mm_day"))
+    except (TypeError, ValueError, OverflowError):
+        floor_rate = float("nan")
+    try:
+        ref_day = date.fromisoformat(identity["reference_date"][:10])
+        sec_day = date.fromisoformat(identity["secondary_date"][:10])
+        elapsed_days = (sec_day - ref_day).days
+    except (TypeError, ValueError, OverflowError):
+        elapsed_days = 0
+    if not math.isfinite(floor_rate) or floor_rate < 0 or elapsed_days <= 0:
+        return float(fallback_m), None
+    return max(float(fallback_m), floor_rate * elapsed_days / 1000.0), floor_rate
+
+
 def _box_sum(values: np.ndarray, window: int) -> np.ndarray:
     """Constant-zero padded integral-image sum; output keeps the exact HxW grid."""
     if window < 3 or window % 2 != 1:
@@ -421,9 +447,13 @@ def run_aoi_wide_screen(
                 "reason": "CATALOG_AND_GRANULE_CRID_MISMATCH",
             })
             continue
+        pair_threshold_m, reader_floor_rate = _pair_offset_threshold_m(
+            row, identity, minimum_offset_anomaly_m
+        )
         descriptors.append({
             "row": row, "identity": identity, "path": path, "series_key": key,
-            "interval": interval,
+            "interval": interval, "minimum_offset_threshold_m": pair_threshold_m,
+            "reader_detect_floor_mm_day": reader_floor_rate,
         })
 
     # One interval is one independent temporal pair. If duplicate swaths/variants
@@ -477,7 +507,7 @@ def run_aoi_wide_screen(
                     item["path"], aoi_geometry, expected_crid=identity["crid"],
                     window=local_window_px,
                     direction_window=direction_window_px,
-                    min_offset_m=minimum_offset_anomaly_m,
+                    min_offset_m=float(item["minimum_offset_threshold_m"]),
                     min_robust_z=minimum_robust_z,
                     min_directional_coherence=minimum_directional_coherence,
                 )
@@ -533,6 +563,8 @@ def run_aoi_wide_screen(
                 "aoi_grid_pixels": pair["aoi_pixels"], "valid_aoi_pixels": pair["valid_pixels"],
                 "valid_aoi_fraction": pair["valid_pixels"] / pair["aoi_pixels"] if pair["aoi_pixels"] else 0.0,
                 "candidate_pixels": pair["candidate_pixels"],
+                "minimum_offset_threshold_m": item["minimum_offset_threshold_m"],
+                "reader_detect_floor_mm_day": item["reader_detect_floor_mm_day"],
                 "max_offset_anomaly_m": pair.get("max_offset_anomaly_m"),
                 "robust_background_scale_m": pair.get("robust_background_scale_m"),
                 "correlation_min": pair["correlation_min"], "status": pair["status"],
@@ -657,7 +689,7 @@ def run_aoi_wide_screen(
         "method": {
             "family": "GOFF_ONLY", "series_grouping": ["processing", "track", "direction", "frame", "bandwidth", "polarization", "CRID"],
             "local_window_px": local_window_px, "direction_window_px": direction_window_px,
-            "minimum_offset_anomaly_m": minimum_offset_anomaly_m,
+            "minimum_offset_anomaly_m_floor_m": minimum_offset_anomaly_m,
             "minimum_robust_z": minimum_robust_z,
             "minimum_directional_coherence": minimum_directional_coherence,
             "minimum_cross_pair_directional_coherence": minimum_cross_pair_directional_coherence,
@@ -665,6 +697,7 @@ def run_aoi_wide_screen(
             "minimum_component_pixels": minimum_component_pixels,
             "quality": "Uses the exported reader-valid mask and the GOFF product's correlation gate. It does not recover SNR or redo raw-HDF5 processing.",
             "background_scale": "Global component-wise robust MAD after local detrending, with a 0.03 m floor; exploratory noise proxy, not a validated per-pixel detection floor.",
+            "reader_floor_policy": "Per pair, min offset anomaly is max(configured absolute floor, reader detect_floor_mm_day × elapsed pair days ÷ 1000); missing reader floor falls back to configured absolute floor and is reported per pair.",
         },
         "series_count": len(series_reports),
         "series": series_reports,
