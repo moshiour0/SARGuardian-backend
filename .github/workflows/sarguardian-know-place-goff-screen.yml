@@ -1,0 +1,320 @@
+name: SARGuardian Know Place — P05023 GOFF spatial screen
+run-name: Know Place GOFF screen · ${{ inputs.correlation_mode || 'author-like' }}
+
+# Explicit source-study validation only; isolated on the feature branch.
+on:
+  push:
+    branches: [feat/science-dashboard-family-playback-20261029]
+    paths:
+      - .github/workflows/sarguardian-know-place-goff-screen.yml
+  workflow_dispatch:
+    inputs:
+      aoi_wkt:
+        description: "Single-ring WGS84 polygon; default is the Bhote Koshi reference box."
+        required: true
+        type: string
+        default: "POLYGON ((85.500 28.265, 85.565 28.265, 85.565 28.318, 85.500 28.318, 85.500 28.265))"
+      correlation_mode:
+        description: "author-like disables correlation gating; strict adds correlation >= 0.30."
+        required: true
+        type: choice
+        options: [author-like, strict]
+        default: author-like
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: sarguardian-know-place-p05023-goff-screen
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-know-place]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      AOI_WKT: ${{ inputs.aoi_wkt || 'POLYGON ((85.500 28.265, 85.565 28.265, 85.565 28.318, 85.500 28.318, 85.500 28.265))' }}
+      CORRELATION_MODE: ${{ inputs.correlation_mode || 'author-like' }}
+      EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
+      EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      SCREEN_SCIENCE_SHA: 89c6fd9b705f35bf411b130bac3a99e43683e118
+      AUTHOR_ARCHIVE_URL: https://zenodo.org/records/22730419/files/bhotekoshi2026_nisar_data-and-code_CC-BY-4.0.zip?download=1
+      AUTHOR_ARCHIVE_SHA256: 002c2ba173a03693431b79578ca28d6b11e1ec00423d7533e82198871576c5e3
+      AUTHOR_DEM_SHA256: d593f74142d930fb3f1f4a320950019f318842f933f4da64139ea4e214ecd8a1
+    steps:
+      - name: Check out backend code
+        uses: actions/checkout@v4
+
+      - name: Check out pinned science prototype
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: ${{ env.SCREEN_SCIENCE_SHA }}
+          path: science-source
+
+      - name: Verify science revision and install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C science-source rev-parse HEAD)"
+          test "$actual" = "$SCREEN_SCIENCE_SHA"
+          echo "SCIENCE_REVISION_VERIFIED=$actual"
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r science-source/requirements.txt
+          python -m pip install --disable-pip-version-check --no-cache-dir --retries 5 --timeout 45 -r tools/requirements-retention.txt
+          python -m compileall -q science-source/src/goff_spatial_screen.py science-source/src/aoi_wkt.py tools/download_nisar_product.py tools/drive_resumable_upload.py
+
+      - name: Validate AOI and prepare isolated workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-know-place-$GITHUB_RUN_ID"
+          mkdir -p "$root/raw" "$root/dem" "$root/logs" "$root/curated" "$root/screen"
+          chmod 700 "$root" "$root/raw" "$root/dem" "$root/logs" "$root/curated"
+          echo "SCREEN_ROOT=$root" >> "$GITHUB_ENV"
+          export PYTHONPATH="$GITHUB_WORKSPACE/science-source/src"
+          python - <<'PY'
+          import os
+          from aoi_wkt import parse_polygon_wkt
+          ring = parse_polygon_wkt(os.environ["AOI_WKT"])
+          print(f"AOI_WKT_VALID=YES vertices={len(ring)-1}")
+          print("AOI_WKT=" + os.environ["AOI_WKT"])
+          PY
+          case "$CORRELATION_MODE" in
+            author-like) echo "CORRELATION_MIN=none" >> "$GITHUB_ENV" ;;
+            strict) echo "CORRELATION_MIN=0.30" >> "$GITHUB_ENV" ;;
+            *) echo "ERROR=UNKNOWN_CORRELATION_MODE" >&2; exit 2 ;;
+          esac
+
+      - name: Download and verify published terrain source
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          archive="$SCREEN_ROOT/author-reference.zip"
+          curl --fail --location --retry 3 --connect-timeout 30 --max-time 1200 "$AUTHOR_ARCHIVE_URL" -o "$archive"
+          echo "$AUTHOR_ARCHIVE_SHA256  $archive" | sha256sum --check --status
+          unzip -p "$archive" terrain/elev_m.tif > "$SCREEN_ROOT/dem/elev_m.tif"
+          echo "$AUTHOR_DEM_SHA256  $SCREEN_ROOT/dem/elev_m.tif" | sha256sum --check --status
+          python - <<'PY'
+          import os, rasterio
+          with rasterio.open(os.environ["SCREEN_ROOT"] + "/dem/elev_m.tif") as ds:
+              assert ds.crs and ds.crs.to_epsg() == 32645
+              assert (ds.height, ds.width) == (4230, 4311)
+              assert ds.res == (80.0, 80.0)
+              print(f"DEM_GRID_VALID=YES CRS={ds.crs} SHAPE={ds.height}x{ds.width} RES={ds.res}")
+          PY
+          echo "AUTHOR_ZENODO_RECORD=https://doi.org/10.5281/zenodo.22730419"
+          echo "AUTHOR_ARCHIVE_SHA256=$AUTHOR_ARCHIVE_SHA256"
+          echo "AUTHOR_DEM_SHA256=$AUTHOR_DEM_SHA256"
+
+      - name: Install official EGM2008 grid and verify conversion
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          grid_dir="$(python - <<'PY'
+          from pyproj.datadir import get_user_data_dir
+          print(get_user_data_dir())
+          PY
+          )"
+          mkdir -p "$grid_dir"
+          grid="$grid_dir/us_nga_egm08_25.tif"
+          curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 https://cdn.proj.org/us_nga_egm08_25.tif -o "$grid"
+          bytes="$(stat -c %s "$grid")"
+          test "$bytes" -gt 70000000 && test "$bytes" -lt 90000000
+          grid_sha="$(sha256sum "$grid" | awk '{print $1}')"
+          echo "EGM2008_GRID_SHA256=$grid_sha" >> "$GITHUB_ENV"
+          echo "EGM2008_GRID_BYTES=$bytes" >> "$GITHUB_ENV"
+          python - <<'PY'
+          from pyproj.transformer import TransformerGroup
+          group = TransformerGroup("EPSG:4326+3855", "EPSG:4979", always_xy=True)
+          assert group.best_available and group.transformers, "EGM2008 grid unavailable; refusing ballpark conversion"
+          print("EGM2008_VERTICAL_TRANSFORM_AVAILABLE=YES")
+          print("EGM2008_TRANSFORM=" + group.transformers[0].description)
+          PY
+          echo "EGM2008_GRID_SHA256=$grid_sha BYTES=$bytes"
+
+      - name: Pin the five exact author P05023 pairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$SCREEN_ROOT/source-products.tsv" <<'EOF'
+          granule_name	expected_bytes	reference_date	secondary_date	crid
+          NISAR_L2_PR_GOFF_023_098_A_016_024_4000_SH_20260620T233921_20260620T233956_20260702T233920_20260702T233955_P05023_N_F_J_001	1090519040	20260620	20260702	P05023
+          NISAR_L2_PR_GOFF_024_098_A_016_025_4000_SH_20260702T233920_20260702T233955_20260714T233920_20260714T233954_P05023_F_F_J_001	1090519040	20260702	20260714	P05023
+          NISAR_L2_PR_GOFF_025_098_A_016_026_4000_SH_20260714T233920_20260714T233954_20260726T233919_20260726T233954_P05023_N_F_J_001	1092616192	20260714	20260726	P05023
+          NISAR_L2_PR_GOFF_026_098_A_016_028_4000_SH_20260726T233919_20260726T233954_20260819T233918_20260819T233953_P05023_N_F_J_001	1101004800	20260726	20260819	P05023
+          NISAR_L2_PR_GOFF_028_098_A_016_029_4000_SH_20260819T233918_20260819T233953_20260831T233918_20260831T233952_P05023_N_F_J_001	1098907648	20260819	20260831	P05023
+          EOF
+          test "$(grep -c '^NISAR_L2_PR_GOFF_' "$SCREEN_ROOT/source-products.tsv")" -eq 5
+          ! grep -q 'X05026' "$SCREEN_ROOT/source-products.tsv"
+          echo "AUTHOR_SOURCE_SERIES=5 exact P05023 products; T098 ascending; no X05026 substitution"
+
+      - name: Download each exact HDF5 product once
+        shell: bash
+        timeout-minutes: 300
+        run: |
+          set -euo pipefail
+          tail -n +2 "$SCREEN_ROOT/source-products.tsv" | while IFS=$'\t' read -r granule expected_bytes reference_date secondary_date crid; do
+            [[ -n "$granule" ]] || continue
+            echo "SOURCE_PRODUCT_START=$granule"
+            # --aoi source is only the legacy acquisition-session selector; exact IDs are downloaded.
+            log="$SCREEN_ROOT/logs/download-${granule}.log"
+            python tools/download_nisar_product.py \
+              --product-type GOFF --maturity PROVISIONAL \
+              --granule-name "$granule" --science-root "$GITHUB_WORKSPACE/science-source" \
+              --aoi source --expected-source-bytes "$expected_bytes" \
+              --out-dir "$SCREEN_ROOT/raw" 2>&1 | tee "$log"
+            raw="$SCREEN_ROOT/raw/${granule}.h5"
+            test -f "$raw"
+            actual_bytes="$(stat -c %s "$raw")"
+            if [[ "$actual_bytes" != "$expected_bytes" ]]; then
+              echo "ERROR=AUTHOR_SOURCE_SIZE_MISMATCH granule=$granule expected=$expected_bytes actual=$actual_bytes" >&2
+              exit 2
+            fi
+            python - "$raw" "$granule" <<'PY'
+          import sys, h5py
+          path, expected = sys.argv[1:]
+          with h5py.File(path, "r") as h5:
+              group = "science/LSAR/GOFF/grids/frequencyA/pixelOffsets/HH/layer2"
+              required = ["alongTrackOffset", "slantRangeOffset", "snr", "correlationSurfacePeak", "xCoordinates", "yCoordinates", "projection"]
+              missing = [key for key in required if group + "/" + key not in h5]
+              radar = "science/LSAR/GOFF/metadata/radarGrid"
+              missing += [radar + "/" + key for key in ["heightAboveEllipsoid","xCoordinates","yCoordinates","incidenceAngle","losUnitVectorX","losUnitVectorY","alongTrackUnitVectorX","alongTrackUnitVectorY"] if radar + "/" + key not in h5]
+              if missing: raise SystemExit("SOURCE_GOFF_STRUCTURE_INCOMPLETE=" + ",".join(missing))
+              shape = h5[group + "/slantRangeOffset"].shape
+              assert h5[group + "/alongTrackOffset"].shape == shape
+              assert h5[group + "/snr"].shape == shape and h5[group + "/correlationSurfacePeak"].shape == shape
+              print(f"SOURCE_HDF5_STRUCTURE_PASS={expected} offset_shape={shape}")
+          PY
+            sha="$(sha256sum "$raw" | awk '{print $1}')"
+            printf '%s\t%s\t%s\t%s\t%s\n' "$granule" "$expected_bytes" "$sha" "$reference_date" "$secondary_date" >> "$SCREEN_ROOT/source-checksums.tsv"
+            echo "SOURCE_PRODUCT_VERIFIED=$granule bytes=$actual_bytes sha256=$sha"
+          done
+
+      - name: Run target-free GOFF spatial screen
+        shell: bash
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          mapfile -t products < <(tail -n +2 "$SCREEN_ROOT/source-products.tsv" | cut -f1 | sed '/^$/d' | while read -r g; do printf '%s\n' "$SCREEN_ROOT/raw/$g.h5"; done)
+          test ${#products[@]} -eq 5
+          python science-source/src/goff_spatial_screen.py \
+            --read "${products[@]}" \
+            --dem "$SCREEN_ROOT/dem/elev_m.tif" \
+            --dem-vertical-crs EPSG:3855 \
+            --correlation-min "$CORRELATION_MIN" --aoi-wkt "$AOI_WKT" \
+            --out "$SCREEN_ROOT/screen" \
+            --snr-min 5.0 --local-window-px 41 --direction-window-px 5 \
+            --z-min 4.0 --anomaly-min-m 0.50 --coherence-min 0.75 \
+            --minimum-pairs 2 --minimum-component-pixels 10 2>&1 | tee "$SCREEN_ROOT/logs/screen.log"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["SCREEN_ROOT"]) / "screen/screen-summary.json"
+          d = json.loads(p.read_text())
+          assert d["pair_count"] == 5 and d["crid"] == "P05023"
+          assert d["aoi_grid_pixels"] > 0
+          assert d["terrain_directional_review"]["status"] == "POST_HOC_ONLY_NO_ALERT"
+          print("SCREEN_SUMMARY_VALID=YES")
+          print("SCREEN_STATUS=" + d["status"])
+          print("SCREEN_REVIEW_CANDIDATES=" + str(d["review_candidate_components"]))
+          print("SCREEN_AOI_GRID_PIXELS=" + str(d["aoi_grid_pixels"]))
+          print("SCREEN_PERSISTENT_PIXELS=" + str(d["persistent_pixels_before_component_size_filter"]))
+          PY
+
+      - name: Build source and method provenance manifest
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, hashlib, json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import rasterio
+          from pyproj.datadir import get_user_data_dir
+          root = Path(os.environ["SCREEN_ROOT"])
+          checks = {}
+          check_path = root / "source-checksums.tsv"
+          if check_path.exists():
+              for line in check_path.read_text().splitlines():
+                  f=line.split("\t")
+                  if len(f)==5: checks[f[0]]={"expected_bytes":int(f[1]),"sha256":f[2],"reference_date":f[3],"secondary_date":f[4]}
+          pairs=[]
+          with (root/"source-products.tsv").open() as f:
+              for row in csv.DictReader(f,delimiter="\t"):
+                  n=row["granule_name"]
+                  pairs.append({"granule_name":n,"expected_bytes":int(row["expected_bytes"]),"reference_date":row["reference_date"],"secondary_date":row["secondary_date"],"crid":row["crid"],"download_verified":n in checks,**checks.get(n,{})})
+          def sha(p):
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for b in iter(lambda:f.read(8*1024*1024),b""): h.update(b)
+              return h.hexdigest()
+          dem=root/"dem/elev_m.tif"
+          di={"exists":dem.exists(),"verified_sha256":os.environ.get("AUTHOR_DEM_SHA256")}
+          if dem.exists():
+              di["actual_sha256"]=sha(dem)
+              with rasterio.open(dem) as ds: di.update({"crs":str(ds.crs),"shape":[ds.height,ds.width],"resolution_m":list(ds.res),"vertical_source":"Copernicus DEM GLO-90 EGM2008 orthometric heights; converted to WGS84 ellipsoidal height"})
+          grid=Path(get_user_data_dir())/"us_nga_egm08_25.tif"
+          gi={"exists":grid.exists(),"sha256":os.environ.get("EGM2008_GRID_SHA256"),"bytes":os.environ.get("EGM2008_GRID_BYTES"),"url":"https://cdn.proj.org/us_nga_egm08_25.tif"}
+          sp=root/"screen/screen-summary.json"
+          screen=json.loads(sp.read_text()) if sp.exists() else None
+          out={"schema":"sarguardian-know-place-goff-screen-run-manifest/1.0","created_utc":datetime.now(timezone.utc).isoformat(),"github":{"repository":os.environ.get("GITHUB_REPOSITORY"),"run_id":os.environ.get("GITHUB_RUN_ID"),"run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT"),"backend_commit":os.environ.get("GITHUB_SHA"),"science_commit":os.environ.get("SCREEN_SCIENCE_SHA")},"aoi_wkt":os.environ.get("AOI_WKT"),"author_source":{"doi":"10.5281/zenodo.22730419","archive_sha256":os.environ.get("AUTHOR_ARCHIVE_SHA256"),"license":"CC BY 4.0 except the separate extent_CC-BY-NC-4.0 folder, which is not consumed"},"dem":di,"egm2008_grid":gi,"source_series":{"expected_pairs":5,"required_crid":"P05023","track":"098","direction":"A","pairs":pairs},"screen":{"correlation_mode":os.environ.get("CORRELATION_MODE"),"correlation_min":os.environ.get("CORRELATION_MIN"),"summary":screen,"summary_sha256":sha(sp) if sp.exists() else None},"interpretation":"Exploratory ranking only. No hazard alert or failure prediction is produced; no candidate is a confirmed detection without null calibration and independent validation."}
+          dest=root/"curated/run-manifest.json"
+          dest.write_text(json.dumps(out,indent=2,ensure_ascii=False,allow_nan=False)+"\n")
+          print("RUN_MANIFEST="+str(dest))
+          PY
+
+      - name: Package curated results only (raw HDF5 is excluded)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d "$SCREEN_ROOT/screen" ]]; then
+            cp -n "$SCREEN_ROOT/screen/screen-summary.json" "$SCREEN_ROOT/curated/" 2>/dev/null || true
+            cp -n "$SCREEN_ROOT/screen/candidates.csv" "$SCREEN_ROOT/curated/" 2>/dev/null || true
+            cp -n "$SCREEN_ROOT/screen/candidates.geojson" "$SCREEN_ROOT/curated/" 2>/dev/null || true
+            (cd "$SCREEN_ROOT" && zip -qr "$SCREEN_ROOT/curated/goff-screen-results.zip" screen)
+          fi
+          find "$SCREEN_ROOT/curated" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort || true
+
+      - name: Upload results to private Google Drive
+        if: ${{ always() && env.GOOGLE_DRIVE_OAUTH_CLIENT_JSON != '' && env.GOOGLE_DRIVE_REFRESH_TOKEN != '' && env.GOOGLE_DRIVE_PARENT_FOLDER_ID != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=()
+          for f in "$SCREEN_ROOT/curated/run-manifest.json" "$SCREEN_ROOT/curated/screen-summary.json" "$SCREEN_ROOT/curated/candidates.csv" "$SCREEN_ROOT/curated/candidates.geojson" "$SCREEN_ROOT/curated/goff-screen-results.zip"; do [[ -s "$f" ]] && files+=("$f"); done
+          if (( ${#files[@]} == 0 )); then echo "DRIVE_UPLOAD_SKIPPED=no_curated_outputs"; exit 0; fi
+          run_name="KnowPlace_GOFF_P05023_${GITHUB_RUN_ID}"
+          python tools/drive_resumable_upload.py --root "$SCREEN_ROOT/curated" --run-name "$run_name" --files "${files[@]}" --out "$SCREEN_ROOT/curated/drive-upload-receipt.json"
+
+      - name: Upload outputs for audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarguardian-know-place-goff-screen-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sarguardian-know-place-${{ github.run_id }}/curated/**
+            ${{ runner.temp }}/sarguardian-know-place-${{ github.run_id }}/screen/**
+            ${{ runner.temp }}/sarguardian-know-place-${{ github.run_id }}/logs/**
+            ${{ runner.temp }}/sarguardian-know-place-${{ github.run_id }}/source-products.tsv
+            ${{ runner.temp }}/sarguardian-know-place-${{ github.run_id }}/source-checksums.tsv
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove raw source and terrain from runner
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${SCREEN_ROOT:-}" && -d "$SCREEN_ROOT" ]]; then
+            rm -rf "$SCREEN_ROOT/raw" "$SCREEN_ROOT/author-reference.zip" "$SCREEN_ROOT/dem"
+          fi
