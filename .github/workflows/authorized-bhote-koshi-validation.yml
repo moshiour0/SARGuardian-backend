@@ -1,4 +1,5 @@
 name: Authorized Bhote Koshi raw-data baseline validation
+# Revalidation uses immutable science revision f038e4dfdb53c8d9793aaaefe173570a1032026c.
 
 on:
   push:
