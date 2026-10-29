@@ -10,6 +10,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml"
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
 BUILDER = ROOT / "dashboard" / "assets" / "prepare_web_assets.py"
 EXPECTED_BUILDER_SHA = "ecd125f68ed61c276406f73a1d77eb27979e204e"
+EXPECTED_SCIENCE_SHA = "f038e4dfdb53c8d9793aaaefe173570a1032026c"
 
 
 class DashboardWorkflowPinTests(unittest.TestCase):
@@ -18,6 +19,16 @@ class DashboardWorkflowPinTests(unittest.TestCase):
         references = re.findall(r"(?m)^\s*ref:\s*([0-9a-f]{40})\s*$", workflow)
         self.assertIn(EXPECTED_BUILDER_SHA, references)
         self.assertIn(f'expected="{EXPECTED_BUILDER_SHA}"', workflow)
+
+    def test_workflow_pins_exact_guarded_science_revision(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        worker = (ROOT / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
+        code_validation = (ROOT / ".github" / "workflows" / "sarguardian-aoi-code-validation.yml").read_text(encoding="utf-8")
+        discovery = (ROOT / "tools" / "discover_aoi_products.py").read_text(encoding="utf-8")
+        self.assertEqual(workflow.count(EXPECTED_SCIENCE_SHA), 2)
+        self.assertEqual(worker.count(EXPECTED_SCIENCE_SHA), 2)
+        self.assertEqual(code_validation.count(EXPECTED_SCIENCE_SHA), 1)
+        self.assertIn(f'SCIENCE_COMMIT = "{EXPECTED_SCIENCE_SHA}"', discovery)
 
     def test_pinned_source_contract_has_interactive_asset_builder(self) -> None:
         aggregator = AGGREGATOR.read_text(encoding="utf-8")
