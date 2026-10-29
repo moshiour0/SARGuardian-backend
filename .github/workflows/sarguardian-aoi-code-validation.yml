@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   static-and-parser-tests:
@@ -104,3 +105,66 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/science-source/src
         run: python -m pytest -q science-source/tests/test_aoi_wkt.py science-source/tests/test_goff_reader.py tools/tests/test_discover_aoi_products.py tools/tests/test_validate_aoi_derived_outputs.py tools/tests/test_plan_aoi_retries.py tools/tests/test_aggregate_aoi_run.py tools/tests/test_aoi_wide_displacement_screen.py tools/tests/test_run_export_science_diagnostics.py tools/tests/test_science_engine_dispatch_contract.py
+
+      - name: Download already-retained Run 32 AOI dashboard for integration smoke test
+        uses: actions/download-artifact@v4
+        with:
+          name: sarguardian-aoi-dashboard-40809709950-1
+          run-id: 40809709950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/sarguardian-run32-dashboard
+
+      - name: Run target-free Find Displacements against retained Run 32 rasters
+        env:
+          RUN32_ARTIFACT_ROOT: ${{ runner.temp }}/sarguardian-run32-dashboard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.aoi_wide_displacement_screen import run_aoi_wide_screen
+
+          artifact_root = Path(os.environ["RUN32_ARTIFACT_ROOT"])
+          reports = list(artifact_root.rglob("aoi-processing-report.json"))
+          if len(reports) != 1:
+              raise SystemExit(f"RUN32_REPORT_COUNT_EXPECTED_1_GOT_{len(reports)}")
+          root = reports[0].parent
+          report = json.loads(reports[0].read_text(encoding="utf-8"))
+          summary = report.get("summary") or {}
+          products = report.get("products")
+          if not isinstance(products, list) or not products:
+              raise SystemExit("RUN32_PRODUCTS_MISSING")
+          aoi_wkt = str(summary.get("aoi_wkt") or "")
+          out = root / "aoi-wide-displacement-screen-ci"
+          result = run_aoi_wide_screen(products, root, out, aoi_wkt)
+          print("RUN32_FIND_DISPLACEMENTS_STATUS=" + str(result.get("status")))
+          print("RUN32_FIND_DISPLACEMENTS_GOFF_SERIES=" + str(result.get("series_count")))
+          print("RUN32_FIND_DISPLACEMENTS_CANDIDATES=" + str(result.get("candidate_count")))
+          for series in result.get("series", []):
+              print("RUN32_GOFF_SERIES=" + json.dumps({
+                  "series_id": series.get("series_id"),
+                  "status": series.get("status"),
+                  "pair_count": series.get("pair_count"),
+                  "candidate_components": series.get("candidate_components"),
+                  "persistent_pixels_before_direction_gate": series.get("persistent_pixels_before_direction_gate"),
+                  "persistent_pixels_after_direction_gate": series.get("persistent_pixels_after_direction_gate"),
+              }, sort_keys=True))
+          if result.get("target_required") is not False or result.get("target_coordinates_used") is not False:
+              raise SystemExit("RUN32_TARGET_FREE_CONTRACT_BROKEN")
+          if result.get("status") not in {
+              "COMPLETED_EXPLORATORY_RANKING",
+              "INSUFFICIENT_TEMPORAL_SUPPORT",
+              "NO_USABLE_GOFF_SERIES",
+          }:
+              raise SystemExit("RUN32_SCREEN_STATUS_NOT_CLASSIFIED")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              "## Retained Run 32 Find Displacements smoke test\n\n"
+              + "- Status: " + str(result.get("status")) + "\n"
+              + "- Compatible GOFF series: " + str(result.get("series_count")) + "\n"
+              + "- Review candidate polygons: " + str(result.get("candidate_count")) + "\n\n"
+              + "This used already-retained AOI GeoTIFFs. It did not download or reprocess raw NISAR products. "
+              + "Candidate polygons are exploratory spatial offset anomalies, not validated hazard detections.\n",
+              encoding="utf-8",
+          )
+          PY
