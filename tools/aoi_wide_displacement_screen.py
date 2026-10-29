@@ -296,6 +296,26 @@ def _component_features(
     return result
 
 
+def _write_float_raster(
+    path: Path, array: np.ndarray, meta: dict[str, Any], description: str
+) -> None:
+    """Write a float32 diagnostic raster on the exact AOI grid."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    output = np.asarray(array, dtype=np.float32).copy()
+    output[~meta["inside_aoi"]] = np.nan
+    with rasterio.open(
+        path, "w", driver="GTiff", width=output.shape[1], height=output.shape[0],
+        count=1, dtype="float32", crs=meta["crs"], transform=meta["transform"],
+        nodata=np.nan, compress="deflate", predictor=3,
+    ) as dst:
+        dst.write(output, 1)
+        dst.set_band_description(1, description)
+        dst.update_tags(
+            schema=SCHEMA, interpretation="EXPLORATORY_REVIEW_CANDIDATE_NOT_HAZARD",
+            target_required="false", family="GOFF", series_id=path.stem,
+        )
+
+
 def _write_count_raster(
     path: Path, array: np.ndarray, meta: dict[str, Any], nodata: int, description: str
 ) -> None:
@@ -326,6 +346,7 @@ def run_aoi_wide_screen(
     minimum_offset_anomaly_m: float = 0.25,
     minimum_robust_z: float = 4.0,
     minimum_directional_coherence: float = 0.75,
+    minimum_cross_pair_directional_coherence: float = 0.75,
 ) -> dict[str, Any]:
     """Scan the entire submitted AOI without requiring any local target polygon."""
     if minimum_pairs < 2 or minimum_component_pixels < 1:
@@ -340,6 +361,8 @@ def run_aoi_wide_screen(
         raise ValueError("MINIMUM_ROBUST_Z_MUST_BE_POSITIVE")
     if not (0 <= minimum_directional_coherence <= 1):
         raise ValueError("MINIMUM_DIRECTIONAL_COHERENCE_OUT_OF_RANGE")
+    if not (0 <= minimum_cross_pair_directional_coherence <= 1):
+        raise ValueError("MINIMUM_CROSS_PAIR_DIRECTIONAL_COHERENCE_OUT_OF_RANGE")
     match = re.fullmatch(
         r"\s*POLYGON\s*\(\(\s*(.*?)\s*\)\)\s*", aoi_wkt, flags=re.IGNORECASE
     )
@@ -637,6 +660,7 @@ def run_aoi_wide_screen(
             "minimum_offset_anomaly_m": minimum_offset_anomaly_m,
             "minimum_robust_z": minimum_robust_z,
             "minimum_directional_coherence": minimum_directional_coherence,
+            "minimum_cross_pair_directional_coherence": minimum_cross_pair_directional_coherence,
             "minimum_pairs_for_persistence": minimum_pairs,
             "minimum_component_pixels": minimum_component_pixels,
             "quality": "Uses the exported reader-valid mask and the GOFF product's correlation gate. It does not recover SNR or redo raw-HDF5 processing.",
