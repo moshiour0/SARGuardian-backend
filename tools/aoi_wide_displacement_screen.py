@@ -232,19 +232,22 @@ def _component_features(
         if int(value) != 1:
             continue
         coordinates = geom.get("coordinates", [[]])[0]
-        area_m2 = 0.0
+        twice_area = 0.0
+        centroid_x = centroid_y = 0.0
         for i in range(max(0, len(coordinates) - 1)):
             x0, y0 = coordinates[i]
             x1, y1 = coordinates[i + 1]
-            area_m2 += x0 * y1 - x1 * y0
-        area_m2 = abs(area_m2) / 2.0
+            cross = x0 * y1 - x1 * y0
+            twice_area += cross
+            centroid_x += (x0 + x1) * cross
+            centroid_y += (y0 + y1) * cross
+        area_m2 = abs(twice_area) / 2.0
         pixels = int(round(area_m2 / pixel_area)) if pixel_area > 0 else 0
-        if pixels < minimum_pixels:
+        if pixels < minimum_pixels or abs(twice_area) < 1e-9:
             continue
-        xs = [float(p[0]) for p in coordinates]
-        ys = [float(p[1]) for p in coordinates]
-        lon, lat = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
-        projected_center = {"type": "Point", "coordinates": [lon, lat]}
+        centroid_x /= 3.0 * twice_area
+        centroid_y /= 3.0 * twice_area
+        projected_center = {"type": "Point", "coordinates": [centroid_x, centroid_y]}
         center_wgs = transform_geom(crs, "EPSG:4326", projected_center)["coordinates"]
         geometry_wgs = transform_geom(crs, "EPSG:4326", geom)
         from rasterio.features import rasterize
@@ -384,6 +387,13 @@ def run_aoi_wide_screen(
             identity["bandwidth"], identity["polarization"], identity["crid"],
         )
         interval = (identity["reference_date"], identity["secondary_date"])
+        record_crid = str(row.get("crid") or "").strip().upper()
+        if record_crid and record_crid != identity["crid"]:
+            rejected.append({
+                "product_id": str(row.get("id") or ""),
+                "reason": "CATALOG_AND_GRANULE_CRID_MISMATCH",
+            })
+            continue
         descriptors.append({
             "row": row, "identity": identity, "path": path, "series_key": key,
             "interval": interval,
