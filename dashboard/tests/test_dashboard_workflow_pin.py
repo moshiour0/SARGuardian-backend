@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml"
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
 BUILDER = ROOT / "dashboard" / "assets" / "prepare_web_assets.py"
-EXPECTED_BUILDER_SHA = "e41fd87d396b342efe63692333243557930d41f5"
+EXPECTED_BUILDER_SHA = "64749f6bdc86700670ceb49946ac949c55153296"
 
 
 class DashboardWorkflowPinTests(unittest.TestCase):
