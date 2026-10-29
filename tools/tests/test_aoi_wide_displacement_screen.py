@@ -109,7 +109,7 @@ def test_target_free_aoi_screen_finds_a_persistent_coherent_patch(tmp_path: Path
     assert result["target_required"] is False
     assert result["target_coordinates_used"] is False
     assert result["status"] == "COMPLETED_EXPLORATORY_RANKING"
-    assert len(result["candidate_features"]) >= 1
+    assert result["candidate_count"] >= 1
     assert result["series"][0]["candidate_components"] >= 1
     geojson_path = tmp_path / result["candidates_geojson"]
     geojson = json.loads(geojson_path.read_text(encoding="utf-8"))
