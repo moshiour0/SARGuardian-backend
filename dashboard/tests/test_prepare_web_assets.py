@@ -15,7 +15,7 @@ from PIL import Image
 from rasterio.transform import from_bounds
 from rasterio.warp import transform_bounds
 
-from dashboard.assets.prepare_web_assets import prepare_web_dashboard
+from dashboard.assets.prepare_web_assets import prepare_web_dashboard, track_from_granule
 
 
 class PrepareWebAssetsTests(unittest.TestCase):
@@ -120,6 +120,10 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(receipt["status"], "PASS")
             self.assertEqual(receipt["observations"], 1)
             self.assertEqual(receipt["layers"], 2)
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="familySelect"', viewer)
+            self.assertIn("No valid science pixels survived the AOI and product quality masks", viewer)
+            self.assertIn("AOI valid coverage", viewer)
             self.assertEqual(hashlib.sha256(tif.read_bytes()).hexdigest(), before_hash)
 
             manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
@@ -265,6 +269,21 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(first["preview_crs"], "EPSG:4326")
             self.assertEqual(second_layer["preview_crs"], "EPSG:4326")
             self.assertEqual(first["display_scale"], second_layer["display_scale"])
+
+    def test_track_is_recovered_from_nisar_granule_when_stats_are_missing(self) -> None:
+        self.assertEqual(
+            track_from_granule(
+                "NISAR_L2_PR_GOFF_027_170_A_016_028_4000_SH_20260812T233059_20260812T233134_20260824T233058_20260824T233133_P05023_N_F_J_001"
+            ),
+            "ASC 170",
+        )
+        self.assertEqual(
+            track_from_granule(
+                "NISAR_L2_PR_GUNW_024_048_D_074_026_2000_SH_20260711T125814_20260711T125848_20260723T125813_20260723T125848_P05023_N_F_J_001"
+            ),
+            "DESC 048",
+        )
+        self.assertIsNone(track_from_granule("unknown-product-name"))
 
 
 if __name__ == "__main__":
