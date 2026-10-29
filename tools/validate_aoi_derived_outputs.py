@@ -68,17 +68,69 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
                                            "minimum": minimum_bands})
                         band1 = ds.read(1, masked=True)
                         valid = ~np.ma.getmaskarray(band1) & np.isfinite(band1.filled(np.nan))
-                        valid_count = int(np.count_nonzero(valid))
+                        screen_valid_count = int(np.count_nonzero(valid))
+                        tags = ds.tags()
+
+                        def nonnegative_tag(name: str, fallback: int) -> int:
+                            try:
+                                value = int(str(tags.get(name, "")).strip())
+                                return value if value >= 0 else fallback
+                            except (TypeError, ValueError, OverflowError):
+                                return fallback
+
+                        robust_inlier_count = nonnegative_tag("robust_inlier_pixels", screen_valid_count)
+                        screen_outlier_count = nonnegative_tag("robust_outlier_pixels", 0)
+                        flag_valid_count = flag_inlier_count = flag_outlier_count = None
+                        if ds.count >= 4 and (
+                            "robust inlier flag" in str(ds.descriptions[3] or "").lower()
+                            if ds.descriptions else False
+                        ):
+                            flag = ds.read(4, masked=True).filled(np.nan).astype("float64", copy=False)
+                            finite_flag = np.isfinite(flag)
+                            flag_valid_count = int(finite_flag.sum())
+                            flag_inlier_count = int((finite_flag & np.isclose(flag, 1.0)).sum())
+                            flag_outlier_count = int((finite_flag & np.isclose(flag, 0.0)).sum())
+                            unknown_flags = finite_flag & ~(np.isclose(flag, 0.0) | np.isclose(flag, 1.0))
+                            if unknown_flags.any():
+                                errors.append({"problem": "GOFF_OUTLIER_FLAG_HAS_UNKNOWN_VALUES",
+                                               "name": rec["name"], "count": int(unknown_flags.sum())})
+                            if flag_valid_count != screen_valid_count:
+                                errors.append({"problem": "GOFF_FLAG_AND_SCREEN_MASK_COUNTS_DIFFER",
+                                               "name": rec["name"], "screen_valid": screen_valid_count,
+                                               "flag_valid": flag_valid_count})
+                            if flag_inlier_count != robust_inlier_count:
+                                errors.append({"problem": "GOFF_ROBUST_INLIER_TAG_MISMATCH",
+                                               "name": rec["name"], "tag": robust_inlier_count,
+                                               "flag": flag_inlier_count})
+                            if flag_outlier_count != screen_outlier_count:
+                                errors.append({"problem": "GOFF_SCREEN_OUTLIER_TAG_MISMATCH",
+                                               "name": rec["name"], "tag": screen_outlier_count,
+                                               "flag": flag_outlier_count})
+                        if screen_valid_count != robust_inlier_count + screen_outlier_count:
+                            errors.append({"problem": "GOFF_SCREEN_ATTRITION_DOES_NOT_RECONCILE",
+                                           "name": rec["name"], "screen_valid": screen_valid_count,
+                                           "robust_inliers": robust_inlier_count,
+                                           "screen_outliers": screen_outlier_count})
                         rec.update({
                             "width": ds.width, "height": ds.height, "count": ds.count,
                             "crs": ds.crs.to_string() if ds.crs else None,
-                            "valid_band1_pixels": valid_count,
-                            "science_values_present": valid_count > 0,
+                            # Keep the old field as the broad, quality-valid
+                            # screen support because band 1 is intentionally
+                            # preserved before robust-MAD removal. The strict
+                            # measurement count is a separate field.
+                            "valid_band1_pixels": screen_valid_count,
+                            "screen_valid_pixels": screen_valid_count,
+                            "robust_inlier_pixels": robust_inlier_count,
+                            "screen_outlier_pixels": screen_outlier_count,
+                            "outlier_flag_valid_pixels": flag_valid_count,
+                            "outlier_flag_inlier_pixels": flag_inlier_count,
+                            "outlier_flag_rejected_pixels": flag_outlier_count,
+                            "science_values_present": screen_valid_count > 0,
                             "bounds": [float(ds.bounds.left), float(ds.bounds.bottom),
                                        float(ds.bounds.right), float(ds.bounds.top)],
                         })
-                        if valid_count == 0:
-                            warnings.append(f"NO_VALID_SCIENCE_PIXELS:{path.name}")
+                        if screen_valid_count == 0:
+                            warnings.append(f"NO_VALID_SCREEN_PIXELS:{path.name}")
                 except Exception as exc:
                     errors.append({"problem": "RASTER_READ_FAILED", "name": rec["name"],
                                    "type": type(exc).__name__, "detail": str(exc)[:220]})
