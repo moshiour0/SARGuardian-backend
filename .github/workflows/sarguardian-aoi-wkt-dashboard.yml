@@ -214,6 +214,7 @@ jobs:
       product_count: ${{ steps.discover.outputs.product_count }}
       aoi_wkt_sha256: ${{ steps.discover.outputs.aoi_wkt_sha256 }}
       orchestration_sha: ${{ steps.orch.outputs.sha }}
+      orchestration_branch: ${{ steps.orch.outputs.branch }}
     env:
       SARGUARDIAN_AOI_WKT: ${{ inputs.aoi_wkt }}
       AOI_ORCHESTRATION_BRANCH: ${{ github.ref_name }}
@@ -229,7 +230,9 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
+          branch="${AOI_ORCHESTRATION_BRANCH:?AOI_ORCHESTRATION_BRANCH must be set}"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "AOI_ORCHESTRATION_SHA=$sha" >> "$GITHUB_ENV"
 
       - name: Checkout pinned dynamic-WKT scientific engine
@@ -311,6 +314,7 @@ jobs:
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
       orchestration_sha: ${{ needs.manifest.outputs.orchestration_sha }}
+      orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}
       product_id: ${{ matrix.id }}
       granule_name: ${{ matrix.granule_name }}
       product_type: ${{ matrix.product_type }}
@@ -390,6 +394,7 @@ jobs:
     with:
       aoi_wkt: ${{ inputs.aoi_wkt }}
       orchestration_sha: ${{ needs.manifest.outputs.orchestration_sha }}
+      orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}
       product_id: ${{ matrix.id }}
       granule_name: ${{ matrix.granule_name }}
       product_type: ${{ matrix.product_type }}
