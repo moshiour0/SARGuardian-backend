@@ -307,16 +307,20 @@ def run_diagnostics(
                 returncode = 127
             log_path.write_text(output, encoding="utf-8")
             state = classify_pixel_stack(returncode, output)
+            output_base = Path(argv[argv.index("--geotiff") + 1])
+            variant_dir = output_base.parent
+            output_files = sorted(
+                path.relative_to(out_root).as_posix()
+                for path in variant_dir.glob("*.tif")
+                if path.is_file()
+            )
             return {
                 "status": state,
                 "argv": argv,
                 "returncode": returncode,
                 "log": log_path.relative_to(out_root).as_posix(),
-                "output_files": sorted(
-                    path.relative_to(out_root).as_posix()
-                    for path in log_path.parent.parent.glob("*.tif")
-                ),
-                "output_directory": log_path.parent.parent.relative_to(out_root).as_posix(),
+                "output_files": output_files,
+                "output_directory": variant_dir.relative_to(out_root).as_posix(),
                 "log_tail": output[-1000:],
             }
 
