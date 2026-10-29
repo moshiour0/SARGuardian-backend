@@ -46,9 +46,9 @@ class PrepareWebAssetsTests(unittest.TestCase):
             "id": "GUNW-001", "product_type": "GUNW", "granule_name": "fixture-product",
             "reference_date": "2026-07-21", "secondary_date": "2026-08-14",
             "maturity": "PROVISIONAL", "crid": "P05023", "status": "PASS",
-            "valid_pixels": 15, "grid_pixels_inside_aoi": 16, "metric_name": "median", "metric_value": 6.0,
+            "valid_pixels": 15, "grid_pixels_inside_aoi": 12, "metric_name": "median", "metric_value": 6.0,
             "source_sha256": "a" * 64, "warnings": [],
-            "stats": {"track": "DESC 091", "mean_coherence": 0.6},
+            "stats": {"track": "DESC 091", "mean_coherence": 0.6, "aoi_px": 16},
             "exports": [{"name": "fixture.tif", "relative_path": "product-data/GUNW-001/fixture.tif", "quicklook": None}],
             "validation_scope": "structural_and_provenance_not_independent_geophysical_validation",
             "target_measurement": {
@@ -129,6 +129,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["validation"]["independent_geophysical_validation"], "NOT_PERFORMED")
             self.assertEqual(manifest["observations"][0]["reference_date"], "2026-07-21")
+            self.assertEqual(manifest["observations"][0]["grid_pixels_inside_aoi"], 16)
             self.assertEqual(manifest["validation"]["visual_assets_status"], "PASS")
             self.assertEqual(manifest["observations"][0]["metrics"]["reader_median_units"], "mm")
             self.assertEqual(manifest["site_context"]["place"]["name"], "Test ridge")
