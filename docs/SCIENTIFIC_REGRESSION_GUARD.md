@@ -2,8 +2,8 @@
 
 This backend's Find Displacements pipeline is subject to the **canonical mandatory guard** in the science repository:
 
-- Canonical document: [`docs/SCIENTIFIC_REGRESSION_GUARD.md`](https://github.com/moshiour0/SARGuardian/blob/e626f03237c2e3c993e849f1d77394f188a48062/docs/SCIENTIFIC_REGRESSION_GUARD.md)
-- Immutable revision containing the guard: `e626f03237c2e3c993e849f1d77394f188a48062`
+- Canonical document: [`docs/SCIENTIFIC_REGRESSION_GUARD.md`](https://github.com/moshiour0/SARGuardian/blob/23f79ed58db4c9299c17a691a4ac277f27098ae4/docs/SCIENTIFIC_REGRESSION_GUARD.md)
+- Immutable revision containing the guard: `23f79ed58db4c9299c17a691a4ac277f27098ae4`
 - Canonical working branch for the associated science fixes: `fix/science-regression-guards-20261029`
 
 Every AI or contributor changing this backend, the dashboard builder, scientific stage orchestration, or the AOI-wide candidate screen must read the canonical guard before making a change. The guard is normative: it defines pixel-attrition accounting, GUNW/GOFF mask and reference invariants, temporal inversion preconditions, synthetic truth/null tests, workflow/UI integration requirements, release blockers, and scientific wording.
