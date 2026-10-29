@@ -215,7 +215,7 @@ def _same_grid(first: dict[str, Any], other: dict[str, Any]) -> bool:
 
 def _component_features(
     mask: np.ndarray,
-    valid_any: np.ndarray,
+    hit_count: np.ndarray,
     transform: Any,
     crs: Any,
     series_id: str,
@@ -247,6 +247,15 @@ def _component_features(
         projected_center = {"type": "Point", "coordinates": [lon, lat]}
         center_wgs = transform_geom(crs, "EPSG:4326", projected_center)["coordinates"]
         geometry_wgs = transform_geom(crs, "EPSG:4326", geom)
+        from rasterio.features import rasterize
+        component_mask = rasterize(
+            [(geom, 1)], out_shape=mask.shape, transform=transform,
+            fill=0, dtype=np.uint8,
+        ).astype(bool) & mask
+        persistence_values = hit_count[component_mask]
+        persistence_min = int(persistence_values.min()) if persistence_values.size else int(persistence)
+        persistence_median = float(np.median(persistence_values)) if persistence_values.size else float(persistence)
+        persistence_max = int(persistence_values.max()) if persistence_values.size else int(persistence)
         result.append({
             "type": "Feature",
             "properties": {
@@ -259,7 +268,9 @@ def _component_features(
                 "crid": identity["crid"],
                 "processing": identity["processing"],
                 "pairs_in_series": pair_count,
-                "pairs_with_candidate": persistence,
+                "pairs_with_candidate": persistence_min,
+                "pair_persistence_median": persistence_median,
+                "pair_persistence_max": persistence_max,
                 "pixels_approx": pixels,
                 "area_km2_approx": round(area_m2 / 1e6, 6),
                 "centroid_lon": round(float(center_wgs[0]), 6),
@@ -504,7 +515,7 @@ def run_aoi_wide_screen(
         # its pair-level candidate raster can be useful as an exploratory layer.
         persistent = hit_count >= minimum_pairs if len(good_pairs) >= minimum_pairs else np.zeros(grid["shape"], dtype=bool)
         components = _component_features(
-            persistent, valid_union, grid["transform"], grid["crs"], series_id,
+            persistent, hit_count, grid["transform"], grid["crs"], series_id,
             identity, len(good_pairs), int(minimum_pairs), minimum_component_pixels,
         )
         all_features.extend(components)
@@ -562,8 +573,9 @@ def run_aoi_wide_screen(
     csv_path = out_dir / "candidates.csv"
     csv_fields = [
         "candidate_id", "series_id", "product_family", "track", "direction", "frame",
-        "crid", "pairs_in_series", "pairs_with_candidate", "pixels_approx", "area_km2_approx",
-        "centroid_lon", "centroid_lat", "interpretation",
+        "crid", "pairs_in_series", "pairs_with_candidate", "pair_persistence_median",
+        "pair_persistence_max", "pixels_approx", "area_km2_approx", "centroid_lon",
+        "centroid_lat", "interpretation",
     ]
     import csv
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
