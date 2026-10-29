@@ -540,6 +540,45 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
+    # Find Displacements performs a separate target-free scan across the entire
+    # submitted AOI. It consumes already-retained GOFF exports only, keeps each
+    # track/direction/frame/CRID series separate, and never uses target coordinates.
+    # A failure here is reported as a diagnostic blocker, not silently changed to
+    # "no displacement" and not misreported as a product download failure.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from tools.aoi_wide_displacement_screen import run_aoi_wide_screen
+        aoi_wide_screen = run_aoi_wide_screen(
+            result_rows, out, out / "aoi-wide-displacement-screen",
+            str(manifest.get("aoi_wkt") or ""),
+        )
+    except Exception as exc:
+        aoi_wide_screen = {
+            "schema_version": "sarguardian-find-displacements-aoi-screen/1.0",
+            "status": "SCREEN_FAILED",
+            "purpose": "FIND_DISPLACEMENTS_AOI_WIDE",
+            "target_required": False,
+            "target_coordinates_used": False,
+            "candidate_count": 0,
+            "candidate_features": [],
+            "error": type(exc).__name__ + ":" + str(exc)[:350],
+            "warnings": [
+                "The AOI-wide candidate scan failed; this must not be interpreted as no displacement.",
+                "No target point or crown polygon was substituted.",
+            ],
+        }
+    # The existing GUNW per-pixel stack is another target-free analysis, but it
+    # measures LOS phase and remains separate from GOFF range/along-track offsets.
+    _gunw_stack = science_diagnostics.get("pixel_stack") if isinstance(science_diagnostics, dict) else {}
+    aoi_wide_screen["gunw_per_pixel_stack"] = {
+        "status": (_gunw_stack or {}).get("status", "NOT_REPORTED"),
+        "interpretation": "Separate GUNW LOS stack result; never merged numerically with GOFF offset candidates.",
+    }
+    print("FIND_DISPLACEMENTS_AOI_WIDE_STATUS=" + str(aoi_wide_screen.get("status", "UNKNOWN")))
+    print("FIND_DISPLACEMENTS_AOI_WIDE_CANDIDATES=" + str(aoi_wide_screen.get("candidate_count", 0)))
+
     # Build a common-reference diagnostic only from retained GUNW exports.
     # No raw HDF5 files are needed. This stage may still be withheld if grids,
     # common pixels, target support or the temporal network do not meet gates.
@@ -623,6 +662,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
         "science_diagnostics":science_diagnostics,
+        "aoi_wide_displacement_screen":aoi_wide_screen,
         "science_pipeline":science_pipeline,
         "site_context":site_context,
         "common_reference_timeseries":common_reference_report,
