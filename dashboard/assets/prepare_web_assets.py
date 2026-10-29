@@ -107,15 +107,15 @@ def reproject_band(path: Path, band: int, aoi_geometry: dict[str, Any]) -> tuple
         description = (src.descriptions[band - 1] if src.descriptions else None) or f"Band {band}"
         unit = (src.units[band - 1] if src.units else None) or ""
         if not unit:
-            found = re.search(r"\(([^()]*)\)\s*$", description)
-            if found:
-                unit = found.group(1).strip()
-            elif "robust inlier flag" in description.lower():
+            description_lower = description.lower()
+            if "robust inlier flag" in description_lower:
+                # Do not parse the explanatory parentheses as a physical unit.
                 unit = "binary flag (1=inlier, 0=global-MAD outlier retained for review)"
-            elif "coherence" in description.lower():
+            elif "coherence" in description_lower:
                 unit = "dimensionless"
             else:
-                unit = "source units not declared"
+                found = re.search(r"\(([^()]*)\)\s*$", description)
+                unit = found.group(1).strip() if found else "source units not declared"
         source_tags = {str(k): str(v) for k, v in src.tags().items()}
         return out, (float(west), float(south), float(east), float(north)), {
             "description": description.strip(), "units": unit, "source_crs": src.crs.to_string(),
