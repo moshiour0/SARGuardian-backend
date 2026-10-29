@@ -68,6 +68,33 @@ def matching_product_stats_rows(
     return matching
 
 
+def count_aoi_cells_on_export_grid(raster_path: Path, ring: list[tuple[float, float]]) -> int:
+    """Count AOI pixel centres on the *exported raster grid*, independent of valid-data masks.
+
+    The HDF5 preflight contains several source grids (including GUNW radarGrid
+    metadata at a different resolution). Those counts must not be used as the
+    denominator for an exported, AOI-clipped GeoTIFF. This function counts the
+    AOI against that TIFF's own transform and CRS.
+    """
+    import rasterio
+    from rasterio.features import geometry_mask
+    from rasterio.warp import transform_geom
+
+    with rasterio.open(raster_path) as ds:
+        if ds.crs is None:
+            raise ValueError("EXPORT_GRID_CRS_MISSING:" + raster_path.name)
+        polygon = {"type": "Polygon", "coordinates": [[list(point) for point in ring]]}
+        projected = transform_geom("EPSG:4326", ds.crs, polygon)
+        inside = geometry_mask(
+            [projected],
+            out_shape=(ds.height, ds.width),
+            transform=ds.transform,
+            invert=True,
+            all_touched=False,
+        )
+        return int(inside.sum())
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -380,7 +407,7 @@ function seriesKey(p){return String(p.product_type||'UNKNOWN')+'::'+String(p.met
 function seriesLabel(p){return String(p.product_type||'UNKNOWN')+' — '+String(p.metric_name||'UNKNOWN_METRIC')}
 function updateMetricSeries(products){var select=byId('metricSeries'),previous=select.value,seen={},series=[];products.forEach(function(p){if(p.metric_value===null||p.metric_value===undefined||!Number.isFinite(Number(p.metric_value))||!p.metric_name)return;var key=seriesKey(p);if(!seen[key]){seen[key]=true;series.push({key:key,label:seriesLabel(p)})}});select.replaceChildren();series.forEach(function(s){var option=node('option','',s.label);option.value=s.key;select.append(option)});if(series.some(function(s){return s.key===previous}))select.value=previous;else if(series.length)select.value=series[0].key;return select.value}
 function drawChart(products){var box=byId('metricChart');box.replaceChildren();var width=Math.max(580,box.clientWidth||880),height=210,svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 '+width+' '+height);var all=products.filter(function(p){return p.metric_value!==null&&p.metric_value!==undefined&&Number.isFinite(Number(p.metric_value))&&p.metric_name}),key=byId('metricSeries').value,vals=all.filter(function(p){return seriesKey(p)===key});if(!vals.length){var t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',width/2);t.setAttribute('y',105);t.setAttribute('text-anchor','middle');t.setAttribute('fill','#9aa9bd');t.textContent='No numeric values for this metric series';svg.append(t);box.append(svg);return}var low=Math.min.apply(null,vals.map(function(p){return Number(p.metric_value)})),high=Math.max.apply(null,vals.map(function(p){return Number(p.metric_value)})),span=(high-low)||1,pad=35,base=height-35,top=18;for(var i=0;i<5;i++){var y=top+i*(base-top)/4,l=document.createElementNS('http://www.w3.org/2000/svg','line');l.setAttribute('x1',pad);l.setAttribute('x2',width-15);l.setAttribute('y1',y);l.setAttribute('y2',y);l.setAttribute('stroke','#29384e');svg.append(l)}var step=(width-pad-20)/vals.length;vals.forEach(function(p,i){var value=Number(p.metric_value),x=pad+i*step+step*.16,bw=Math.max(2,step*.68),h=(value-low)/span*(base-top-10)+2,y=base-h,rect=document.createElementNS('http://www.w3.org/2000/svg','rect');rect.setAttribute('x',x);rect.setAttribute('y',y);rect.setAttribute('width',bw);rect.setAttribute('height',h);rect.setAttribute('rx',2);rect.setAttribute('fill',p.product_type==='GUNW'?'#7dd3fc':'#fbbf24');var title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=p.id+' · '+p.metric_name+': '+value;rect.append(title);svg.append(rect);if(vals.length<25){var tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x',x+bw/2);tx.setAttribute('y',base+14);tx.setAttribute('text-anchor','middle');tx.setAttribute('font-size','8');tx.setAttribute('fill','#9aa9bd');tx.textContent=p.id;svg.append(tx)}});box.append(svg)}
-function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var pairNote=p.boundary_pair_included_by_secondary_date_policy?' · REFERENCE PRE-DATES WINDOW':(p.reference_date_outside_window?' · REFERENCE OUTSIDE WINDOW':'');var maturity=(p.maturity||'—')+' / '+(p.science_maturity||'—')+(p.maturity_validation&&p.maturity_validation!=='MATCH'?' · '+p.maturity_validation:'');var cells=[p.id+' | '+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+pairNote+' | '+p.granule_name,p.product_type,maturity,medianOf(p),fmt(p.valid_pixels),fmt(p.grid_pixels_inside_aoi)+' grid px · '+fmt(p.export_count)+' raster(s)'];cells.forEach(function(v,i){tr.append(node('td',i===0||i===2?'mono':'',v))});var qd=node('td');if(p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';qd.append(img)}tr.append(qd);tr.append(node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p)));tr.append(node('td','mono',p.source_sha256||'—'));byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';updateMetricSeries(list);drawChart(list)}
+function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var pairNote=p.boundary_pair_included_by_secondary_date_policy?' · REFERENCE PRE-DATES WINDOW':(p.reference_date_outside_window?' · REFERENCE OUTSIDE WINDOW':'');var maturity=(p.maturity||'—')+' / '+(p.science_maturity||'—')+(p.maturity_validation&&p.maturity_validation!=='MATCH'?' · '+p.maturity_validation:'');var cells=[p.id+' | '+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+pairNote+' | '+p.granule_name,p.product_type,maturity,medianOf(p),fmt(p.valid_pixels),fmt(p.grid_pixels_inside_aoi)+' export AOI-grid px · source-grid minimum '+fmt(p.preflight_source_grid_pixels_inside_aoi_min)+' px · '+fmt(p.export_count)+' raster(s)'];cells.forEach(function(v,i){tr.append(node('td',i===0||i===2?'mono':'',v))});var qd=node('td');if(p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';qd.append(img)}tr.append(qd);tr.append(node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p)));tr.append(node('td','mono',p.source_sha256||'—'));byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';updateMetricSeries(list);drawChart(list)}
 ['search','family','state'].forEach(function(id){byId(id).addEventListener('input',render)});byId('metricSeries').addEventListener('change',function(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});drawChart(list)});window.addEventListener('resize',render);render();
 })();
 </script></body></html>"""
@@ -422,6 +449,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "science_maturity": None, "maturity_validation": None,
             "science_pixel_support": False, "valid_pixels": None, "metric_name": None, "metric_value": None,
             "quicklook": None, "source_sha256": None, "export_count": 0, "grid_pixels_inside_aoi": None,
+            "preflight_source_grid_pixels_inside_aoi_min": None,
             "stats": {}, "exports": [],
         }
         artifact = root / ("sarguardian-granule-" + pid)
@@ -463,7 +491,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             if maturity_conflict:
                 raise ValueError("SCIENCE_AND_CATALOG_MATURITY_CONFLICT catalog=" + catalog_maturity + " reader=" + science_maturity)
             metric_key, metric_val = numeric(stats, ("median","median_mm","range_median_mm","median_range_mm"))
-            exports = []; valid_pixels = None
+            exports = []; valid_pixels = None; export_grid_counts: list[int] = []
             validation_exports = validation.get("exports", [])
             raw_valid_counts = [int(x.get("valid_band1_pixels", 0)) for x in validation_exports
                                 if isinstance(x, dict) and str(x.get("valid_band1_pixels", "")).lstrip("-").isdigit()]
@@ -473,6 +501,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 if not isinstance(item, dict): continue
                 source = safe_child(artifact, str(meta.get("export_dir", "derived")) + "/" + str(item.get("name","")))
                 if not source.is_file(): raise ValueError("EXPORT_MISSING name=" + str(item.get("name")))
+                export_grid_counts.append(count_aoi_cells_on_export_grid(source, ring))
                 dest = out / "product-data" / pid / source.name
                 dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, dest)
                 preview_target = out / "quicklooks" / (pid + "-" + source.stem + ".png")
@@ -481,11 +510,35 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 exports.append({"name": source.name,"relative_path":dest.relative_to(out).as_posix(),
                                 "bytes":dest.stat().st_size,"quicklook":preview_rel,"quicklook_meta":preview})
             if not exports: raise ValueError("NO_STRUCTURALLY_VALIDATED_EXPORTS")
-            grid_counts = []
+            # Keep source-grid diagnostics separate: GUNW's radarGrid can have
+            # a much smaller pixel count than the 80 m geocoded export grid.
+            preflight_source_grid_counts = []
             for item in preflight.get("grid_checks", []):
                 try:
-                    if item.get("grid_pixels_inside_aoi") is not None: grid_counts.append(int(item["grid_pixels_inside_aoi"]))
-                except (TypeError, ValueError): pass
+                    if item.get("grid_pixels_inside_aoi") is not None:
+                        preflight_source_grid_counts.append(int(item["grid_pixels_inside_aoi"]))
+                except (TypeError, ValueError):
+                    pass
+            export_grid_count = None
+            if export_grid_counts and len(set(export_grid_counts)) == 1:
+                export_grid_count = export_grid_counts[0]
+            elif export_grid_counts:
+                # A single product-level denominator is misleading if multiple
+                # exports use different grids; per-export manifests remain authoritative.
+                record["warnings"].append("EXPORTS_HAVE_DIFFERENT_AOI_GRID_SUPPORT_COUNTS")
+            stats_aoi_px = None
+            try:
+                raw_stats_aoi_px = float(stats.get("aoi_px", ""))
+                if math.isfinite(raw_stats_aoi_px) and raw_stats_aoi_px >= 0:
+                    stats_aoi_px = int(raw_stats_aoi_px)
+            except (TypeError, ValueError, OverflowError):
+                pass
+            if (export_grid_count is not None and stats_aoi_px is not None
+                    and stats_aoi_px != export_grid_count):
+                raise ValueError(
+                    "EXPORT_AOI_GRID_COUNT_MISMATCH stats_aoi_px="
+                    + str(stats_aoi_px) + " raster_grid_count=" + str(export_grid_count)
+                )
             local_floor, target_measurement = collect_target_evidence(artifact)
             record["local_floor"] = local_floor
             record["target_measurement"] = target_measurement
@@ -495,7 +548,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 "science_maturity":science_maturity or None,"maturity_validation":maturity_validation,
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
                 "metric_name":metric_key,"metric_value":metric_val,"valid_pixels":valid_pixels,
-                "grid_pixels_inside_aoi":min(grid_counts) if grid_counts else None,
+                "grid_pixels_inside_aoi":export_grid_count,
+                "preflight_source_grid_pixels_inside_aoi_min":min(preflight_source_grid_counts) if preflight_source_grid_counts else None,
                 "export_count":len(exports),"exports":exports,"quicklook":next((x["quicklook"] for x in exports if x["quicklook"]),None),
                 "stats":json_safe(stats),"preflight_report":json_safe(preflight),
                 "validation_scope":validation.get("validation_scope"),
@@ -638,7 +692,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         encoding="utf-8",
     )
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
-    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
+    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi","preflight_source_grid_pixels_inside_aoi_min"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
         writer=csv.DictWriter(fh,fieldnames=fields,extrasaction="ignore");writer.writeheader()
         writer.writerows([{k:x.get(k) for k in fields} for x in result_rows])
