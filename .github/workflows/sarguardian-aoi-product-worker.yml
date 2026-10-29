@@ -302,18 +302,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          reader_log="$CURATED_DIR/derived/science-reader.log"
+          mkdir -p "$CURATED_DIR/derived"
           if [[ "$PRODUCT_TYPE" == "GUNW" ]]; then
             stats="$CURATED_DIR/derived/gunw_stats_custom.csv"
             export_dir="$CURATED_DIR/derived/export_custom"
             mkdir -p "$export_dir"
             python science-source/src/gunw_reader.py \
-              --read "$RAW_PATH" --aoi "$AOI_NAME" --auto-ref --csv "$stats" --export "$export_dir"
+              --read "$RAW_PATH" --aoi "$AOI_NAME" --auto-ref --csv "$stats" --export "$export_dir" \
+              2>&1 | tee "$reader_log"
           else
             stats="$CURATED_DIR/derived/goff_stats_custom.csv"
             export_dir="$CURATED_DIR/derived/export_goff_custom"
             mkdir -p "$export_dir"
             python science-source/src/goff_reader.py \
-              --read "$RAW_PATH" --aoi "$AOI_NAME" --layer layer2 --csv "$stats" --export "$export_dir"
+              --read "$RAW_PATH" --aoi "$AOI_NAME" --layer layer2 --csv "$stats" --export "$export_dir" \
+              2>&1 | tee "$reader_log"
+          fi
+
+          # The pinned readers can successfully export an all-nodata raster but
+          # emit no CSV row when every selected AOI pixel fails its quality gates.
+          # Record that as an explicit no-measurement diagnostic row; never use 0
+          # as a displacement value. The helper fails closed unless every selected
+          # reader layer explicitly reports NO VALID PIXELS.
+          if [[ ! -s "$stats" ]]; then
+            python tools/write_no_valid_pixel_stats.py \
+              --reader-log "$reader_log" --stats-csv "$stats" \
+              --raw-product "$RAW_PATH" --product-type "$PRODUCT_TYPE"
           fi
           test -s "$stats"
           echo "stats_path=$stats" >> "$GITHUB_OUTPUT"
