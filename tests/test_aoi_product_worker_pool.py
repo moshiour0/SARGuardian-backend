@@ -208,16 +208,16 @@ def test_no_valid_pixels_helper_replaces_only_a_zero_byte_reader_csv(tmp_path):
 
 def test_manifest_orchestration_branch_is_passed_to_both_worker_matrices():
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    manifest = workflow.split("  manifest:\\n", 1)[1].split("  process-products:\\n", 1)[0]
+    manifest = workflow.split("  manifest:\n", 1)[1].split("  process-products:\n", 1)[0]
     assert "orchestration_branch: ${{ steps.orch.outputs.branch }}" in manifest
     assert 'branch="${AOI_ORCHESTRATION_BRANCH:?AOI_ORCHESTRATION_BRANCH must be set}"' in manifest
     assert 'echo "branch=$branch" >> "$GITHUB_OUTPUT"' in manifest
 
     for job_id, stop in (("process-products", "  retry-plan:"), ("retry-products", "  dashboard:")):
-        block = workflow.split(f"  {job_id}:\\n", 1)[1].split(stop, 1)[0]
+        block = workflow.split(f"  {job_id}:\n", 1)[1].split(stop, 1)[0]
         assert "orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}" in block
 
     worker = (ROOT / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
-    assert "      orchestration_branch:\\n        required: true\\n        type: string" in worker
+    assert "      orchestration_branch:\n        required: true\n        type: string" in worker
     assert "AOI_ORCHESTRATION_BRANCH: ${{ inputs.orchestration_branch }}" in worker
     assert "AOI_ORCHESTRATION_BRANCH: feat/final-aoi-science-integration" not in worker
