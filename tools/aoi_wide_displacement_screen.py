@@ -439,7 +439,15 @@ def run_aoi_wide_screen(
         series_id = _safe_id(identity)
         pair_results: list[dict[str, Any]] = []
         series_grid = None
+        hit_count = None
+        valid_union = None
+        direction_range_sum = None
+        direction_azimuth_sum = None
+        good_pair_count = 0
         grid_error = None
+
+        # Stream a single export's arrays at a time. Only compact accumulators
+        # are retained, so large AOIs do not hold every pair raster in memory.
         for item in items:
             try:
                 pair = _screen_pair(
@@ -460,8 +468,13 @@ def run_aoi_wide_screen(
                 })
                 grid_error = "PAIR_SCREEN_FAILED"
                 continue
+
             if series_grid is None:
                 series_grid = pair["grid"]
+                hit_count = np.zeros(pair["grid"]["shape"], dtype=np.uint16)
+                valid_union = np.zeros(pair["grid"]["shape"], dtype=bool)
+                direction_range_sum = np.zeros(pair["grid"]["shape"], dtype=np.float32)
+                direction_azimuth_sum = np.zeros(pair["grid"]["shape"], dtype=np.float32)
             elif not _same_grid(series_grid, pair["grid"]):
                 pair_results.append({
                     "product_id": item["row"].get("id"), "granule_name": item["row"].get("granule_name"),
@@ -471,7 +484,23 @@ def run_aoi_wide_screen(
                     "valid_aoi_pixels": pair["valid_pixels"], "candidate_pixels": 0,
                 })
                 grid_error = "INCOMPATIBLE_GRID_SERIES_WITHHELD"
+                del pair
                 continue
+
+            if grid_error is None:
+                valid_union |= pair["valid"]
+                hit = pair["candidate"]
+                hit_count += hit.astype(np.uint16)
+                magnitude = np.hypot(pair["range_residual_m"], pair["azimuth_residual_m"])
+                direction_valid = hit & np.isfinite(magnitude) & (magnitude > 1e-5)
+                range_direction = np.zeros(magnitude.shape, dtype=np.float32)
+                azimuth_direction = np.zeros(magnitude.shape, dtype=np.float32)
+                range_direction[direction_valid] = pair["range_residual_m"][direction_valid] / magnitude[direction_valid]
+                azimuth_direction[direction_valid] = pair["azimuth_residual_m"][direction_valid] / magnitude[direction_valid]
+                direction_range_sum += range_direction
+                direction_azimuth_sum += azimuth_direction
+                good_pair_count += 1
+
             pair_results.append({
                 "product_id": item["row"].get("id"), "granule_name": item["row"].get("granule_name"),
                 "reference_date": item["identity"]["reference_date"],
@@ -482,55 +511,41 @@ def run_aoi_wide_screen(
                 "valid_aoi_fraction": pair["valid_pixels"] / pair["aoi_pixels"] if pair["aoi_pixels"] else 0.0,
                 "candidate_pixels": pair["candidate_pixels"],
                 "max_offset_anomaly_m": pair.get("max_offset_anomaly_m"),
+                "robust_background_scale_m": pair.get("robust_background_scale_m"),
                 "correlation_min": pair["correlation_min"], "status": pair["status"],
             })
-            pair_results[-1]["_arrays"] = pair
+            del pair
 
-        good_pairs = [r for r in pair_results if isinstance(r.get("_arrays"), dict)]
-        if grid_error or not good_pairs:
-            for row in pair_results:
-                row.pop("_arrays", None)
+        if grid_error or good_pair_count != len(items) or series_grid is None:
             series_reports.append({
                 "series_id": series_id, "product_family": "GOFF",
                 "processing": identity["processing"], "crid": identity["crid"],
                 "track": identity["track"], "direction": "ASCENDING" if identity["direction"] == "A" else "DESCENDING",
                 "frame": identity["frame"], "bandwidth": identity["bandwidth"],
                 "polarization": identity["polarization"], "pair_count": len(items),
-                "status": grid_error or "NO_USABLE_PAIRS", "candidate_components": 0,
-                "pairs": pair_results,
+                "status": grid_error or ("SERIES_WITHHELD_PAIR_FAILURE" if good_pair_count else "NO_USABLE_PAIRS"),
+                "candidate_components": 0, "pairs": pair_results,
             })
             continue
 
-        grid = good_pairs[0]["_arrays"]["grid"]
-        # Stop if any nominal pair failed; otherwise a failed read could silently
-        # make a multi-pair series appear more sparse than it really is.
-        if len(good_pairs) != len(items):
-            for row in pair_results:
-                row.pop("_arrays", None)
-            series_reports.append({
-                "series_id": series_id, "product_family": "GOFF",
-                "processing": identity["processing"], "crid": identity["crid"],
-                "track": identity["track"], "direction": "ASCENDING" if identity["direction"] == "A" else "DESCENDING",
-                "frame": identity["frame"], "bandwidth": identity["bandwidth"],
-                "polarization": identity["polarization"], "pair_count": len(items),
-                "status": "SERIES_WITHHELD_PAIR_FAILURE", "candidate_components": 0,
-                "pairs": pair_results,
-            })
-            continue
-
-        hit_count = np.zeros(grid["shape"], dtype=np.uint16)
-        valid_union = np.zeros(grid["shape"], dtype=bool)
-        for row in good_pairs:
-            arrays = row.pop("_arrays")
-            valid_union |= arrays["valid"]
-            hit_count += arrays["candidate"].astype(np.uint16)
-            del arrays
-        # No independent temporal test is claimed from one pair, even though
-        # its pair-level candidate raster can be useful as an exploratory layer.
-        persistent = hit_count >= minimum_pairs if len(good_pairs) >= minimum_pairs else np.zeros(grid["shape"], dtype=bool)
+        assert hit_count is not None and valid_union is not None
+        assert direction_range_sum is not None and direction_azimuth_sum is not None
+        cross_pair_coherence = np.full(hit_count.shape, np.nan, dtype=np.float32)
+        hit_pixels = hit_count > 0
+        cross_pair_coherence[hit_pixels] = np.hypot(
+            direction_range_sum[hit_pixels] / hit_count[hit_pixels],
+            direction_azimuth_sum[hit_pixels] / hit_count[hit_pixels],
+        )
+        persistent_before_direction = hit_count >= minimum_pairs if good_pair_count >= minimum_pairs else np.zeros(hit_count.shape, dtype=bool)
+        persistent = (
+            persistent_before_direction
+            & np.isfinite(cross_pair_coherence)
+            & (cross_pair_coherence >= minimum_cross_pair_directional_coherence)
+        )
         components = _component_features(
-            persistent, hit_count, grid["transform"], grid["crs"], series_id,
-            identity, len(good_pairs), int(minimum_pairs), minimum_component_pixels,
+            persistent, hit_count, cross_pair_coherence,
+            series_grid["transform"], series_grid["crs"], series_id,
+            identity, good_pair_count, int(minimum_pairs), minimum_component_pixels,
         )
         all_features.extend(components)
 
@@ -538,38 +553,44 @@ def run_aoi_wide_screen(
         group_dir.mkdir(parents=True, exist_ok=True)
         counts_out = hit_count.copy()
         counts_out[~valid_union] = np.uint16(65535)
-        counts_out[~grid["inside_aoi"]] = np.uint16(65535)
+        counts_out[~series_grid["inside_aoi"]] = np.uint16(65535)
         mask_out = persistent.astype(np.uint8)
         mask_out[~valid_union] = np.uint8(255)
-        mask_out[~grid["inside_aoi"]] = np.uint8(255)
+        mask_out[~series_grid["inside_aoi"]] = np.uint8(255)
         counts_path = group_dir / "candidate_pair_count.tif"
         mask_path = group_dir / "persistent_candidate_mask.tif"
+        coherence_path = group_dir / "cross_pair_directional_coherence.tif"
         _write_count_raster(
-            counts_path, counts_out, grid, 65535,
+            counts_path, counts_out, series_grid, 65535,
             "Number of compatible GOFF pairs with an AOI-wide offset anomaly",
         )
         _write_count_raster(
-            mask_path, mask_out, grid, 255,
-            "Persistent AOI-wide candidate mask; 1=review candidate, not hazard",
+            mask_path, mask_out, series_grid, 255,
+            "Persistent, cross-pair direction-consistent AOI-wide candidate mask; 1=review candidate, not hazard",
+        )
+        _write_float_raster(
+            coherence_path, cross_pair_coherence, series_grid,
+            "Cross-pair resultant coherence of range/along-track anomaly directions; not 3-D motion",
         )
 
-        for row in pair_results:
-            row.pop("_arrays", None)
         series_reports.append({
             "series_id": series_id, "product_family": "GOFF",
             "processing": identity["processing"], "crid": identity["crid"],
             "track": identity["track"], "direction": "ASCENDING" if identity["direction"] == "A" else "DESCENDING",
             "frame": identity["frame"], "bandwidth": identity["bandwidth"],
-            "polarization": identity["polarization"], "pair_count": len(good_pairs),
+            "polarization": identity["polarization"], "pair_count": good_pair_count,
             "minimum_pairs_for_persistence": minimum_pairs,
-            "aoi_grid_pixels": int(grid["inside_aoi"].sum()),
+            "minimum_cross_pair_directional_coherence": minimum_cross_pair_directional_coherence,
+            "aoi_grid_pixels": int(series_grid["inside_aoi"].sum()),
             "valid_union_pixels": int(valid_union.sum()),
             "pairs_with_any_candidate": sum(int(p.get("candidate_pixels") or 0) > 0 for p in pair_results),
-            "persistent_pixels_before_component_filter": int(persistent.sum()),
+            "persistent_pixels_before_direction_gate": int(persistent_before_direction.sum()),
+            "persistent_pixels_after_direction_gate": int(persistent.sum()),
             "candidate_components": len(components),
-            "status": "EXPLORATORY_RANKING_ONLY" if len(good_pairs) >= minimum_pairs else "INSUFFICIENT_TEMPORAL_SUPPORT",
+            "status": "EXPLORATORY_RANKING_ONLY" if good_pair_count >= minimum_pairs else "INSUFFICIENT_TEMPORAL_SUPPORT",
             "candidate_count_raster": str(counts_path.relative_to(root.resolve())).replace("\\", "/"),
             "candidate_mask_raster": str(mask_path.relative_to(root.resolve())).replace("\\", "/"),
+            "cross_pair_directional_coherence_raster": str(coherence_path.relative_to(root.resolve())).replace("\\", "/"),
             "pairs": pair_results,
         })
 
