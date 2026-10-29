@@ -239,7 +239,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 26c7d398f5e78ff0c4d01ca16517e93ff2efb6af
+          ref: 4417671fdefa111cf05e697a76c32d7644232b9f
           path: science-source
 
       - name: Set up Python
@@ -440,14 +440,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian-backend
-          ref: 64749f6bdc86700670ceb49946ac949c55153296
+          ref: a48e92950c1c96c4f5ad9f31a03de55c416cd0c9
           path: dashboard-source
 
       - name: Verify pinned interactive-dashboard builder revision
         shell: bash
         run: |
           set -euo pipefail
-          expected="64749f6bdc86700670ceb49946ac949c55153296"
+          expected="a48e92950c1c96c4f5ad9f31a03de55c416cd0c9"
           actual="$(git -C dashboard-source rev-parse HEAD)"
           test "$actual" = "$expected"
           echo "DASHBOARD_BUILDER_SHA=$actual"
@@ -456,7 +456,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 26c7d398f5e78ff0c4d01ca16517e93ff2efb6af
+          ref: 4417671fdefa111cf05e697a76c32d7644232b9f
           path: science-source
 
       - name: Verify dashboard code matches the product manifest revision
