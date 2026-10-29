@@ -171,3 +171,28 @@ def test_branch_provenance_mismatch_is_the_explicit_receipt_invalidation_reason(
 
     assert result["retry_count"] == 1
     assert result["decisions"][0]["reasons"] == ["META_ORCHESTRATION_BRANCH_INVALID"]
+
+
+
+def test_mixed_baseline_retries_only_the_product_with_a_missing_checkpoint(tmp_path):
+    manifest, product_root, cleanup_root = _write_valid_checkpoint(tmp_path, branch_name="main")
+    failed_product = {
+        "id": "GUNW-002",
+        "granule_name": "NISAR_L2_PR_GUNW_FAILED_PRODUCT",
+        "product_type": "GUNW",
+        "maturity": "PROVISIONAL",
+        "expected_source_bytes": 200,
+    }
+    manifest["products"].append(failed_product)
+
+    result = planner.plan(manifest, product_root, cleanup_root)
+
+    assert result["products_expected"] == 2
+    assert result["products_complete"] == 1
+    assert result["retry_count"] == 1
+    assert [product["id"] for product in result["retry_matrix"]] == ["GUNW-002"]
+    decisions = {row["product_id"]: row for row in result["decisions"]}
+    assert decisions["GOFF-001"]["status"] == "PASS"
+    assert decisions["GOFF-001"]["reasons"] == []
+    assert decisions["GUNW-002"]["status"] == "RETRY"
+    assert "PRODUCT_PROCESSING_RECEIPT_MISSING" in decisions["GUNW-002"]["reasons"]
