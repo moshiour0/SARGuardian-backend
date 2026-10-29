@@ -1,0 +1,26 @@
+name: Authorized final science SHA AOI validation rerun
+run-name: "Final AOI science validation rerun ${{ github.run_id }}"
+
+on:
+  push:
+    branches:
+      - validation/final-science-f038e4-20261030
+    paths:
+      - .github/workflows/authorized-final-science-validation-rerun.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  full-aoi:
+    name: Full AOI validation using immutable current science pin
+    uses: ./.github/workflows/sarguardian-aoi-wkt-dashboard.yml
+    with:
+      aoi_wkt: "POLYGON ((84.99140223107368 28.499061219892724, 84.945606791564 28.28220804656594, 85.18844724834032 28.270753557383987, 85.20285565607317 28.414428221022945, 85.11305609453537 28.49639181334535, 84.99140223107368 28.499061219892724))"
+      start_date: "2026-06-17"
+      end_date: "2026-09-15"
+      date_filter_mode: secondary-acquisition-in-window
+      run_profile: full-aoi-baseline
+      retention_profile: derived-only
+    secrets: inherit
