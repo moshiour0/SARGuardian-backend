@@ -420,7 +420,9 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "boundary_pair_included_by_secondary_date_policy": product.get("boundary_pair_included_by_secondary_date_policy"),
             "status": "FAIL", "warnings": [],
             "science_maturity": None, "maturity_validation": None,
-            "science_pixel_support": False, "valid_pixels": None, "metric_name": None, "metric_value": None,
+            "science_pixel_support": False, "measurement_pixel_support": False,
+            "valid_pixels": None, "screen_valid_pixels": None, "screen_outlier_pixels": None,
+            "metric_name": None, "metric_value": None,
             "quicklook": None, "source_sha256": None, "export_count": 0, "grid_pixels_inside_aoi": None,
             "stats": {}, "exports": [],
         }
@@ -465,10 +467,26 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             metric_key, metric_val = numeric(stats, ("median","median_mm","range_median_mm","median_range_mm"))
             exports = []; valid_pixels = None
             validation_exports = validation.get("exports", [])
-            raw_valid_counts = [int(x.get("valid_band1_pixels", 0)) for x in validation_exports
-                                if isinstance(x, dict) and str(x.get("valid_band1_pixels", "")).lstrip("-").isdigit()]
-            valid_pixels = max(raw_valid_counts) if raw_valid_counts else 0
-            record["science_pixel_support"] = any(n > 0 for n in raw_valid_counts)
+            screen_valid_counts = [
+                int(x.get("screen_valid_pixels", x.get("valid_band1_pixels", 0)))
+                for x in validation_exports
+                if isinstance(x, dict) and str(x.get("screen_valid_pixels", x.get("valid_band1_pixels", ""))).lstrip("-").isdigit()
+            ]
+            measurement_counts = [
+                int(x.get("robust_inlier_pixels", x.get("valid_band1_pixels", 0)))
+                for x in validation_exports
+                if isinstance(x, dict) and str(x.get("robust_inlier_pixels", x.get("valid_band1_pixels", ""))).lstrip("-").isdigit()
+            ]
+            outlier_counts = [
+                int(x.get("screen_outlier_pixels", 0))
+                for x in validation_exports
+                if isinstance(x, dict) and str(x.get("screen_outlier_pixels", "0")).lstrip("-").isdigit()
+            ]
+            valid_pixels = max(measurement_counts) if measurement_counts else 0
+            screen_valid_pixels = max(screen_valid_counts) if screen_valid_counts else 0
+            screen_outlier_pixels = max(outlier_counts) if outlier_counts else 0
+            record["science_pixel_support"] = screen_valid_pixels > 0
+            record["measurement_pixel_support"] = valid_pixels > 0
             for item in validation_exports:
                 if not isinstance(item, dict): continue
                 source = safe_child(artifact, str(meta.get("export_dir", "derived")) + "/" + str(item.get("name","")))
@@ -495,6 +513,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 "science_maturity":science_maturity or None,"maturity_validation":maturity_validation,
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
                 "metric_name":metric_key,"metric_value":metric_val,"valid_pixels":valid_pixels,
+                "screen_valid_pixels":screen_valid_pixels,"screen_outlier_pixels":screen_outlier_pixels,
                 "grid_pixels_inside_aoi":min(grid_counts) if grid_counts else None,
                 "export_count":len(exports),"exports":exports,"quicklook":next((x["quicklook"] for x in exports if x["quicklook"]),None),
                 "stats":json_safe(stats),"preflight_report":json_safe(preflight),
@@ -661,6 +680,9 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "catalog_result_truncated":manifest.get("catalog_query",{}).get("results_truncated"),
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
+        "products_with_measurement_pixels":sum(bool(x.get("measurement_pixel_support")) for x in result_rows),
+        "screen_valid_pixels_total":sum(int(x.get("screen_valid_pixels") or 0) for x in result_rows),
+        "screen_outlier_pixels_total":sum(int(x.get("screen_outlier_pixels") or 0) for x in result_rows),
         "science_diagnostics":science_diagnostics,
         "aoi_wide_displacement_screen":aoi_wide_screen,
         "science_pipeline":science_pipeline,
@@ -678,7 +700,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         encoding="utf-8",
     )
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
-    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
+    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","screen_valid_pixels","screen_outlier_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
         writer=csv.DictWriter(fh,fieldnames=fields,extrasaction="ignore");writer.writeheader()
         writer.writerows([{k:x.get(k) for k in fields} for x in result_rows])
