@@ -96,6 +96,77 @@ jobs:
           test -s "$root/science-diagnostics/logs/pixel_stack_common_mode_removed.log"
           test -s "$root/science-diagnostics/logs/pixel_stack_common_mode_retained.log"
 
+          # Re-run only the target-free GUNW per-pixel diagnostic from retained
+          # AOI-clipped GeoTIFFs. This does not access ASF or download HDF5.
+          audit="$root/science-diagnostics/retained-artifact-reaudit"
+          mkdir -p "$audit/export" "$root/science-diagnostics/logs"
+          mapfile -t gunw_tiffs < <(find "$root/product-data" -mindepth 2 -maxdepth 2 -type f -name '*.tif' -path '*/GUNW-*/*' | sort)
+          test "${#gunw_tiffs[@]}" -eq 15
+          for tif in "${gunw_tiffs[@]}"; do cp "$tif" "$audit/export/"; done
+          python science-source/src/pixel_stack.py --dir "$audit/export" --season all \
+            > "$root/science-diagnostics/logs/pixel_stack_retained_artifact_reaudit_removed.log" 2>&1
+          python science-source/src/pixel_stack.py --dir "$audit/export" --season all --keep-common-mode \
+            > "$root/science-diagnostics/logs/pixel_stack_retained_artifact_reaudit_retained.log" 2>&1
+
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-dashboard-fixture" / "dashboard"
+          logs = root / "science-diagnostics" / "logs"
+          primary = (logs / "pixel_stack_retained_artifact_reaudit_removed.log").read_text(encoding="utf-8")
+          retained = (logs / "pixel_stack_retained_artifact_reaudit_retained.log").read_text(encoding="utf-8")
+          for label, content in (("common-mode removed", primary), ("common-mode retained", retained)):
+              assert len(re.findall(r"VERDICT: NOT TESTABLE", content)) == 3, (label, content[-5000:])
+              assert "Mean of empty slice" not in content, label
+          assert "[INFO] 15 all pair(s)" in primary
+
+          summary_path = root / "aoi-run-summary.json"
+          report_path = root / "aoi-processing-report.json"
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          original_status = next(
+              (m.get("status") for m in summary.get("science_pipeline", {}).get("modules", [])
+               if m.get("name") == "pixel_stack.py"), "NOT_REPORTED"
+          )
+          summary.setdefault("science_diagnostics", {})["pixel_stack"] = {
+              "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "log": "logs/pixel_stack_retained_artifact_reaudit_removed.log",
+              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+              "source_run_id": os.environ["SOURCE_RUN_ID"],
+          }
+          summary["science_diagnostics"]["common_mode_sensitivity"] = {
+              "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "log": "logs/pixel_stack_retained_artifact_reaudit_retained.log",
+              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+          }
+          summary["science_reaudit"] = {
+              "status": "COMPLETED_FROM_RETAINED_AOI_GEOTIFFS",
+              "module": "pixel_stack.py",
+              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+              "source_run_id": os.environ["SOURCE_RUN_ID"],
+              "prior_reported_status": original_status,
+              "new_status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "raw_hdf5_replayed": False,
+              "source_geotiffs_modified": False,
+          }
+          for module in summary.get("science_pipeline", {}).get("modules", []):
+              if module.get("name") == "pixel_stack.py":
+                  module["status"] = "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
+                  module["reason"] = (
+                      "The retained GUNW pairs yielded only 9 and 12 complete pixels in two chains "
+                      "and zero in the third. The tested noise-null method requires at least 30 "
+                      "neighbouring valid pairs to estimate spatial correlation; the comparison "
+                      "was withheld. This is NOT TESTABLE, not NO DETECTION."
+                  )
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          report["summary"] = summary
+          report["science_reaudit"] = summary["science_reaudit"]
+          summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
+          report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
+          print("RETAINED_GUNW_PIXEL_STACK_REAUDIT=PASS")
+          print("SCIENCE_REAUDIT_STATUS=WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+          print("RAW_HDF5_REPLAYED=false")
+          PY
+
           before="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
           python dashboard/assets/prepare_web_assets.py --dashboard-root "$root"
           after="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
