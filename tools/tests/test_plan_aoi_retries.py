@@ -163,14 +163,36 @@ def test_complete_green_product_receipts_do_not_enter_retry_matrix(tmp_path):
     }]
 
 
-def test_branch_provenance_mismatch_is_the_explicit_receipt_invalidation_reason(tmp_path):
-    manifest, product_root, cleanup_root = _write_valid_checkpoint(tmp_path, branch_name="feat/final-aoi-science-integration")
+def test_branch_provenance_mismatch_after_successful_download_is_not_redownloaded(tmp_path):
+    manifest, product_root, cleanup_root = _write_valid_checkpoint(
+        tmp_path, branch_name="feat/final-aoi-science-integration"
+    )
     manifest["orchestration_branch"] = "main"
 
     result = planner.plan(manifest, product_root, cleanup_root)
 
-    assert result["retry_count"] == 1
-    assert result["decisions"][0]["reasons"] == ["META_ORCHESTRATION_BRANCH_INVALID"]
+    assert result["retry_count"] == 0
+    assert result["terminal_failure_count"] == 1
+    decision = result["decisions"][0]
+    assert decision["status"] == "TERMINAL_FAILURE"
+    assert "META_ORCHESTRATION_BRANCH_INVALID" in decision["reasons"]
+    assert decision["terminal_reason"] == "NON_RETRYABLE_POST_DOWNLOAD_CHECKPOINT_FAILURE"
+
+
+def test_missing_processing_receipt_after_successful_download_is_not_redownloaded(tmp_path):
+    manifest, product_root, cleanup_root = _inputs(
+        tmp_path,
+        {"download": "success", "aoi_preflight": "success", "reader": "skipped"},
+    )
+
+    result = planner.plan(manifest, product_root, cleanup_root)
+
+    assert result["retry_count"] == 0
+    assert result["terminal_failure_count"] == 1
+    assert result["decisions"][0]["status"] == "TERMINAL_FAILURE"
+    assert result["decisions"][0]["terminal_reason"] == (
+        "NON_RETRYABLE_POST_DOWNLOAD_CHECKPOINT_FAILURE"
+    )
 
 
 
@@ -198,16 +220,16 @@ def test_mixed_baseline_retries_only_the_product_with_a_missing_checkpoint(tmp_p
     assert "PRODUCT_PROCESSING_RECEIPT_MISSING" in decisions["GUNW-002"]["reasons"]
 
 
-def test_workflow_audits_failed_checkpoints_without_automatically_redownloading() -> None:
+def test_workflow_retries_failed_product_matrix_before_dashboard_assembly() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = (root / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml").read_text(encoding="utf-8")
     worker = (root / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
 
-    # Keep the retry-plan artifact as evidence, but do not launch a second
-    # product worker that would repeat a multi-GB raw granule download.
+    assert workflow.count("max-parallel: 15") == 2
     assert "  retry-plan:\n" in workflow
-    assert "sarguardian-aoi-retry-plan" in workflow
-    assert "  retry-products:\n" not in workflow
-    assert "needs: [manifest, process-products, retry-plan]" in workflow
-    assert "needs: [report-running, manifest, process-products, retry-plan, dashboard]" in workflow
+    assert "  retry-products:\n" in workflow
+    assert "execution_label: retry-1" in workflow
+    assert "needs: [manifest, process-products, retry-plan, retry-products]" in workflow
+    assert "needs: [report-running, manifest, process-products, retry-plan, retry-products, dashboard]" in workflow
+    assert workflow.index("  retry-products:\n") < workflow.index("  dashboard:\n")
     assert "max_attempts=1" in worker
