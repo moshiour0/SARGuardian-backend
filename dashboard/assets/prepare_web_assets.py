@@ -540,7 +540,12 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                     continue
                 track_value = (product.get("stats") or {}).get("track") or product.get("track")
                 track = str(track_value) if track_value else "geometry-unclassified:" + pid
-                kind = "coherence" if "coherence" in meta["description"].lower() else "continuous"
+                description_lower = meta["description"].lower()
+                kind = (
+                    "coherence" if "coherence" in description_lower else
+                    "binary_mask" if "robust inlier flag" in description_lower else
+                    "continuous"
+                )
                 group_key = (str(product.get("product_type") or "UNKNOWN"), track, meta["description"])
                 groups.setdefault(group_key, []).append(valid.astype("float32", copy=False))
                 layer_id = f"{pid}-e{export_index+1}-band-{band}"
