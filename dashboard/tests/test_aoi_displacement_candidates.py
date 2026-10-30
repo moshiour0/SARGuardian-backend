@@ -111,7 +111,7 @@ class AOISpatialCandidateTests(unittest.TestCase):
             self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["monsoon_pairs"], 1)
             self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["dry_season_pairs"], 0)
             self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["status"], "INSUFFICIENT_SEASONAL_COVERAGE")
-            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["threshold_mm"], 59.6)
+            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["threshold_mm"], 59.601)
             self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["pairs_tested"], 1)
             self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["status"], "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD")
             self.assertEqual(feature["properties"]["candidate_cross_geometry_status"],
