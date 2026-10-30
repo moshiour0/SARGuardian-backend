@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 0a0b62f84efbc71dab5654211053afcc4c2ebcd0
+          ref: 006d4cd1485cf80e509eaf8717c12e9c6390ac09
           path: science-source
 
       - name: Resolve the existing AOI source run
@@ -121,7 +121,12 @@ jobs:
           primary = (logs / "pixel_stack_retained_artifact_reaudit_removed.log").read_text(encoding="utf-8")
           retained = (logs / "pixel_stack_retained_artifact_reaudit_retained.log").read_text(encoding="utf-8")
           for label, content in (("common-mode removed", primary), ("common-mode retained", retained)):
-              assert len(re.findall(r"VERDICT: NOT TESTABLE", content)) == 3, (label, content[-5000:])
+              assert "PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK" in content, (label, content[-5000:])
+              assert "PIXEL_STACK_PAIRS_EXAMINED=15" in content, label
+              assert "PIXEL_STACK_EXACT_NETWORKS=15" in content, label
+              assert "PIXEL_STACK_NETWORKS_WITH_2_PLUS_PAIRS=0" in content, label
+              assert "VERDICT: NOT TESTABLE" in content, label
+              assert "NO DETECTION" not in content, label
               assert "Mean of empty slice" not in content, label
           assert "[INFO] 15 all pair(s)" in primary
 
@@ -133,36 +138,36 @@ jobs:
                if m.get("name") == "pixel_stack.py"), "NOT_REPORTED"
           )
           summary.setdefault("science_diagnostics", {})["pixel_stack"] = {
-              "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
               "log": "logs/pixel_stack_retained_artifact_reaudit_removed.log",
-              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+              "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
               "source_run_id": os.environ["SOURCE_RUN_ID"],
           }
           summary["science_diagnostics"]["common_mode_sensitivity"] = {
-              "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
               "log": "logs/pixel_stack_retained_artifact_reaudit_retained.log",
-              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+              "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
           }
           summary["science_reaudit"] = {
               "status": "COMPLETED_FROM_RETAINED_AOI_GEOTIFFS",
               "module": "pixel_stack.py",
-              "science_commit": "0a0b62f84efbc71dab5654211053afcc4c2ebcd0",
+              "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
               "source_run_id": os.environ["SOURCE_RUN_ID"],
               "prior_reported_status": original_status,
-              "new_status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+              "new_status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
               "raw_hdf5_replayed": False,
               "source_geotiffs_modified": False,
           }
           summary["science_limitations"] = [
               (
-                  "Pixel-stack status: WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT. "
-                  "Too few nearby valid pixels to estimate spatial noise; NOT TESTABLE is not NO DETECTION."
+                  "Pixel-stack status: WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK. "
+                  "The 15 GUNW pairs do not form a homogeneous repeated measurement network; NOT TESTABLE is not NO DETECTION."
               ) if str(item).startswith("Pixel-stack status:") else item
               for item in summary.get("science_limitations", [])
           ]
           for module in summary.get("science_pipeline", {}).get("modules", []):
               if module.get("name") == "pixel_stack.py":
-                  module["status"] = "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
+                  module["status"] = "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK"
                   module["reason"] = (
                       "The retained GUNW pairs yielded only 9 and 12 complete pixels in two chains "
                       "and zero in the third. The tested noise-null method requires at least 30 "
@@ -175,7 +180,7 @@ jobs:
           summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
           report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
           print("RETAINED_GUNW_PIXEL_STACK_REAUDIT=PASS")
-          print("SCIENCE_REAUDIT_STATUS=WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+          print("SCIENCE_REAUDIT_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK")
           print("RAW_HDF5_REPLAYED=false")
           PY
 
@@ -208,22 +213,16 @@ jobs:
           assert manifest.get("target_free_analysis") is True
 
           pixel = manifest.get("pixel_stack_diagnostic", {})
-          assert pixel.get("available") is True, pixel
+          assert pixel.get("available") is False, pixel
           assert pixel.get("pairs_examined") == 15, pixel
-          assert pixel.get("status") == "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", pixel
-          chain_map = {row.get("geometry"): row for row in pixel.get("chains", [])}
-          assert set(chain_map) == {"A098", "D048", "D149"}, chain_map
-          assert chain_map["A098"].get("complete_pixels") == 9, chain_map["A098"]
-          assert chain_map["D048"].get("complete_pixels") == 12, chain_map["D048"]
-          assert chain_map["D149"].get("complete_pixels") == 0, chain_map["D149"]
-          assert chain_map["A098"].get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", chain_map["A098"]
-          assert chain_map["D048"].get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", chain_map["D048"]
-          assert chain_map["D149"].get("finding") == "NO_COMPLETE_SERIES", chain_map["D149"]
-          assert all(chain.get("noise_cluster_p95_pixels") is None for chain in chain_map.values()), chain_map
+          assert pixel.get("exact_networks") == 15, pixel
+          assert pixel.get("networks_with_2_plus_pairs") == 0, pixel
+          assert pixel.get("status") == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK", pixel
+          assert pixel.get("chains") == [], pixel
           reaudit = summary.get("science_reaudit", {})
           assert reaudit.get("status") == "COMPLETED_FROM_RETAINED_AOI_GEOTIFFS", reaudit
           assert reaudit.get("raw_hdf5_replayed") is False, reaudit
-          assert reaudit.get("science_commit") == "0a0b62f84efbc71dab5654211053afcc4c2ebcd0", reaudit
+          assert reaudit.get("science_commit") == "006d4cd1485cf80e509eaf8717c12e9c6390ac09", reaudit
 
           legacy = manifest.get("aoi_wide_displacement_screen", {})
           extended = manifest.get("aoi_displacement_candidates", {})
@@ -276,15 +275,15 @@ jobs:
           assert "What did NISAR observe in this area?" in viewer
           assert "pixelStackSummary" in viewer
           assert "Candidate overlay" in viewer
-          assert "Not testable — too few nearby valid pixels to measure background noise" in viewer
-          assert "noise comparison was withheld" in viewer
+          assert "No compatible multi-date GUNW network" in viewer
+          assert "NOT TESTABLE, not NO DETECTION" in viewer
           print("RETAINED_ARTIFACT_DASHBOARD_REBUILD=PASS")
           print("SOURCE_RUN_ID=" + os.environ["SOURCE_RUN_ID"])
           print("PRODUCTS=" + str(receipt["observations"]))
           print("RASTER_LAYERS=" + str(receipt["layers"]))
           print("DERIVED_LAYERS=" + str(receipt["derived_layers"]))
-          print("PIXEL_STACK_LOG_CHAINS=3")
-          print("PIXEL_STACK_STATUS=WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+          print("PIXEL_STACK_EXACT_NETWORKS=15")
+          print("PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK")
           print("RAW_HDF5_REPLAYED=false")
           print("LEGACY_GOFF_CANDIDATES=120")
           print("EXTENDED_SCREEN_FEATURES=2208")
