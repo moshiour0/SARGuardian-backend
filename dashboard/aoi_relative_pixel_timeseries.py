@@ -58,6 +58,38 @@ def _topology(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _block_reference_medians(
+    values: np.ndarray,
+    reference_mask: np.ndarray,
+    *,
+    block_rows: int = 4,
+    block_columns: int = 4,
+    minimum_pixels_per_block: int = 8,
+) -> list[dict[str, float | int]]:
+    """Summarize reference support spatially; correlated pixels are not independent samples."""
+    row_blocks = np.array_split(np.arange(reference_mask.shape[0]), block_rows)
+    col_blocks = np.array_split(np.arange(reference_mask.shape[1]), block_columns)
+    result: list[dict[str, float | int]] = []
+    for row_index, row_ids in enumerate(row_blocks):
+        if not row_ids.size:
+            continue
+        for column_index, column_ids in enumerate(col_blocks):
+            if not column_ids.size:
+                continue
+            block_values = values[np.ix_(row_ids, column_ids)]
+            block_mask = reference_mask[np.ix_(row_ids, column_ids)] & np.isfinite(block_values)
+            count = int(np.count_nonzero(block_mask))
+            if count < minimum_pixels_per_block:
+                continue
+            result.append({
+                "block_row": int(row_index),
+                "block_column": int(column_index),
+                "pixels": count,
+                "median_mm": float(np.median(block_values[block_mask])),
+            })
+    return result
+
+
 def _network_key(item: dict[str, Any]) -> tuple[Any, ...]:
     meta = item["identity"]
     # Unlike target-free spatial screening, pixel inversion keeps sub-swath
@@ -130,12 +162,15 @@ def _base_report(aoi_hash: str | None, status: str, reason: str) -> dict[str, An
         "minimum_pairs": 3,
         "minimum_network_redundancy": 1,
         "minimum_common_valid_pixels": 200,
+        "minimum_spatial_reference_blocks": 4,
         "networks": [],
         "warnings": [
-            "The time series is relative to a robust AOI-derived background, not an independently surveyed stable-ground datum.",
+            "The time series is relative to a spatially balanced AOI-derived background, not an independently surveyed stable-ground datum.",
             "Pairwise re-referencing suppresses spatially uniform AOI-wide motion and cannot prove absolute displacement.",
+            "A minimum block count improves spatial distribution but cannot prove those blocks are geologically stable.",
             "Residual spatial ramps, atmosphere, phase-unwrapping errors, decorrelation and geocoding/systematic errors may remain.",
             "LOS velocity is not vertical displacement or 3-D ground motion.",
+            "Fit sigma is residual-based OLS uncertainty only; it omits atmospheric, orbital, reference, phase-unwrapping and spatially correlated measurement errors.",
             "A valid velocity raster is a research diagnostic, not a landslide/glacier-collapse declaration or hazard alert.",
         ],
         "artifacts": [],
@@ -150,6 +185,8 @@ def build_aoi_relative_pixel_timeseries_report(
     minimum_pairs: int = 3,
     minimum_redundancy: int = 1,
     minimum_common_valid_pixels: int = 200,
+    minimum_reference_blocks: int = 4,
+    minimum_pixels_per_reference_block: int = 8,
     coherence_threshold: float = 0.3,
     robust_candidate_z: float = 4.5,
     background_window_pixels: int = 11,
@@ -285,7 +322,48 @@ def build_aoi_relative_pixel_timeseries_report(
             network_reports.append(network)
             continue
 
-        offsets = [float(np.median(item["values"][stable])) for item in rows]
+        block_reference_rows = [
+            _block_reference_medians(
+                item["values"], stable,
+                minimum_pixels_per_block=minimum_pixels_per_reference_block,
+            )
+            for item in rows
+        ]
+        block_counts = [len(item) for item in block_reference_rows]
+        minimum_blocks_observed = min(block_counts, default=0)
+        network["minimum_spatial_reference_blocks_observed"] = minimum_blocks_observed
+        network["reference_blocks_per_pair"] = block_counts
+        if minimum_blocks_observed < minimum_reference_blocks:
+            network.update({
+                "status": "WITHHELD_POOR_REFERENCE_SPATIAL_DISTRIBUTION",
+                "reason": (
+                    f"The common background reference occupies only {minimum_blocks_observed} spatial blocks "
+                    f"in at least one pair; need {minimum_reference_blocks}. A concentrated reference can be "
+                    "biased by spatially correlated deformation or acquisition artefacts."
+                ),
+            })
+            network_reports.append(network)
+            continue
+
+        global_pixel_offsets = [float(np.median(item["values"][stable])) for item in rows]
+        # Balance the reference spatially by taking a median of supported block
+        # medians. It reduces dominance by one dense corner, but it is still an
+        # AOI-derived relative datum and does not establish geologic stability.
+        offsets = [
+            float(np.median([block["median_mm"] for block in blocks]))
+            for blocks in block_reference_rows
+        ]
+        reference_offset_sensitivity = [
+            abs(block_offset - pixel_offset)
+            for block_offset, pixel_offset in zip(offsets, global_pixel_offsets)
+        ]
+        reference_block_dispersion = []
+        for blocks in block_reference_rows:
+            medians = np.asarray([block["median_mm"] for block in blocks], dtype="float64")
+            centre = float(np.median(medians))
+            reference_block_dispersion.append(
+                float(1.4826 * np.median(np.abs(medians - centre)))
+            )
         edge_values = np.stack([
             (item["values"] - offset).astype("float32", copy=False)
             for item, offset in zip(rows, offsets)
@@ -306,6 +384,11 @@ def build_aoi_relative_pixel_timeseries_report(
 
         pixel_indices = np.flatnonzero(common_valid)
         observations = edge_values.reshape(len(rows), -1)[:, pixel_indices].astype("float64")
+        observed_pair_support = np.zeros(grid_shape, dtype="uint16")
+        candidate_pair_support = np.zeros(grid_shape, dtype="uint16")
+        for item in rows:
+            observed_pair_support += item["valid"].astype("uint16")
+            candidate_pair_support += item["candidate_mask"].astype("uint16")
         # Fix the earliest epoch to zero, and invert pairwise LOS differences with
         # least squares. The graph has redundant edges so residuals are measurable.
         inverse = np.linalg.pinv(reduced)
@@ -353,6 +436,33 @@ def build_aoi_relative_pixel_timeseries_report(
             aoi_hash=str(aoi_wkt_sha256 or ""), metric="GUNW LOS inversion closure RMSE", units="mm", network=label,
         )
         artifacts = [velocity_artifact, sigma_artifact, closure_artifact]
+        support_artifacts = [
+            _write_raster(
+                out_dir / f"gunw-los-candidate-mask-{slug}.tif", rows[0],
+                candidate_union.astype("float32"), common_valid,
+                aoi_hash=str(aoi_wkt_sha256 or ""), metric="GUNW LOS spatial candidate mask",
+                units="binary candidate flag", network=label,
+            ),
+            _write_raster(
+                out_dir / f"gunw-los-candidate-pair-count-{slug}.tif", rows[0],
+                candidate_pair_support.astype("float32"), common_valid,
+                aoi_hash=str(aoi_wkt_sha256 or ""), metric="GUNW candidate pair support count",
+                units="pair count", network=label,
+            ),
+            _write_raster(
+                out_dir / f"gunw-los-observed-pair-count-{slug}.tif", rows[0],
+                observed_pair_support.astype("float32"), common_valid,
+                aoi_hash=str(aoi_wkt_sha256 or ""), metric="GUNW valid observed pair count",
+                units="pair count", network=label,
+            ),
+            _write_raster(
+                out_dir / f"gunw-los-common-reference-mask-{slug}.tif", rows[0],
+                stable.astype("float32"), common_valid,
+                aoi_hash=str(aoi_wkt_sha256 or ""), metric="AOI-derived reference mask",
+                units="binary reference-pixel flag", network=label,
+            ),
+        ]
+        artifacts.extend(support_artifacts)
         all_artifacts.extend(artifacts)
 
         candidate_pixel_indices = np.flatnonzero(common_valid & candidate_union)
@@ -390,9 +500,16 @@ def build_aoi_relative_pixel_timeseries_report(
         network.update({
             "status": "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_REFERENCE_UNVALIDATED",
             "reason": "The graph was inverted on common valid pixels after subtracting a robust AOI-derived background per pair. This is relative LOS diagnostics; stable ground is not independently validated.",
-            "reference_policy": "Common-valid pixels outside per-pair spatial candidates; median removed independently from each pair",
+            "reference_policy": "Spatially balanced median of common-valid 4x4 AOI blocks outside per-pair candidate masks; relative reference, not independently validated stable ground",
             "reference_medians_removed_mm": [round(value, 6) for value in offsets],
+            "global_pixel_medians_removed_mm": [round(value, 6) for value in global_pixel_offsets],
+            "block_reference_vs_global_median_difference_mm": [round(value, 6) for value in reference_offset_sensitivity],
+            "reference_block_robust_dispersion_mm": [round(value, 6) for value in reference_block_dispersion],
             "minimum_reference_pixels": minimum_common_valid_pixels,
+            "minimum_reference_blocks": minimum_reference_blocks,
+            "minimum_pixels_per_reference_block": minimum_pixels_per_reference_block,
+            "reference_spatial_support": "4x4 equal-grid blocks; at least 4 blocks with >=8 valid common background pixels per pair",
+            "reference_independent_stability": False,
             "common_valid_pixels": common_count,
             "reference_pixels": reference_count,
             "candidate_pixels_in_complete_series": int(candidate_pixel_indices.size),
