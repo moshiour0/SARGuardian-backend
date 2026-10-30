@@ -49,6 +49,144 @@ def safe_path(root: Path, relative: str) -> Path:
     return path
 
 
+def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) -> dict[str, Any]:
+    """Extract only support/cluster diagnostics; never publish fragile per-pixel rates."""
+    entry = diagnostics.get(key) if isinstance(diagnostics.get(key), dict) else {}
+    log_rel = str(entry.get("log") or "").strip()
+    result: dict[str, Any] = {
+        "status": str(entry.get("status") or "NOT_REPORTED"),
+        "available": False,
+        "pairs_examined": None,
+        "chains": [],
+        "log_status": "NOT_AVAILABLE",
+    }
+    if not log_rel:
+        return result
+    try:
+        path = safe_path(root, (Path("science-diagnostics") / log_rel).as_posix())
+        if not path.is_file():
+            result["log_status"] = "LOG_FILE_MISSING"
+            return result
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError, RuntimeError) as exc:
+        result["log_status"] = type(exc).__name__
+        return result
+
+    total_match = re.search(r"(?m)^\[INFO\]\s+(\d+)\s+all pair\(s\)", text)
+    if total_match:
+        result["pairs_examined"] = int(total_match.group(1))
+    header = re.compile(
+        r"(?m)^\s*(?P<geometry>[AD]\d{3})\s+chain\s+(?P<chain>\d+)\s+"
+        r"(?P<start>\d{4}-\d{2}-\d{2})\s+\.\.\s+"
+        r"(?P<end>\d{4}-\d{2}-\d{2})\s+\((?P<pairs>\d+)\s+pairs,\s*(?P<days>\d+)\s+d\)\s*$"
+    )
+    matches = list(header.finditer(text))
+    chains: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        block = text[match.end():end]
+        support = re.search(
+            r"pixels with a complete series\s*:\s*([\d,]+)\s+of\s+([\d,]+)",
+            block,
+            flags=re.I,
+        )
+        complete = int(support.group(1).replace(",", "")) if support else None
+        total = int(support.group(2).replace(",", "")) if support else None
+        coverage = (100.0 * complete / total) if complete is not None and total else None
+        cluster = re.search(r"largest connected cluster\s*:\s*([\d,]+)\s+px", block, flags=re.I)
+        noise = re.search(
+            r"clusters from noise ALONE\s*:\s*median\s+([\d,]+)\s+px,\s*95th pct\s+([\d,]+)\s+px,\s*max\s+([\d,]+)\s+px",
+            block,
+            flags=re.I,
+        )
+        verdict = re.search(r"VERDICT:\s*([A-Z ]+)", block)
+        nothing_to_fit = bool(re.search(r"nothing to fit", block, flags=re.I))
+        chains.append({
+            "geometry": match.group("geometry"),
+            "chain": int(match.group("chain")),
+            "start_date": match.group("start"),
+            "end_date": match.group("end"),
+            "pair_count": int(match.group("pairs")),
+            "duration_days": int(match.group("days")),
+            "complete_pixels": complete,
+            "total_pixels": total,
+            "complete_support_pct": coverage,
+            "largest_cluster_pixels": int(cluster.group(1).replace(",", "")) if cluster else None,
+            "noise_cluster_median_pixels": int(noise.group(1).replace(",", "")) if noise else None,
+            "noise_cluster_p95_pixels": int(noise.group(2).replace(",", "")) if noise else None,
+            "noise_cluster_max_pixels": int(noise.group(3).replace(",", "")) if noise else None,
+            "finding": (
+                "NO_COMPLETE_SERIES" if nothing_to_fit or complete == 0 else
+                "NO_CLUSTER_ABOVE_NOISE_SCREEN" if verdict and "NO DETECTION" in verdict.group(1) else
+                "REVIEW_REQUIRED"
+            ),
+        })
+    result.update({
+        "available": bool(chains),
+        "log_status": "PARSED" if chains else "NO_CHAIN_BLOCKS_FOUND",
+        "chains": chains,
+    })
+    return result
+
+
+def build_pixel_stack_explanation(root: Path, diagnostics: dict[str, Any]) -> dict[str, Any]:
+    """Build a plain-language explanation of the older exploratory GUNW screen."""
+    primary = _parse_pixel_stack_log(root, diagnostics, "pixel_stack")
+    sensitivity = _parse_pixel_stack_log(root, diagnostics, "common_mode_sensitivity")
+    same_support = False
+    if primary["available"] and sensitivity["available"]:
+        primary_counts = {
+            chain["geometry"]: (chain["complete_pixels"], chain["total_pixels"])
+            for chain in primary["chains"]
+        }
+        sensitivity_counts = {
+            chain["geometry"]: (chain["complete_pixels"], chain["total_pixels"])
+            for chain in sensitivity["chains"]
+        }
+        same_support = primary_counts == sensitivity_counts
+    sensitivity_entry = diagnostics.get("common_mode_sensitivity")
+    sensitivity_log_warning = False
+    if isinstance(sensitivity_entry, dict):
+        try:
+            rel = str(sensitivity_entry.get("log") or "").strip()
+            if rel:
+                path = safe_path(root, (Path("science-diagnostics") / rel).as_posix())
+                if path.is_file():
+                    sensitivity_log_warning = "atmosphere will dominate" in path.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).lower()
+        except (OSError, ValueError, RuntimeError):
+            pass
+    chains = primary.get("chains", [])
+    return {
+        "schema_version": "sarguardian-gunw-pixel-stack-explainer/1.0",
+        "status": primary.get("status", "NOT_REPORTED"),
+        "available": primary.get("available", False),
+        "pairs_examined": primary.get("pairs_examined"),
+        "chains": chains,
+        "common_mode_sensitivity": {
+            "status": sensitivity.get("status", "NOT_REPORTED"),
+            "available": sensitivity.get("available", False),
+            "same_complete_pixel_support": same_support,
+            "atmospheric_common_mode_warning": sensitivity_log_warning,
+        },
+        "interpretation": (
+            "This older exploratory per-pixel screen had extremely sparse complete time-series support. "
+            "It found no connected candidate cluster beyond its own noise-only screen in chains where a fit was possible; "
+            "one chain had no complete pixels to fit. This is not evidence of zero ground motion."
+            if chains else
+            "The detailed per-pixel screen log was not available in this result bundle; no pixel-support conclusion is inferred."
+        ),
+        "limitations": [
+            "This is an exploratory residual-based GUNW LOS screen, not independent geophysical validation.",
+            "The per-pixel velocity summaries are not shown because complete support is only a handful of cells; they are not AOI-wide measurements.",
+            "Removing pairwise common mode can suppress real broad AOI-wide motion; retaining it can leave atmospheric/orbit bias.",
+            "The separate strict AOI-relative time-series inversion has its own connected-network and common-pixel gates; the two screens are not interchangeable.",
+            "No detection by this screen does not mean no movement.",
+        ],
+    }
+
+
 def parse_wkt(value: str) -> list[list[float]]:
     match = re.fullmatch(r"\s*POLYGON\s*\(\(\s*(.*?)\s*\)\)\s*", value, flags=re.I)
     if not match:
@@ -171,6 +309,7 @@ def write_viewer(path: Path) -> None:
 <details><summary>Why no cumulative network result was produced</summary><div class="kicker">GUNW common-reference diagnostic</div><label>Network <select id="cumulativeNetwork" aria-label="Select eligible common-reference network"></select></label><div id="cumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="cumulativeChart" class="chart" role="img" aria-label="Cumulative LOS diagnostic using actual acquisition epochs"></svg><div class="kicker" style="margin-top:14px">GOFF common-reference diagnostic</div><label>Network / component <select id="goffCumulativeNetwork" aria-label="Select GOFF common-reference network and offset component"></select></label><div id="goffCumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="goffCumulativeChart" class="chart" role="img" aria-label="Cumulative GOFF offset diagnostic using actual acquisition epochs"></svg><p class="muted" style="font-size:11px">A withheld chart means the observations did not meet the network and reference checks. It does not mean zero movement. Any shown series is an AOI-relative research diagnostic, not an independently surveyed stable-ground measurement.</p></details>
 <section class="candidate-section"><div class="kicker">Find Displacements · whole-area scan</div><h3>Where did the screen find unusual SAR patterns?</h3><p class="muted" style="font-size:12px">The two screens below use different methods. Their counts are not added together, and neither is confirmation of ground movement.</p><div id="aoiCandidateStatus" class="muted" role="status"></div><div id="aoiCandidateList" class="metriclist"></div><details><summary id="legacyCandidateSummary">Inspect GOFF repeated-region candidates</summary><div id="aoiLegacyCandidateList" class="metriclist"></div></details><details><summary id="extendedCandidateSummary">Inspect extended candidate records</summary><div id="aoiExtendedCandidateList" class="metriclist"></div></details></section>
 <section class="candidate-section"><div class="kicker">GUNW · target-free LOS analysis</div><h3>Could a reliable multi-date LOS map be calculated?</h3><div id="pixelTimeseriesSummary" class="plain-note" role="status">Checking the available observations…</div><details><summary>Show the technical network checks</summary><div id="pixelTimeseriesStatus" class="muted" role="status"></div><div id="pixelTimeseriesNetworks" class="metriclist"></div></details><p class="muted" style="font-size:11px">This analysis does not need a target point. It is withheld when pairs do not make a connected, sufficiently overlapping and redundant time series. The background is an AOI-derived background, not independently surveyed stable ground.</p></section>
+<section class="candidate-section"><div class="kicker">GUNW · exploratory per-pixel screen</div><h3>How much complete pixel evidence was available?</h3><div id="pixelStackSummary" class="plain-note" role="status">Checking the saved GUNW screen log…</div><details><summary>Show support by track chain</summary><div id="pixelStackChains" class="metriclist"></div><p class="muted" style="font-size:11px">These counts refer to cells with a complete connected series across the pairs in that chain. They are not independent ground samples. Very sparse support cannot represent the whole AOI.</p></details></section>
 <details><summary>Technical stage-by-stage processing status</summary><div id="scienceStages" class="metriclist"></div><p class="muted" style="font-size:11px">Technical module names and gates are preserved here for scientific audit.</p></details>
 <details><summary>Browse all processed image pairs</summary><div class="product-list" id="productList"></div></details><details><summary>Run provenance and scientific limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details>
 </aside></div>
@@ -201,6 +340,35 @@ function renderDerivedLayer(){
  $('mapTitle').textContent='AOI-wide analysis · '+layer.description;
  renderLegend(layer);
 }
+
+function renderPixelStackDiagnostic(){
+ const report=manifest.pixel_stack_diagnostic||{},summary=$('pixelStackSummary'),root=$('pixelStackChains');
+ if(!summary||!root)return;
+ if(!report.available||!Array.isArray(report.chains)||!report.chains.length){
+  summary.textContent='The detailed exploratory GUNW pixel-stack log was not retained in this bundle. No support or movement conclusion is inferred from this missing report.';
+  root.innerHTML='<div class="metricitem"><strong>Pixel support not reported</strong><small>Missing diagnostics are not zero movement.</small></div>';
+  return;
+ }
+ const chains=report.chains;
+ const countable=chains.filter(c=>Number(c.complete_pixels)>0);
+ const noCluster=countable.filter(c=>c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN').length;
+ summary.textContent=String(report.interpretation||'The exploratory GUNW per-pixel screen has limited support.')+' It checked '+String(report.pairs_examined==null?'an unreported number of':report.pairs_examined)+' GUNW acquisition pairs across '+chains.length+' geometry chains; only '+countable.length+' chain(s) had any complete time-series pixels, and '+noCluster+' fitted chain(s) had no connected candidate cluster above the exploratory noise-only screen.';
+ root.innerHTML=chains.map(c=>{
+  const complete=Number(c.complete_pixels||0),total=Number(c.total_pixels||0),pct=Number(c.complete_support_pct||0);
+  const support=total>0?complete.toLocaleString()+' / '+total.toLocaleString()+' complete pixels ('+pct.toFixed(4)+'%)':'Complete pixel support not reported';
+  const verdict=c.finding==='NO_COMPLETE_SERIES'?'No complete series — nothing to fit':c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN'?'No connected cluster passed this screen’s noise check':'Review required — see saved log';
+  const noise=c.noise_cluster_p95_pixels==null?'': ' · noise-only 95th-percentile cluster '+Number(c.noise_cluster_p95_pixels).toLocaleString()+' px';
+  return '<div class="metricitem"><div class="label">'+esc(c.geometry)+' · '+esc(c.pair_count)+' pairs · '+esc(c.duration_days)+' days</div><strong>'+esc(support)+'</strong><small style="display:block;margin-top:4px">'+esc(verdict)+' · largest cluster '+esc(c.largest_cluster_pixels==null?'not reported':Number(c.largest_cluster_pixels).toLocaleString()+' px')+esc(noise)+'</small></div>';
+ }).join('');
+ const sensitivity=report.common_mode_sensitivity||{};
+ if(sensitivity.same_complete_pixel_support){
+  summary.textContent+=' The common-mode-retained sensitivity pass had the same complete-pixel counts.';
+ }
+ if(sensitivity.atmospheric_common_mode_warning){
+  summary.textContent+=' The retained-common-mode log warns that atmospheric/orbit effects can dominate; it is a sensitivity check, not a preferred truth.';
+ }
+}
+
 function renderAOIPixelTimeseriesStatus(){
  const r=manifest.aoi_relative_pixel_timeseries||{},summary=$('pixelTimeseriesSummary'),status=$('pixelTimeseriesStatus'),root=$('pixelTimeseriesNetworks'),select=$('derivedLayerSelect');
  if(!status||!root||!select)return;
@@ -464,7 +632,7 @@ function renderGoffCommonReferenceChart(){
  addText(left,H-17,rows[0].epoch,'start');addText(W-right,H-17,rows[rows.length-1].epoch,'end');addText(W-right,14,'White bars: fit-only 95% interval','end');
 }
 function select(i){if(!n)return;selected=(i+n)%n;renderProduct();}function stop(){playing=false;if(timer)clearInterval(timer);timer=null;$('play').textContent='Play';}function play(){if(!n)return;if(playing){stop();return;}playing=true;$('play').textContent='Pause';timer=setInterval(()=>select((selected+1)%n),Number($('speed').value||1500));}
-$('candidateOverlaySelect').addEventListener('change',applyCandidateOverlay);$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('goffCumulativeNetwork').addEventListener('change',renderGoffCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('derivedLayerSelect').addEventListener('change',renderDerivedLayer);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderGoffCommonReferenceChart();renderAoiCandidateScreen();renderAOIPixelTimeseriesStatus();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
+$('candidateOverlaySelect').addEventListener('change',applyCandidateOverlay);$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('goffCumulativeNetwork').addEventListener('change',renderGoffCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('derivedLayerSelect').addEventListener('change',renderDerivedLayer);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderGoffCommonReferenceChart();renderAoiCandidateScreen();renderAOIPixelTimeseriesStatus();renderPixelStackDiagnostic();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
 </script></body></html>'''
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
@@ -779,6 +947,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         "Playback shows actual acquisition pairs and does not interpolate missing observations or forecast movement.",
     ]
     diagnostics = summary.get("science_diagnostics") or {}
+    pixel_stack_explanation = build_pixel_stack_explanation(root, diagnostics)
     stack = diagnostics.get("pixel_stack") or {}
     if stack:
         limitations.append(f"Pixel-stack status: {stack.get('status')}; inspect saved logs and diagnostics before interpreting a trend.")
@@ -822,6 +991,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         "observations": observations, "layers": public_layers, "derived_layers": derived_layers,
         "derived_layer_errors": derived_layer_errors,
         "aoi_relative_pixel_timeseries": pixel_report,
+        "pixel_stack_diagnostic": pixel_stack_explanation,
         "science_limitations": limitations,
         "science_pipeline": summary.get("science_pipeline") or {},
         "site_context": summary.get("site_context") or {},

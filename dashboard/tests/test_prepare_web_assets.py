@@ -718,5 +718,72 @@ if (metricValue(limited, "gunw_los_median") !== 29.883) throw new Error("LOW_COV
                 checked = subprocess.run(["node", "-e", script], capture_output=True, text=True)
                 self.assertEqual(checked.returncode, 0, checked.stderr)
 
+
+    def test_pixel_stack_sparse_support_is_explained_without_publishing_velocity_rates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            logs = root / "science-diagnostics" / "logs"
+            logs.mkdir(parents=True)
+            primary_log = """[INFO] 15 all pair(s)
+A098  chain 1   2026-06-08 .. 2026-08-31  (6 pairs, 84 d)
+  pixels with a complete series : 9 of 216,270 (0.0%)
+  largest connected cluster     : 0 px
+  measured correlation length   : 0.1 km
+  clusters from noise ALONE     : median 7 px, 95th pct 9 px, max 9 px
+  VERDICT: NO DETECTION.
+D048  chain 2   2026-06-29 .. 2026-09-09  (5 pairs, 72 d)
+  pixels with a complete series : 12 of 216,270 (0.0%)
+  largest connected cluster     : 0 px
+  measured correlation length   : 0.2 km
+  clusters from noise ALONE     : median 7 px, 95th pct 9 px, max 9 px
+  VERDICT: NO DETECTION.
+D149  chain 3   2026-07-06 .. 2026-09-04  (4 pairs, 60 d)
+  pixels with a complete series : 0 of 222,656 (0.0%)
+  nothing to fit
+"""
+            retained_log = primary_log.replace("[INFO]", "[INFO]", 1)
+            retained_log = "[INFO] 15 all pair(s)\n[WARNING] Common mode kept - atmosphere will dominate every pixel.\n" + primary_log.split("\n", 1)[1]
+            (logs / "pixel_stack_common_mode_removed.log").write_text(primary_log, encoding="utf-8")
+            (logs / "pixel_stack_common_mode_retained.log").write_text(retained_log, encoding="utf-8")
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["science_diagnostics"] = {
+                "pixel_stack": {
+                    "status": "COMPLETED_NO_DETECTION",
+                    "log": "logs/pixel_stack_common_mode_removed.log",
+                },
+                "common_mode_sensitivity": {
+                    "status": "COMPLETED_NO_DETECTION",
+                    "log": "logs/pixel_stack_common_mode_retained.log",
+                },
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            diagnostic = manifest["pixel_stack_diagnostic"]
+            self.assertTrue(diagnostic["available"])
+            self.assertEqual(diagnostic["pairs_examined"], 15)
+            self.assertEqual(len(diagnostic["chains"]), 3)
+            self.assertEqual(diagnostic["chains"][0]["complete_pixels"], 9)
+            self.assertAlmostEqual(diagnostic["chains"][0]["complete_support_pct"], 100 * 9 / 216270, places=8)
+            self.assertEqual(diagnostic["chains"][1]["largest_cluster_pixels"], 0)
+            self.assertEqual(diagnostic["chains"][2]["finding"], "NO_COMPLETE_SERIES")
+            self.assertTrue(diagnostic["common_mode_sensitivity"]["same_complete_pixel_support"])
+            self.assertTrue(diagnostic["common_mode_sensitivity"]["atmospheric_common_mode_warning"])
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("extremely sparse complete time-series support", diagnostic["interpretation"])
+            self.assertIn("renderPixelStackDiagnostic()", viewer)
+            self.assertNotIn("29 mm/yr", viewer)
+            self.assertNotIn("246 mm/yr", viewer)
+
+
 if __name__ == "__main__":
     unittest.main()
