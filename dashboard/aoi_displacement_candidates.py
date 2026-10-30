@@ -396,7 +396,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
 
 
 def _candidate_local_floor_rows(region_mask, scored_rows):
-    """Estimate local floors only for relevant pairs, using a cropped neighbourhood."""
+    """Measure one conservative local floor per distinct acquisition interval."""
     rows = []
     row_ids, col_ids = np.nonzero(region_mask)
     if row_ids.size == 0:
@@ -407,37 +407,81 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
     col0 = max(0, int(col_ids.min()) - pad)
     col1 = min(region_mask.shape[1], int(col_ids.max()) + pad + 1)
     region_crop = region_mask[row0:row1, col0:col1]
+
+    by_interval = defaultdict(list)
     for item in scored_rows:
-        candidate = np.asarray(item.get("candidate_mask"), dtype=bool)[row0:row1, col0:col1]
-        cm = region_crop & candidate
-        if not np.any(cm):
-            continue
-        ref, sec = str(item.get("reference_date") or ""), str(item.get("secondary_date") or "")
+        key = (str(item.get("reference_date") or ""), str(item.get("secondary_date") or ""))
+        by_interval[key].append(item)
+
+    for (ref, sec), interval_items in sorted(by_interval.items()):
         try:
             span = (date.fromisoformat(sec[:10]) - date.fromisoformat(ref[:10])).days
         except ValueError:
             span = 0
-        residual = item.get("local_residual")
-        valid = np.asarray(item.get("valid"), dtype=bool)[row0:row1, col0:col1]
-        ring = binary_dilation(cm, iterations=pad) & ~region_crop & valid & ~candidate
-        bg = np.asarray(residual, dtype="float64")[row0:row1, col0:col1][ring] if residual is not None else np.array([])
-        bg = bg[np.isfinite(bg)]
-        if span <= 0 or bg.size < 30:
-            status, floor, sigma = "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND", None, None
+        variant_rows = []
+        candidate_union = np.zeros(region_crop.shape, dtype=bool)
+        for item in interval_items:
+            candidate = np.asarray(item.get("candidate_mask"), dtype=bool)[row0:row1, col0:col1]
+            cm = region_crop & candidate
+            if not np.any(cm):
+                continue
+            candidate_union |= cm
+            residual = item.get("local_residual")
+            valid = np.asarray(item.get("valid"), dtype=bool)[row0:row1, col0:col1]
+            ring = binary_dilation(cm, iterations=pad) & ~region_crop & valid & ~candidate
+            bg = np.asarray(residual, dtype="float64")[row0:row1, col0:col1][ring] if residual is not None else np.array([])
+            bg = bg[np.isfinite(bg)]
+            if span <= 0 or bg.size < 30:
+                sigma, floor, status = None, None, "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND"
+            else:
+                sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
+                floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
+                status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
+            variant_rows.append({
+                "product_id": str(item.get("product_id") or ""),
+                "candidate_pixels": int(cm.sum()),
+                "background_pixels": int(bg.size),
+                "local_background_sigma_mm": sigma,
+                "local_detection_floor_3sigma_mm_day": floor,
+                "status": status,
+            })
+        if not variant_rows:
+            continue
+        measured = [
+            item for item in variant_rows
+            if item["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+        ]
+        if measured:
+            # Subswaths/duplicate variants of one interval are not independent
+            # temporal samples. Keep one interval row and its largest measured
+            # local floor so the detectability gate is conservative.
+            selected = max(
+                measured,
+                key=lambda item: (float(item["local_detection_floor_3sigma_mm_day"]), item["product_id"]),
+            )
+            status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+            floor = selected["local_detection_floor_3sigma_mm_day"]
+            sigma = selected["local_background_sigma_mm"]
         else:
-            sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
-            floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
-            status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
+            selected = max(variant_rows, key=lambda item: (item["background_pixels"], item["product_id"]))
+            status = selected["status"]
+            floor = None
+            sigma = selected["local_background_sigma_mm"]
         rows.append({
-            "product_id": str(item.get("product_id") or ""), "reference_date": ref,
-            "secondary_date": sec, "candidate_pixels": int(cm.sum()),
-            "background_pixels": int(bg.size), "span_days": span or None,
-            "local_background_sigma_mm": sigma, "local_detection_floor_3sigma_mm_day": floor,
+            "product_id": selected["product_id"],
+            "reference_date": ref,
+            "secondary_date": sec,
+            "candidate_pixels": int(candidate_union.sum()),
+            "background_pixels": int(selected["background_pixels"]),
+            "contributing_variants": len(variant_rows),
+            "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
+            "local_background_sigma_mm": sigma,
+            "local_detection_floor_3sigma_mm_day": floor,
+            "span_days": span or None,
             "status": status,
-            "interpretation": "Pair-specific local residual floor; nearby pixels are not independently validated stable ground.",
+            "interpretation": "Pair-specific local residual floor; same-interval subswaths/variants are not independent temporal samples. Nearby background is not independently validated stable ground.",
         })
     return rows
-
 
 def build_aoi_spatial_candidate_report(
     products: list[dict[str, Any]],
