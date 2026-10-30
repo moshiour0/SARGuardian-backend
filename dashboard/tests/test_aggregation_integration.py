@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tools.aggregate_aoi_run import measurement_aoi_grid_count
+
 
 ROOT = Path(__file__).resolve().parents[2]
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
@@ -52,3 +54,29 @@ def test_display_builder_does_not_mutate_source_or_redownload_raw_data() -> None
     assert '"license": "other"' in builder
     assert builder.count('"rel": "license"') >= 2
     assert "does not relicense source data" in builder
+
+
+def test_gunw_aoi_denominator_uses_unwrapped_phase_grid_not_geometry_merge_grid() -> None:
+    preflight = {
+        "grid_checks": [
+            {"grid": "GUNW_unwrappedInterferogram", "grid_pixels_inside_aoi": 109924},
+            {"grid": "GUNW_geometry_merge_radarGrid", "grid_pixels_inside_aoi": 2813},
+        ]
+    }
+    selected, basis = measurement_aoi_grid_count(preflight, "GUNW")
+    assert selected == 109924
+    assert basis["selected_grid"] == "GUNW_unwrappedInterferogram"
+    assert basis["counts_by_grid"]["GUNW_geometry_merge_radarGrid"] == 2813
+
+
+def test_goff_uses_one_consistent_offset_lattice_count() -> None:
+    preflight = {
+        "grid_checks": [
+            {"grid": "GOFF_pixelOffsets", "grid_pixels_inside_aoi": 110425},
+            {"grid": "GOFF_pixelOffsets", "grid_pixels_inside_aoi": 110425},
+            {"grid": "GOFF_pixelOffsets", "grid_pixels_inside_aoi": 110425},
+        ]
+    }
+    selected, basis = measurement_aoi_grid_count(preflight, "GOFF")
+    assert selected == 110425
+    assert basis["selected_grid"] == "GOFF_pixelOffsets"
