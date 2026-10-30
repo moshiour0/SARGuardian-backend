@@ -234,7 +234,8 @@ def build_science_pipeline_report(
         },
         {
             "name": "local_floor.py",
-            "scope": "OPTIONAL_POINT_LOCAL_DIAGNOSTIC_NOT_A_FIND_DISPLACEMENTS_PREREQUISITE",
+            "scope": "OPTIONAL_POINT_LOCAL_DIAGNOSTIC_WITH_TARGET_FREE_CANDIDATE_EXTENSION",
+            "implementation": "Target-free candidate-region floors are calculated by dashboard/aoi_displacement_candidates.py::_candidate_local_floor_rows; src/local_floor.py remains the selected-point CLI.",
             "status": local_floor_status,
             "reason": local_floor_reason,
             "products_with_measured_local_floor": measured_floors,
