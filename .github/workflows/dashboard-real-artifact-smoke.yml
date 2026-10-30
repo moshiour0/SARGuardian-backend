@@ -69,6 +69,11 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-dashboard-fixture
 
+      - name: Set up the pinned Python runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Install dashboard and Drive upload dependencies
         shell: bash
         run: |
