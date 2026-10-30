@@ -94,6 +94,24 @@ class SciencePipelineReportTests(unittest.TestCase):
             "candidate_features": 4,
             "products_examined": 12,
             "candidate_local_floor_measurements": 5,
+            "features": [
+                {"properties": {
+                    "candidate_seasonality_inventory": {"status": "MULTI_SEASON_SUPPORT_PRESENT"},
+                    "candidate_phase_ceiling_review": {"status": "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"},
+                }},
+                {"properties": {
+                    "candidate_seasonality_inventory": {"status": "INSUFFICIENT_SEASONAL_COVERAGE"},
+                    "candidate_phase_ceiling_review": {"status": "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD"},
+                }},
+                {"properties": {
+                    "candidate_seasonality_inventory": {"status": "MULTI_SEASON_SUPPORT_PRESENT"},
+                    "candidate_phase_ceiling_review": {"status": "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD"},
+                }},
+                {"properties": {
+                    "candidate_seasonality_inventory": {"status": "INSUFFICIENT_SEASONAL_COVERAGE"},
+                    "candidate_phase_ceiling_review": {"status": "NOT_APPLICABLE_NON_GUNW_OFFSET_METRIC"},
+                }},
+            ],
             "reason": "Repeated spatial candidates found.",
         }
         goff = {
@@ -144,6 +162,9 @@ class SciencePipelineReportTests(unittest.TestCase):
             stages["candidate_check.py"]["status"],
             "PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD",
         )
+        self.assertEqual(stages["candidate_check.py"]["candidate_features_reviewed"], 4)
+        self.assertEqual(stages["candidate_check.py"]["features_with_multi_season_acquisition_support"], 2)
+        self.assertEqual(stages["candidate_check.py"]["features_exceeding_gunw_single_fringe_review_threshold"], 1)
         self.assertEqual(
             stages["inverse_velocity.py"]["status"],
             "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE",
