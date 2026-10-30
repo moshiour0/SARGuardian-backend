@@ -269,6 +269,8 @@ jobs:
           assert "What did NISAR observe in this area?" in viewer
           assert "pixelStackSummary" in viewer
           assert "Candidate overlay" in viewer
+          assert "Not testable — too few nearby valid pixels to measure background noise" in viewer
+          assert "noise comparison was withheld" in viewer
           print("RETAINED_ARTIFACT_DASHBOARD_REBUILD=PASS")
           print("SOURCE_RUN_ID=" + os.environ["SOURCE_RUN_ID"])
           print("PRODUCTS=" + str(receipt["observations"]))
