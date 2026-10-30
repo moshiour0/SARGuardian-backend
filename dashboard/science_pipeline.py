@@ -245,8 +245,8 @@ def build_science_pipeline_report(
         {
             "name": "inverse_velocity.py",
             "scope": "CANDIDATE_OR_KNOWN_PLACE_ACCELERATION_ANALYSIS",
-            "status": "WITHHELD_NO_INDEPENDENT_REFERENCE_AND_MATCHED_LOCAL_FLOOR",
-            "reason": "The target-free AOI-relative GUNW series is a useful spatial diagnostic but its zero is inferred from the AOI, not independently validated stable ground. No candidate-specific independent reference and matched local velocity-floor series is currently supplied; fitting a failure-time trend would overstate the evidence.",
+            "status": "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE",
+            "reason": "Candidate-local pair floors are now measured where background support allows, but no candidate-specific cumulative time series is tied to an independently validated stable-ground reference. An AOI-relative LOS series alone cannot support a failure-time forecast; the inverse-velocity fit remains withheld.",
         },
         {
             "name": "geometry_merge.py",
@@ -269,12 +269,12 @@ def build_science_pipeline_report(
             "name": "candidate_check.py",
             "scope": "KNOWN_PLACE_TARGET_STRESS_TEST",
             "status": (
-                "NOT_APPLICABLE_CUSTOM_AOI_TARGET_FREE_REPLACEMENT_AVAILABLE"
+                "SPATIAL_SCREEN_AVAILABLE_CANDIDATE_STRESS_TESTS_NOT_RUN"
                 if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
                 else str(candidate.get("status") or "NOT_REPORTED")
             ),
             "reason": (
-                "The legacy candidate_check.py requires named-AOI/target-log inputs. The custom-AOI Find Displacements workflow instead runs the target-free spatial candidate screen and GUNW per-pixel diagnostic below; no candidate is silently treated as validated."
+                "The target-free spatial screen discovers custom-AOI candidates, but it is not equivalent to candidate_check.py's seasonality, cross-geometry and phase-ceiling stress tests. Those candidate-level stress tests remain unavailable for arbitrary WKT; the spatial candidates are not treated as validated movement."
                 if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
                 else str(candidate.get("detail") or "Inspect saved candidate diagnostics.")
             ),
