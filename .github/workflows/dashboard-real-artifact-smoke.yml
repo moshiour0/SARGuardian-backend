@@ -285,8 +285,38 @@ jobs:
           extended = manifest.get("aoi_displacement_candidates", {})
           assert int(legacy.get("candidate_count", 0)) == 120, legacy
           assert int(extended.get("candidate_features", 0)) == 2208, extended
+          assert int(extended.get("candidate_local_floor_measurements", -1)) >= 0, extended
+          assert int(extended.get("candidate_features_with_local_floor", -1)) >= 0, extended
           assert extended.get("movement_confirmed") is False
           assert extended.get("hazard_detected") is False
+          features = extended.get("features", [])
+          assert len(features) == 2208, len(features)
+          for feature in features:
+              properties = feature.get("properties", {})
+              assert isinstance(properties.get("candidate_local_floor_by_pair"), list), properties
+              assert isinstance(properties.get("candidate_seasonality_inventory"), dict), properties
+              assert isinstance(properties.get("candidate_phase_ceiling_review"), dict), properties
+              assert properties.get("candidate_cross_geometry_status") == "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", properties
+
+          pipeline = manifest.get("science_pipeline", {})
+          modules = {row.get("name"): row for row in pipeline.get("modules", [])}
+          assert modules["aoi_displacement_candidates.py"]["candidate_features"] == 2208, modules
+          assert modules["local_floor.py"]["status"] in {
+              "CANDIDATE_REGION_LOCAL_FLOORS_MEASURED",
+              "WITHHELD_INSUFFICIENT_CANDIDATE_LOCAL_BACKGROUND",
+              "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS",
+          }, modules.get("local_floor.py")
+          assert modules["inverse_velocity.py"]["status"] == "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE", modules
+          assert modules["geometry_merge.py"]["status"] == "WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE", modules
+          assert pipeline.get("structural_validation_is_geophysical_validation") is False
+
+          print("REAL_AOI_CANDIDATE_LOCAL_FLOOR_MEASUREMENTS=" + str(extended.get("candidate_local_floor_measurements", 0)))
+          print("REAL_AOI_CANDIDATE_FEATURES_WITH_LOCAL_FLOOR=" + str(extended.get("candidate_features_with_local_floor", 0)))
+          print("REAL_AOI_CANDIDATE_PHASE_REVIEW_FEATURES=" + str(sum(
+              1 for feature in features
+              if feature["properties"]["candidate_phase_ceiling_review"].get("status") == "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+          )))
+          print("REAL_AOI_TARGET_FREE_STAGE_STATUS=" + str(pipeline.get("overall_status")))
 
           # Record the rebuilt viewer receipt without changing the source science.
           summary["web_dashboard"] = receipt
