@@ -142,7 +142,7 @@ class SciencePipelineReportTests(unittest.TestCase):
         )
         self.assertEqual(
             stages["candidate_check.py"]["status"],
-            "SPATIAL_SCREEN_AVAILABLE_CANDIDATE_STRESS_TESTS_NOT_RUN",
+            "PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD",
         )
         self.assertEqual(
             stages["inverse_velocity.py"]["status"],
