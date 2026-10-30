@@ -32,7 +32,7 @@ def _write_product(
     rng = np.random.default_rng(seed)
     first = rng.normal(0, 1.25, size=(80, 80)).astype("float32")
     row_start, row_end, col_start, col_end = hotspot_box
-    first[row_start:row_end, col_start:col_end] += 18.0
+    first[row_start:row_end, col_start:col_end] += hotspot_amplitude_mm
     transform = from_origin(500000, 3000000, 80, 80)
     if family == "GUNW":
         data = np.stack([first, np.ones_like(first)])
