@@ -305,8 +305,8 @@ def build_science_pipeline_report(
         if aoi_relative_pixel_timeseries.get("status") == "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE"
         else (
             "AOI_WIDE_CANDIDATE_DISCOVERY_AVAILABLE_WITH_GUNW_STACK_WITHHELD"
-            if aoi_displacement_candidates.get("status") not in {"UNAVAILABLE", "NOT_REPORTED"}
-               or aoi_wide_screen.get("status") not in {"SCREEN_FAILED", "NOT_REPORTED"}
+            if str(aoi_displacement_candidates.get("status") or "NOT_REPORTED") not in {"UNAVAILABLE", "NOT_REPORTED"}
+               or str(aoi_wide_screen.get("status") or "NOT_REPORTED") not in {"SCREEN_FAILED", "NOT_REPORTED"}
             else (
                 "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
                 if report["network_assessment_status"] == "COMPLETED"
