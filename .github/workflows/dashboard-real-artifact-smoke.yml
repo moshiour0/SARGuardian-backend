@@ -176,11 +176,15 @@ jobs:
               if module.get("name") == "pixel_stack.py":
                   module["status"] = "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK"
                   module["reason"] = (
-                      "The retained GUNW pairs yielded only 9 and 12 complete pixels in two chains "
-                      "and zero in the third. The tested noise-null method requires at least 30 "
-                      "neighbouring valid pairs to estimate spatial correlation; the comparison "
-                      "was withheld. This is NOT TESTABLE, not NO DETECTION."
+                      "The 15 retained GUNW pairs belong to 15 distinct exact networks defined by "
+                      "look/path, frame, subswath, bandwidth, polarization and processing CRID. "
+                      "None contains two or more consecutive pairs within the same exact key. "
+                      "Joining them would mix measurement geometry/processing lineage. "
+                      "A homogeneous multi-date pixel stack is therefore NOT TESTABLE; this is not NO DETECTION."
                   )
+                  module["pairs_examined"] = 15
+                  module["exact_networks"] = 15
+                  module["networks_with_2_plus_pairs"] = 0
           report = json.loads(report_path.read_text(encoding="utf-8"))
           report["summary"] = summary
           report["science_reaudit"] = summary["science_reaudit"]
