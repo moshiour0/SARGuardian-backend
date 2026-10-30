@@ -177,6 +177,42 @@ def build_pixel_stack_explanation(root: Path, diagnostics: dict[str, Any]) -> di
         except (OSError, ValueError, RuntimeError):
             pass
     chains = primary.get("chains", [])
+    if primary.get("status") == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK":
+        pairs = primary.get("pairs_examined")
+        networks = primary.get("exact_networks")
+        repeat_networks = primary.get("networks_with_2_plus_pairs")
+        pair_text = "the retained GUNW products" if pairs is None else f"{pairs} GUNW pair(s)"
+        network_text = "an unknown number of separate networks" if networks is None else f"{networks} separate measurement networks"
+        repeat_text = "an unreported number" if repeat_networks is None else str(repeat_networks)
+        interpretation = (
+            f"The target-free screen checked {pair_text}. They belong to {network_text}; "
+            f"{repeat_text} network(s) contained two or more consecutive pair intervals with the same "
+            "look, path, frame, subswath, bandwidth, polarization and processing CRID. "
+            "A multi-date per-pixel LOS time series therefore could not be calculated without mixing "
+            "different measurement networks. This is NOT TESTABLE, not NO DETECTION, and does not mean zero motion."
+        )
+        return {
+            "schema_version": "sarguardian-gunw-pixel-stack-explainer/1.0",
+            "status": primary.get("status"),
+            "available": False,
+            "pairs_examined": pairs,
+            "exact_networks": networks,
+            "networks_with_2_plus_pairs": repeat_networks,
+            "chains": [],
+            "common_mode_sensitivity": {
+                "status": sensitivity.get("status", "NOT_REPORTED"),
+                "available": sensitivity.get("available", False),
+                "same_complete_pixel_support": False,
+                "atmospheric_common_mode_warning": sensitivity_log_warning,
+            },
+            "interpretation": interpretation,
+            "limitations": [
+                "A multi-date GUNW series is only valid within a homogeneous network with the same look/path, frame, subswath, bandwidth, polarization and processing CRID.",
+                "Pairwise GUNW LOS measurements are not cumulative displacement, vertical motion or full 3-D motion.",
+                "This is NOT TESTABLE because a compatible repeated network is unavailable; it is not a NO DETECTION result.",
+                "AOI-wide GOFF spatial anomalies remain a separate offset screen and are not ground displacement.",
+            ],
+        }
     not_testable = sum(
         chain.get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
         for chain in chains
