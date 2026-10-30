@@ -185,5 +185,29 @@ class SciencePipelineReportTests(unittest.TestCase):
 
 
 
+    def test_unusable_rasters_do_not_claim_target_free_discovery_completed(self) -> None:
+        fake = ModuleType("timeseries")
+        fake.granule_metadata = lambda name: None
+        fake.Pair = object
+        fake.describe_network = lambda pairs: {}
+        with patch.dict("sys.modules", {"timeseries": fake}):
+            report = build_science_pipeline_report(
+                [], Path(tempfile.gettempdir()), {},
+                site_context={"measurement_target": {"status": "NOT_PROVIDED"}},
+                common_reference_report={"status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS"},
+                aoi_displacement_candidates={"status": "NO_ELIGIBLE_RASTER_EXPORTS", "features": []},
+                aoi_relative_pixel_timeseries={"status": "NO_ELIGIBLE_GUNW_EXPORTS", "networks": []},
+                aoi_wide_screen={"status": "NO_USABLE_GOFF_SERIES", "series": []},
+            )
+        stages = {row["name"]: row for row in report["modules"]}
+        self.assertEqual(
+            stages["candidate_check.py"]["status"],
+            "NOT_TESTABLE_NO_ELIGIBLE_RASTER_EXPORTS",
+        )
+        self.assertEqual(
+            report["overall_status"],
+            "PARTIAL_STAGE_ASSESSMENT",
+        )
+
 if __name__ == "__main__":
     unittest.main()
