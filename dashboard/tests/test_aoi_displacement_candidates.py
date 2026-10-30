@@ -246,6 +246,8 @@ class AOISpatialCandidateTests(unittest.TestCase):
             root = Path(temp)
             product = _write_product(
                 root, "GOFF-001", "GOFF", "2026-06-08", "2026-06-20", 42,
+                hotspot_amplitude_mm=600.0,
+                along_track_hotspot_amplitude_mm=500.0,
                 with_outlier_flag=True,
             )
             report = build_aoi_spatial_candidate_report([product], root, "9" * 64)
