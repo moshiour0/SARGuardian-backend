@@ -75,13 +75,33 @@ def plan(manifest: dict[str, Any], product_root: Path, cleanup_root: Path) -> di
             reasons.append("CLEANUP_SOURCE_SHA256_MISMATCH")
         if not cleanup_upload or cleanup_upload.get("remote_verification")!="PASS":
             reasons.append("CLEANUP_RECEIPT_REMOTE_UPLOAD_NOT_VERIFIED")
+        source_sha=(download or {}).get("source_sha256","")
+        metadata_sha=(meta or {}).get("source_file_sha256","")
+        valid_source_sha = (
+            isinstance(source_sha, str) and re.fullmatch(r"[0-9a-f]{64}", source_sha) is not None
+        )
+        valid_metadata_sha = (
+            isinstance(metadata_sha, str) and re.fullmatch(r"[0-9a-f]{64}", metadata_sha) is not None
+        )
+        acquisition_succeeded = outcomes.get("download") == "success" or valid_source_sha or valid_metadata_sha
+
         complete=not reasons and terminal_reason is None
         if complete:
             status="PASS"
         elif terminal_reason:
             status="TERMINAL_FAILURE"
             reasons.append(terminal_reason)
+        elif acquisition_succeeded:
+            # Do not re-download a multi-GB granule merely because a later
+            # provenance, Drive-retention, cleanup, or artifact checkpoint is
+            # incomplete. A successful acquisition is not retryable by replaying
+            # the whole product; preserve the exact post-download failure instead.
+            status="TERMINAL_FAILURE"
+            terminal_reason="NON_RETRYABLE_POST_DOWNLOAD_CHECKPOINT_FAILURE"
+            reasons.append(terminal_reason)
         else:
+            # Explicit download failures and jobs with no completed acquisition
+            # checkpoint get one bounded second worker before assembly.
             status="RETRY"
         decisions.append({"product_id":pid,"granule_name":granule,"status":status,
                           "terminal_reason":terminal_reason if status=="TERMINAL_FAILURE" else None,
