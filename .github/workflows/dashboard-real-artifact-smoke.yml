@@ -277,6 +277,8 @@ jobs:
           print("RASTER_LAYERS=" + str(receipt["layers"]))
           print("DERIVED_LAYERS=" + str(receipt["derived_layers"]))
           print("PIXEL_STACK_LOG_CHAINS=3")
+          print("PIXEL_STACK_STATUS=WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+          print("RAW_HDF5_REPLAYED=false")
           print("LEGACY_GOFF_CANDIDATES=120")
           print("EXTENDED_SCREEN_FEATURES=2208")
           print("SOURCE_TIFFS_UNCHANGED=PASS")
