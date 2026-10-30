@@ -33,13 +33,16 @@ def sample_manifest():
     }
 
 
-def test_aoi_workflow_bounds_initial_workers_and_disables_automatic_redownload():
+def test_aoi_workflow_bounds_initial_and_retry_workers_at_fifteen():
     text = WORKFLOW.read_text(encoding="utf-8")
-    assert text.count("max-parallel: 15") == 1
+    assert text.count("max-parallel: 15") == 2
     assert "  process-products:\n" in text
     assert "  retry-plan:\n" in text
-    assert "  retry-products:\n" not in text
+    assert "  retry-products:\n" in text
     assert "sarguardian-aoi-retry-plan" in text
+    assert "execution_label: initial" in text
+    assert "execution_label: retry-1" in text
+    assert "needs: [manifest, process-products, retry-plan, retry-products]" in text
     assert not any(line.strip() == "max-parallel: 1" for line in text.splitlines())
 
 
@@ -217,9 +220,10 @@ def test_manifest_orchestration_branch_is_passed_to_both_worker_matrices():
     assert 'branch="${AOI_ORCHESTRATION_BRANCH:?AOI_ORCHESTRATION_BRANCH must be set}"' in manifest
     assert 'echo "branch=$branch" >> "$GITHUB_OUTPUT"' in manifest
 
-    block = workflow.split("  process-products:\n", 1)[1].split("  retry-plan:", 1)[0]
-    assert "orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}" in block
-    assert "  retry-products:\n" not in workflow
+    initial_block = workflow.split("  process-products:\n", 1)[1].split("  retry-plan:", 1)[0]
+    retry_block = workflow.split("  retry-products:\n", 1)[1].split("  dashboard:", 1)[0]
+    assert "orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}" in initial_block
+    assert "orchestration_branch: ${{ needs.manifest.outputs.orchestration_branch }}" in retry_block
 
     worker = (ROOT / ".github" / "workflows" / "sarguardian-aoi-product-worker.yml").read_text(encoding="utf-8")
     assert "      orchestration_branch:\n        required: true\n        type: string" in worker
