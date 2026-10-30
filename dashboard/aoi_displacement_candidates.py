@@ -398,14 +398,15 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
 def _candidate_local_floor_rows(region_mask, scored_rows):
     """Measure one conservative local floor per distinct acquisition interval."""
     rows = []
-    row_ids, col_ids = np.nonzero(region_mask)
-    if row_ids.size == 0:
+    row_ids = np.flatnonzero(np.any(region_mask, axis=1))
+    col_ids = np.flatnonzero(np.any(region_mask, axis=0))
+    if row_ids.size == 0 or col_ids.size == 0:
         return rows
     pad = 5
-    row0 = max(0, int(row_ids.min()) - pad)
-    row1 = min(region_mask.shape[0], int(row_ids.max()) + pad + 1)
-    col0 = max(0, int(col_ids.min()) - pad)
-    col1 = min(region_mask.shape[1], int(col_ids.max()) + pad + 1)
+    row0 = max(0, int(row_ids[0]) - pad)
+    row1 = min(region_mask.shape[0], int(row_ids[-1]) + pad + 1)
+    col0 = max(0, int(col_ids[0]) - pad)
+    col1 = min(region_mask.shape[1], int(col_ids[-1]) + pad + 1)
     region_crop = region_mask[row0:row1, col0:col1]
 
     by_interval = defaultdict(list)
@@ -429,7 +430,11 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             residual = item.get("local_residual")
             valid = np.asarray(item.get("valid"), dtype=bool)[row0:row1, col0:col1]
             ring = binary_dilation(cm, iterations=pad) & ~region_crop & valid & ~candidate
-            bg = np.asarray(residual, dtype="float64")[row0:row1, col0:col1][ring] if residual is not None else np.array([])
+            residual_crop = (
+                np.asarray(residual)[row0:row1, col0:col1].astype("float64", copy=False)
+                if residual is not None else np.array([])
+            )
+            bg = residual_crop[ring] if residual is not None else np.array([])
             bg = bg[np.isfinite(bg)]
             if span <= 0 or bg.size < 30:
                 sigma, floor, status = None, None, "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND"
@@ -440,7 +445,7 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             # Phase-ceiling review uses candidate LOS contrast against this
             # pair's AOI median, not the locally detrended residual used by
             # the local noise-floor estimator.
-            pair_values = np.asarray(item.get("values"), dtype="float64")[row0:row1, col0:col1]
+            pair_values = np.asarray(item.get("values"))[row0:row1, col0:col1].astype("float64", copy=False)
             pair_centre = _finite(item.get("background_median_mm"))
             candidate_values = pair_values[cm] - float(pair_centre) if pair_centre is not None else np.array([])
             candidate_values = candidate_values[np.isfinite(candidate_values)]
