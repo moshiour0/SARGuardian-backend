@@ -108,6 +108,12 @@ class AOISpatialCandidateTests(unittest.TestCase):
             self.assertGreater(measured_floor["local_detection_floor_3sigma_mm_day"], 0)
             self.assertGreaterEqual(measured_floor["background_pixels"], 30)
             self.assertEqual(report["candidate_local_floor_measurements"], feature["properties"]["candidate_local_floor_measured_pairs"])
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["monsoon_pairs"], 1)
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["dry_season_pairs"], 0)
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["status"], "INSUFFICIENT_SEASONAL_COVERAGE")
+            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["threshold_mm"], 59.6)
+            self.assertEqual(feature["properties"]["candidate_cross_geometry_status"],
+                             "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE")
             saved = json.loads((root / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["candidate_features"], report["candidate_features"])
             geojson = json.loads((root / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
