@@ -209,6 +209,40 @@ def build_science_pipeline_report(
     common_status = str(common_reference_report.get("status") or "NOT_REPORTED")
     if target_status == "NOT_PROVIDED" and common_status == "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS":
         common_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
+    candidate_features = [
+        feature for feature in (aoi_displacement_candidates.get("features") or [])
+        if isinstance(feature, dict) and isinstance(feature.get("properties"), dict)
+    ]
+    candidate_properties = [feature["properties"] for feature in candidate_features]
+    candidate_screen_status = str(aoi_displacement_candidates.get("status") or "NOT_REPORTED")
+    phase_review_count = sum(
+        row.get("candidate_phase_ceiling_review", {}).get("status") == "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+        for row in candidate_properties
+    )
+    multi_season_count = sum(
+        row.get("candidate_seasonality_inventory", {}).get("status") == "MULTI_SEASON_SUPPORT_PRESENT"
+        for row in candidate_properties
+    )
+    if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI":
+        if candidate_features:
+            candidate_check_status = "PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD"
+            candidate_check_reason = (
+                "The target-free path reports pairwise spatial differential, candidate-local 3-sigma floors, season-coverage inventory "
+                "and GUNW single-fringe review flags. These are triage checks, not a statistically conclusive seasonal test. "
+                "Cross-geometry motion-vs-delay validation remains withheld without pixelwise look vectors and rate covariance."
+            )
+        elif candidate_screen_status == "NO_CANDIDATES_AT_CONFIGURED_THRESHOLD":
+            candidate_check_status = "NOT_APPLICABLE_NO_CANDIDATES_AT_SCREEN_THRESHOLD"
+            candidate_check_reason = "No spatial candidate reached the configured review threshold, so candidate-level stress tests were not applicable; this does not prove zero movement."
+        elif candidate_screen_status == "NO_ELIGIBLE_RASTER_EXPORTS":
+            candidate_check_status = "NOT_TESTABLE_NO_ELIGIBLE_RASTER_EXPORTS"
+            candidate_check_reason = "The target-free candidate screen had no eligible raster exports; candidate-level stress tests could not be run."
+        else:
+            candidate_check_status = "NOT_TESTABLE_TARGET_FREE_CANDIDATE_SCREEN_UNAVAILABLE"
+            candidate_check_reason = "The legacy named-AOI target stress test is not applicable to this WKT and the target-free candidate screen did not provide candidate features."
+    else:
+        candidate_check_status = str(candidate.get("status") or "NOT_REPORTED")
+        candidate_check_reason = str(candidate.get("detail") or "Inspect saved candidate diagnostics.")
     report["modules"].extend([
         {
             "name": "common_ref.py",
@@ -269,16 +303,12 @@ def build_science_pipeline_report(
         {
             "name": "candidate_check.py",
             "scope": "KNOWN_PLACE_TARGET_STRESS_TEST",
-            "status": (
-                "PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD"
-                if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
-                else str(candidate.get("status") or "NOT_REPORTED")
-            ),
-            "reason": (
-                "The target-free path now reports pairwise spatial differential, candidate-local 3-sigma floors, acquisition-season coverage and a GUNW single-fringe review flag. These are screening/triage checks only, not a statistically conclusive seasonal test. Cross-geometry motion-vs-delay validation remains withheld without pixelwise look vectors and rate covariance; no candidate is treated as validated movement."
-                if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
-                else str(candidate.get("detail") or "Inspect saved candidate diagnostics.")
-            ),
+            "status": candidate_check_status,
+            "candidate_features_reviewed": len(candidate_features),
+            "features_with_multi_season_acquisition_support": multi_season_count,
+            "features_exceeding_gunw_single_fringe_review_threshold": phase_review_count,
+            "cross_geometry_validation": "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE" if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI" else "SEE_KNOWN_PLACE_DIAGNOSTIC",
+            "reason": candidate_check_reason,
         },
     ])
     report["modules"].extend([
