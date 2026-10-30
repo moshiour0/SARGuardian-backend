@@ -670,7 +670,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(second_layer["preview_crs"], "EPSG:4326")
             self.assertEqual(first["display_scale"], second_layer["display_scale"])
 
-def test_very_low_aoi_coverage_is_exposed_for_cautious_display(self) -> None:
+    def test_very_low_aoi_coverage_is_exposed_for_cautious_display(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             product_tif, _ = self._fixture(root)
@@ -701,7 +701,7 @@ def test_very_low_aoi_coverage_is_exposed_for_cautious_display(self) -> None:
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             if shutil.which("node"):
                 metric_start = viewer.index("function metricValue(p,key){")
-                metric_end = viewer.index("\\nfunction metricUncertainty", metric_start)
+                metric_end = viewer.index("\nfunction metricUncertainty", metric_start)
                 metric_function = viewer[metric_start:metric_end]
                 script = metric_function + """
 const veryLow = {support_level: "VERY_LOW_COVERAGE", product_type: "GOFF",
@@ -717,7 +717,6 @@ if (metricValue(limited, "gunw_los_median") !== 29.883) throw new Error("LOW_COV
 """
                 checked = subprocess.run(["node", "-e", script], capture_output=True, text=True)
                 self.assertEqual(checked.returncode, 0, checked.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()
