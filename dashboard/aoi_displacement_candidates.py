@@ -155,7 +155,7 @@ def _write_analysis_raster(
             digest.update(block)
     return {
         "role": metric,
-        "relative_path": path.relative_to(path.parents[2]).as_posix(),
+        "relative_path": (Path(path.parent.name) / path.name).as_posix(),
         "bytes": path.stat().st_size,
         "valid_pixels": int(np.count_nonzero(mask)),
         "units": units,
