@@ -160,6 +160,31 @@ def build_pixel_stack_explanation(root: Path, diagnostics: dict[str, Any]) -> di
         except (OSError, ValueError, RuntimeError):
             pass
     chains = primary.get("chains", [])
+    not_testable = sum(
+        chain.get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
+        for chain in chains
+    )
+    no_complete = sum(chain.get("finding") == "NO_COMPLETE_SERIES" for chain in chains)
+    no_detection = sum(chain.get("finding") == "NO_CLUSTER_ABOVE_NOISE_SCREEN" for chain in chains)
+    if not_testable:
+        interpretation = (
+            f"{not_testable} GUNW chain(s) had a few complete pixel time series, but not enough "
+            "nearby valid pixels to estimate the spatial background-noise level. The noise-only "
+            "cluster test was therefore withheld. "
+            f"{no_complete} other chain(s) had no complete pixel series at all. "
+            "This result is NOT TESTABLE, not a no-detection result, and is not evidence of zero ground motion."
+        )
+    elif chains:
+        interpretation = (
+            "This exploratory per-pixel screen had sparse complete time-series support. "
+            f"{no_detection} chain(s) completed the noise comparison without a cluster above its noise-only screen; "
+            f"{no_complete} chain(s) had no complete pixels to fit. This is not evidence of zero ground motion."
+        )
+    else:
+        interpretation = (
+            "The detailed per-pixel screen log was not available in this result bundle; "
+            "no pixel-support conclusion is inferred."
+        )
     return {
         "schema_version": "sarguardian-gunw-pixel-stack-explainer/1.0",
         "status": primary.get("status", "NOT_REPORTED"),
@@ -172,16 +197,11 @@ def build_pixel_stack_explanation(root: Path, diagnostics: dict[str, Any]) -> di
             "same_complete_pixel_support": same_support,
             "atmospheric_common_mode_warning": sensitivity_log_warning,
         },
-        "interpretation": (
-            "This older exploratory per-pixel screen had extremely sparse complete time-series support. "
-            "It found no connected candidate cluster beyond its own noise-only screen in chains where a fit was possible; "
-            "one chain had no complete pixels to fit. This is not evidence of zero ground motion."
-            if chains else
-            "The detailed per-pixel screen log was not available in this result bundle; no pixel-support conclusion is inferred."
-        ),
+        "interpretation": interpretation,
         "limitations": [
             "This is an exploratory residual-based GUNW LOS screen, not independent geophysical validation.",
-            "The per-pixel velocity summaries are not shown because complete support is only a handful of cells; they are not AOI-wide measurements.",
+            "Complete time-series pixels are only a handful of cells and cannot represent the whole AOI.",
+            "A spatial-noise null cannot be tested without enough nearby valid pixels; NOT TESTABLE is not NO DETECTION.",
             "Removing pairwise common mode can suppress real broad AOI-wide motion; retaining it can leave atmospheric/orbit bias.",
             "The separate strict AOI-relative time-series inversion has its own connected-network and common-pixel gates; the two screens are not interchangeable.",
             "No detection by this screen does not mean no movement.",
