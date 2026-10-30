@@ -111,6 +111,50 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
                                            "name": rec["name"], "screen_valid": screen_valid_count,
                                            "robust_inliers": robust_inlier_count,
                                            "screen_outliers": screen_outlier_count})
+                        variance_layers: dict[str, Any] = {}
+                        if args.product_type == "GOFF":
+                            for tag_name, description_fragment, nonnegative in (
+                                ("range_variance_band", "slant-range offset variance", True),
+                                ("along_track_variance_band", "along-track offset variance", True),
+                                ("cross_offset_variance_band", "cross offset variance", False),
+                            ):
+                                raw_index = str(tags.get(tag_name) or "").strip()
+                                if not raw_index or raw_index.lower() == "not_exported":
+                                    continue
+                                try:
+                                    band_index = int(raw_index)
+                                except (TypeError, ValueError, OverflowError):
+                                    errors.append({"problem": "GOFF_VARIANCE_BAND_INDEX_INVALID",
+                                                   "name": rec["name"], "tag": tag_name, "value": raw_index})
+                                    continue
+                                if band_index < 1 or band_index > ds.count:
+                                    errors.append({"problem": "GOFF_VARIANCE_BAND_INDEX_OUT_OF_RANGE",
+                                                   "name": rec["name"], "tag": tag_name, "index": band_index,
+                                                   "band_count": ds.count})
+                                    continue
+                                description = str(ds.descriptions[band_index - 1] or "").lower()
+                                if description_fragment not in description:
+                                    errors.append({"problem": "GOFF_VARIANCE_BAND_DESCRIPTION_MISMATCH",
+                                                   "name": rec["name"], "tag": tag_name,
+                                                   "description": description})
+                                    continue
+                                values = ds.read(band_index, masked=True)
+                                array = values.filled(np.nan).astype("float64", copy=False)
+                                finite_values = np.isfinite(array) & valid
+                                negative_count = int((finite_values & (array < 0)).sum())
+                                if nonnegative and negative_count:
+                                    errors.append({"problem": "GOFF_DIAGONAL_VARIANCE_HAS_NEGATIVE_VALUES",
+                                                   "name": rec["name"], "tag": tag_name,
+                                                   "count": negative_count})
+                                variance_layers[tag_name] = {
+                                    "band_index": band_index,
+                                    "description": description,
+                                    "finite_valid_pixels": int(finite_values.sum()),
+                                    "coverage": float(finite_values.sum() / max(1, screen_valid_count)),
+                                    "negative_values": negative_count,
+                                }
+                            if ("range_variance_band" in variance_layers) != ("along_track_variance_band" in variance_layers):
+                                warnings.append(f"PARTIAL_GOFF_COMPONENT_VARIANCE_LAYERS:{path.name}")
                         rec.update({
                             "width": ds.width, "height": ds.height, "count": ds.count,
                             "crs": ds.crs.to_string() if ds.crs else None,
@@ -126,6 +170,7 @@ def validate(args: argparse.Namespace) -> dict[str, Any]:
                             "outlier_flag_inlier_pixels": flag_inlier_count,
                             "outlier_flag_rejected_pixels": flag_outlier_count,
                             "science_values_present": screen_valid_count > 0,
+                            "goff_variance_layers": variance_layers,
                             "bounds": [float(ds.bounds.left), float(ds.bounds.bottom),
                                        float(ds.bounds.right), float(ds.bounds.top)],
                         })
