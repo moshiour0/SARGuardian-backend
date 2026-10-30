@@ -312,7 +312,7 @@ def build_science_pipeline_report(
         },
         {
             "name": "candidate_check.py",
-            "scope": "KNOWN_PLACE_TARGET_STRESS_TEST",
+            "scope": "KNOWN_PLACE_LEGACY_STRESS_TEST_WITH_TARGET_FREE_PARTIAL_REVIEW",
             "status": candidate_check_status,
             "candidate_features_reviewed": len(candidate_features),
             "features_with_multi_season_acquisition_support": multi_season_count,
