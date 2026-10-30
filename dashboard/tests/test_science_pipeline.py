@@ -77,6 +77,31 @@ class SciencePipelineReportTests(unittest.TestCase):
         self.assertEqual(stages["bound.py"], "NOT_APPLICABLE_GENERIC_AOI_BY_DESIGN")
 
 
+    def test_candidate_without_local_background_is_explicitly_withheld(self) -> None:
+        fake = ModuleType("timeseries")
+        fake.granule_metadata = lambda name: None
+        fake.Pair = object
+        fake.describe_network = lambda pairs: {}
+        with patch.dict("sys.modules", {"timeseries": fake}):
+            report = build_science_pipeline_report(
+                [], Path(tempfile.gettempdir()),
+                {"candidate_checks": {"status": "SKIPPED_UNSUPPORTED_CUSTOM_AOI"}},
+                site_context={"measurement_target": {"status": "NOT_PROVIDED"}},
+                common_reference_report={"status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS"},
+                aoi_displacement_candidates={
+                    "status": "SINGLE_PAIR_CANDIDATES_NEED_TEMPORAL_CONFIRMATION",
+                    "candidate_local_floor_measurements": 0,
+                    "features": [{"type": "Feature", "properties": {"status": "SINGLE_PAIR_CANDIDATE_UNCONFIRMED"}}],
+                },
+            )
+        stages = {row["name"]: row for row in report["modules"]}
+        self.assertEqual(
+            stages["local_floor.py"]["status"],
+            "WITHHELD_INSUFFICIENT_CANDIDATE_LOCAL_BACKGROUND",
+        )
+        self.assertIn("minimum 30 valid nearby background pixels", stages["local_floor.py"]["reason"])
+
+
     def test_find_displacements_reports_target_free_stages_and_keeps_known_place_gates_separate(self) -> None:
         fake = ModuleType("timeseries")
         fake.granule_metadata = lambda name: None
