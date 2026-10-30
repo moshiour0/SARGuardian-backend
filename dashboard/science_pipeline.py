@@ -356,7 +356,7 @@ def build_science_pipeline_report(
         "AOI_RELATIVE_PIXEL_DIAGNOSTICS_AVAILABLE_REFERENCE_UNVALIDATED"
         if aoi_relative_pixel_timeseries.get("status") == "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE"
         else (
-            "AOI_WIDE_CANDIDATE_DISCOVERY_AVAILABLE_WITH_GUNW_STACK_WITHHELD"
+            "AOI_WIDE_TARGET_FREE_SCREEN_COMPLETED_GUNW_STACK_WITHHELD"
             if candidate_screen_completed or goff_screen_completed
             else (
                 "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
