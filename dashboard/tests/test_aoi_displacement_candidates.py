@@ -107,6 +107,14 @@ class AOISpatialCandidateTests(unittest.TestCase):
             measured_floor = next(row for row in local_rows if row["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR")
             self.assertGreater(measured_floor["local_detection_floor_3sigma_mm_day"], 0)
             self.assertGreaterEqual(measured_floor["background_pixels"], 30)
+            self.assertEqual(measured_floor["minimum_background_pixels"], 30)
+            self.assertEqual(measured_floor["background_ring_pixels"], 5)
+            self.assertEqual(
+                measured_floor["floor_formula"],
+                "3 * (1.4826 * MAD) / acquisition_span_days",
+            )
+            self.assertEqual(report["candidate_local_floor_policy"]["minimum_background_pixels"], 30)
+            self.assertEqual(report["candidate_local_floor_policy"]["background_ring_pixels"], 5)
             self.assertEqual(report["candidate_local_floor_measurements"], feature["properties"]["candidate_local_floor_measured_pairs"])
             self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["monsoon_pairs"], 1)
             self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["dry_season_pairs"], 0)
