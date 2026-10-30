@@ -477,8 +477,17 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             status = selected["status"]
             floor = None
             sigma = selected["local_background_sigma_mm"]
+        phase_variants = [
+            item for item in variant_rows
+            if item.get("candidate_median_aoi_relative_residual_mm") is not None
+        ]
+        phase_selected = max(
+            phase_variants,
+            key=lambda item: (abs(float(item["candidate_median_aoi_relative_residual_mm"])), item["product_id"]),
+        ) if phase_variants else selected
         rows.append({
             "product_id": selected["product_id"],
+            "phase_review_source_product_id": phase_selected["product_id"],
             "reference_date": ref,
             "secondary_date": sec,
             "candidate_pixels": int(candidate_union.sum()),
@@ -486,7 +495,7 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             "contributing_variants": len(variant_rows),
             "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
             "local_background_sigma_mm": sigma,
-            "candidate_median_aoi_relative_residual_mm": selected["candidate_median_aoi_relative_residual_mm"],
+            "candidate_median_aoi_relative_residual_mm": phase_selected.get("candidate_median_aoi_relative_residual_mm"),
             "local_detection_floor_3sigma_mm_day": floor,
             "span_days": span or None,
             "status": status,
