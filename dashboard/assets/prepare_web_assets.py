@@ -117,6 +117,8 @@ def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) ->
             "noise_cluster_max_pixels": int(noise.group(3).replace(",", "")) if noise else None,
             "finding": (
                 "NO_COMPLETE_SERIES" if nothing_to_fit or complete == 0 else
+                "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
+                if verdict and "NOT TESTABLE" in verdict.group(1) else
                 "NO_CLUSTER_ABOVE_NOISE_SCREEN" if verdict and "NO DETECTION" in verdict.group(1) else
                 "REVIEW_REQUIRED"
             ),
