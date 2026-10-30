@@ -27,6 +27,9 @@ def build_science_pipeline_report(
     science_diagnostics: dict[str, Any] | None,
     site_context: dict[str, Any] | None = None,
     common_reference_report: dict[str, Any] | None = None,
+    aoi_displacement_candidates: dict[str, Any] | None = None,
+    aoi_relative_pixel_timeseries: dict[str, Any] | None = None,
+    aoi_wide_screen: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run time-series network topology analysis and gate downstream methods.
 
@@ -116,7 +119,13 @@ def build_science_pipeline_report(
     report["invalid_pair_rows"] = invalid
     report["site_context"] = site_context or {}
     common_reference_report = common_reference_report if isinstance(common_reference_report, dict) else {}
+    aoi_displacement_candidates = aoi_displacement_candidates if isinstance(aoi_displacement_candidates, dict) else {}
+    aoi_relative_pixel_timeseries = aoi_relative_pixel_timeseries if isinstance(aoi_relative_pixel_timeseries, dict) else {}
+    aoi_wide_screen = aoi_wide_screen if isinstance(aoi_wide_screen, dict) else {}
     report["common_reference_timeseries"] = common_reference_report
+    report["aoi_displacement_candidates"] = aoi_displacement_candidates
+    report["aoi_relative_pixel_timeseries"] = aoi_relative_pixel_timeseries
+    report["aoi_wide_displacement_screen"] = aoi_wide_screen
     report["network_assessment_log_excerpt"] = captured.getvalue()[-8000:] if "captured" in locals() else ""
     report["network_error"] = network_error
 
@@ -158,8 +167,12 @@ def build_science_pipeline_report(
             "reference frame; they do not provide a shared stable-ground datum or authorize cumulative inversion."
         )
     elif target_status == "NOT_PROVIDED":
-        local_floor_status = "BLOCKED_NO_EXPLICIT_MEASUREMENT_TARGET"
-        local_floor_reason = "No in-AOI target coordinate was provided. No target-local measurement or floor is inferred."
+        local_floor_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
+        local_floor_reason = (
+            "Find Displacements is target-free. A point-local floor is not a prerequisite for AOI-wide discovery; "
+            "GOFF uses its per-pair reader floor where available and GUNW uses spatially screened per-pixel evidence. "
+            "No point coordinate or point-local measurement is invented. Candidate-specific local floors remain a separate diagnostic."
+        )
     else:
         local_floor_status = "BLOCKED_INVALID_OR_OUTSIDE_TARGET"
         local_floor_reason = f"Target context was rejected or incomplete ({target_status}); no target-specific inference is allowed."
@@ -184,17 +197,26 @@ def build_science_pipeline_report(
             if pairs else "Pair topology could not be assessed from the supplied product identities and acquisition dates."
         )
     common_status = str(common_reference_report.get("status") or "NOT_REPORTED")
+    if target_status == "NOT_PROVIDED" and common_status == "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS":
+        common_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
     report["modules"].extend([
         {
             "name": "common_ref.py",
             "status": common_status,
             "reason": str(common_reference_report.get("reason") or "See common-reference-timeseries.json for per-network grid, mask, target-support and common-pixel checks."),
             "stable_ground_independently_validated": False,
-            "interpretation": "The pinned common-datum calculation uses the all-pair valid AOI median outside the target buffer. It does not independently establish geological stability.",
+            "scope": "OPTIONAL_KNOWN_PLACE_POINT_DIAGNOSTIC",
+            "interpretation": "The point-buffered common-datum calculation is optional for Known Place Analysis. It is deliberately not a gate on target-free Find Displacements.",
         },
         {
             "name": "timeseries.py",
-            "status": timeseries_status,
+            "status": (
+                "AOI_RELATIVE_PIXEL_DIAGNOSTIC_AVAILABLE_REFERENCE_UNVALIDATED"
+                if aoi_relative_pixel_timeseries.get("status") == "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE"
+                else timeseries_status
+            ),
+            "legacy_pair_graph_status": timeseries_status,
+            "aoi_relative_pixel_timeseries_status": str(aoi_relative_pixel_timeseries.get("status") or "NOT_REPORTED"),
             "pairs_parsed": len(pairs),
             "networks": len(structures),
             "reason": timeseries_reason,
@@ -202,6 +224,7 @@ def build_science_pipeline_report(
         },
         {
             "name": "local_floor.py",
+            "scope": "OPTIONAL_POINT_LOCAL_DIAGNOSTIC_NOT_A_FIND_DISPLACEMENTS_PREREQUISITE",
             "status": local_floor_status,
             "reason": local_floor_reason,
             "products_with_measured_local_floor": measured_floors,
@@ -210,18 +233,21 @@ def build_science_pipeline_report(
         },
         {
             "name": "inverse_velocity.py",
-            "status": "BLOCKED_NO_VERIFIED_COMMON_DATUM_SERIES",
-            "reason": "Inverse velocity requires a defensible displacement series and matched noise floors. Running it on independently referenced pair medians would manufacture a trend.",
+            "scope": "CANDIDATE_OR_KNOWN_PLACE_ACCELERATION_ANALYSIS",
+            "status": "WITHHELD_NO_INDEPENDENT_REFERENCE_AND_MATCHED_LOCAL_FLOOR",
+            "reason": "The target-free AOI-relative GUNW series is a useful spatial diagnostic but its zero is inferred from the AOI, not independently validated stable ground. No candidate-specific independent reference and matched local velocity-floor series is currently supplied; fitting a failure-time trend would overstate the evidence.",
         },
         {
             "name": "geometry_merge.py",
-            "status": "BLOCKED_NO_COMPARABLE_ASC_DESC_SERIES",
-            "reason": "The current custom-AOI artifact does not establish matched, common-datum ascending/descending time series with sufficient overlap. Geometry sensitivity alone is not measured 3-D fusion.",
+            "scope": "OPTIONAL_MULTI_GEOMETRY_PHYSICAL_INTERPRETATION",
+            "status": "WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE",
+            "reason": "The current AOI raster contract exports LOS displacement but not a co-registered per-pixel look-vector solution plus validated terrain slope/aspect and matched ASC/DESC uncertainty/covariance. A numeric 2-D or 3-D merge cannot be inferred from track labels alone.",
         },
         {
             "name": "bound.py",
-            "status": "NOT_APPLICABLE_GENERIC_AOI",
-            "reason": "This module contains fixed source-event/candidate priors and cannot be applied to an arbitrary place without a separately validated event-specific configuration.",
+            "scope": "KNOWN_PLACE_EVENT_SPECIFIC_ONLY",
+            "status": "NOT_APPLICABLE_GENERIC_AOI_BY_DESIGN",
+            "reason": "This module uses fixed source-event, published-candidate and event-date priors. Applying those constants to an arbitrary user AOI would be scientifically invalid; it remains in Known Place Analysis only.",
         },
         {
             "name": "pixel_stack.py",
@@ -230,16 +256,62 @@ def build_science_pipeline_report(
         },
         {
             "name": "candidate_check.py",
-            "status": str(candidate.get("status") or "NOT_REPORTED"),
-            "reason": str(candidate.get("detail") or "Inspect saved candidate diagnostics."),
+            "scope": "KNOWN_PLACE_TARGET_STRESS_TEST",
+            "status": (
+                "NOT_APPLICABLE_CUSTOM_AOI_TARGET_FREE_REPLACEMENT_AVAILABLE"
+                if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
+                else str(candidate.get("status") or "NOT_REPORTED")
+            ),
+            "reason": (
+                "The legacy candidate_check.py requires named-AOI/target-log inputs. The custom-AOI Find Displacements workflow instead runs the target-free spatial candidate screen and GUNW per-pixel diagnostic below; no candidate is silently treated as validated."
+                if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
+                else str(candidate.get("detail") or "Inspect saved candidate diagnostics.")
+            ),
+        },
+    ])
+    report["modules"].extend([
+        {
+            "name": "aoi_wide_displacement_screen.py",
+            "status": str(aoi_wide_screen.get("status") or "NOT_REPORTED"),
+            "purpose": "FIND_DISPLACEMENTS_AOI_WIDE",
+            "target_required": False,
+            "candidate_count": int(aoi_wide_screen.get("candidate_count") or 0),
+            "series_count": int(aoi_wide_screen.get("series_count") or 0),
+            "reason": str(aoi_wide_screen.get("reason") or "See aoi-wide-displacement-screen/screen-summary.json."),
+            "interpretation": "GOFF-only offset-anomaly review candidates; offsets are not ground displacement or 3-D motion.",
+        },
+        {
+            "name": "aoi_displacement_candidates.py",
+            "status": str(aoi_displacement_candidates.get("status") or "NOT_REPORTED"),
+            "target_required": False,
+            "candidate_features": int(aoi_displacement_candidates.get("candidate_features") or 0),
+            "products_examined": int(aoi_displacement_candidates.get("products_examined") or 0),
+            "reason": str(aoi_displacement_candidates.get("reason") or "See aoi-displacement-candidates.json."),
+            "interpretation": "Target-free GUNW LOS and GOFF offset spatial anomaly candidates. Metric families remain separate; candidate does not mean confirmed motion.",
+        },
+        {
+            "name": "aoi_relative_pixel_timeseries.py",
+            "status": str(aoi_relative_pixel_timeseries.get("status") or "NOT_REPORTED"),
+            "target_required": False,
+            "networks_calculated": int(aoi_relative_pixel_timeseries.get("networks_calculated") or 0),
+            "networks_examined": len(aoi_relative_pixel_timeseries.get("networks") or []),
+            "reference_independently_validated": bool(aoi_relative_pixel_timeseries.get("reference_independently_validated", False)),
+            "reason": str(aoi_relative_pixel_timeseries.get("reason") or "See aoi-relative-pixel-timeseries.json."),
+            "interpretation": "Target-free per-pixel GUNW LOS inversion; only eligible redundant networks produce maps. AOI-derived zero is not independent stable ground.",
         },
     ])
     report["overall_status"] = (
-        "REFERENCE_UNVALIDATED_DIAGNOSTIC_SERIES_COMPUTED"
-        if has_diagnostic_series else (
-            "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
-            if report["network_assessment_status"] == "COMPLETED"
-            else "PARTIAL_STAGE_ASSESSMENT"
+        "AOI_RELATIVE_PIXEL_DIAGNOSTICS_AVAILABLE_REFERENCE_UNVALIDATED"
+        if aoi_relative_pixel_timeseries.get("status") == "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE"
+        else (
+            "AOI_WIDE_CANDIDATE_DISCOVERY_AVAILABLE_WITH_GUNW_STACK_WITHHELD"
+            if aoi_displacement_candidates.get("status") not in {"UNAVAILABLE", "NOT_REPORTED"}
+               or aoi_wide_screen.get("status") not in {"SCREEN_FAILED", "NOT_REPORTED"}
+            else (
+                "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
+                if report["network_assessment_status"] == "COMPLETED"
+                else "PARTIAL_STAGE_ASSESSMENT"
+            )
         )
     )
     return report
