@@ -87,6 +87,29 @@ class AOISpatialCandidateTests(unittest.TestCase):
             geojson = json.loads((root / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
             self.assertEqual(len(geojson["features"]), report["candidate_features"])
 
+            # The scientific raster evidence is published independently of the
+            # polygon overlay. Valid zero means no candidate; NoData means no
+            # valid observation support and must never be styled as zero motion.
+            roles = {item["role"] for item in report["raster_artifacts"]}
+            self.assertEqual(
+                roles,
+                {
+                    "AOI spatial candidate mask",
+                    "Candidate pair support count",
+                    "Valid observation pair count",
+                    "Maximum exploratory robust anomaly score",
+                },
+            )
+            for artifact in report["raster_artifacts"]:
+                raster_path = root / artifact["relative_path"]
+                self.assertTrue(raster_path.is_file())
+                with rasterio.open(raster_path) as dataset:
+                    self.assertEqual(dataset.tags()["target_required"], "false")
+                    self.assertEqual(dataset.tags()["aoi_wkt_sha256"], "a" * 64)
+                    values = dataset.read(1, masked=True)
+                    self.assertGreater(int(values.count()), 0)
+                    self.assertEqual(dataset.nodata, -9999.0)
+
     def test_same_candidate_in_two_compatible_pairs_gets_repeated_support_not_hazard_label(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
