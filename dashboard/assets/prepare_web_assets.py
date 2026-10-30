@@ -176,7 +176,7 @@ def build_pixel_stack_explanation(root: Path, diagnostics: dict[str, Any]) -> di
         )
     elif chains:
         interpretation = (
-            "This exploratory per-pixel screen had sparse complete time-series support. "
+            "This older exploratory per-pixel screen had extremely sparse complete time-series support. "
             f"{no_detection} chain(s) completed the noise comparison without a cluster above its noise-only screen; "
             f"{no_complete} chain(s) had no complete pixels to fit. This is not evidence of zero ground motion."
         )
