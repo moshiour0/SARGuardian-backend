@@ -90,6 +90,8 @@ def _empty_report(status: str, reason: str, aoi_wkt_sha256: str | None) -> dict[
             "The robust AOI/background scale is not an independently validated stable-ground reference.",
             "GUNW LOS, GOFF range offset and GOFF along-track offset are separate metrics and must never be combined as if they shared one measurement axis.",
             "Robust-score thresholds are exploratory screening parameters, not calibrated false-alarm probabilities.",
+            "GOFF marginal range/along-track variances are used separately when exported; crossOffsetVariance is preserved but is not assumed to be covariance.",
+            "Variance-normalized component scores are exploratory marginal scores, not a joint-vector probability or a calibrated false-alarm rate.",
             "Candidate-raster NoData means insufficient observation support; it is not zero motion.",
             "Pairwise candidate recurrence is screening evidence only; cumulative time series and velocity require a compatible, redundant, independently reference-checked temporal network.",
         ],
@@ -345,6 +347,23 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     z_global = np.abs(centered) / global_sigma
     z_local = np.abs(local_residual) / local_sigma
     score = np.maximum(z_global, z_local).astype("float32")
+
+    # GOFF marginal offset variances are carried in mm^2 by goff_reader.py.
+    # Normalize each component separately; do not form a 2-D Mahalanobis score
+    # because crossOffsetVariance is retained but not assumed to be covariance.
+    variance_values = item.get("variance_values")
+    variance_valid = np.asarray(item.get("variance_valid", np.zeros(valid.shape, dtype=bool)), dtype=bool)
+    variance_score = np.full(valid.shape, np.nan, dtype="float32")
+    variance_score_used = False
+    if variance_values is not None:
+        variance_values = np.asarray(variance_values, dtype="float32")
+        use_variance = valid & variance_valid & np.isfinite(variance_values) & (variance_values > 0)
+        if np.any(use_variance):
+            variance_score[use_variance] = (
+                np.abs(local_residual[use_variance]) / np.sqrt(variance_values[use_variance])
+            ).astype("float32")
+            score[use_variance] = np.maximum(score[use_variance], variance_score[use_variance])
+
     score[~valid] = 0.0
     candidate_mask = valid & np.isfinite(score) & (score >= threshold_z)
     return item | {
@@ -353,6 +372,16 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
         "score": score,
         "robust_background_sigma": global_sigma,
         "robust_local_sigma": local_sigma,
+        "variance_score_used": bool(np.isfinite(variance_score).any()),
+        "variance_valid_pixels": int(np.count_nonzero(np.isfinite(variance_score))),
+        "variance_coverage": float(np.count_nonzero(np.isfinite(variance_score)) / max(1, valid_count)),
+        "maximum_marginal_variance_z": (
+            float(np.nanmax(variance_score)) if np.isfinite(variance_score).any() else None
+        ),
+        "variance_model": (
+            "per-component marginal variance normalization; crossOffsetVariance is retained but not used as covariance"
+            if np.isfinite(variance_score).any() else "robust-MAD fallback; no usable marginal variance band"
+        ),
         "valid_pixels": valid_count,
         "background_median_mm": center,
         "candidate_pixels": int(np.count_nonzero(candidate_mask)),
@@ -633,7 +662,13 @@ def build_aoi_spatial_candidate_report(
                 "candidate_pixels": item.get("candidate_pixels", 0),
                 "background_median_mm": _finite(item.get("background_median_mm")),
                 "robust_background_sigma_mm": _finite(item.get("robust_background_sigma")),
-                "robust_local_sigma_mm": _finite(item.get("robust_local_sigma")),
+                 "robust_local_sigma_mm": _finite(item.get("robust_local_sigma")),
+                 "variance_score_used": bool(item.get("variance_score_used")),
+                 "variance_valid_pixels": int(item.get("variance_valid_pixels") or 0),
+                 "variance_coverage": _finite(item.get("variance_coverage")),
+                 "maximum_marginal_variance_z": _finite(item.get("maximum_marginal_variance_z")),
+                 "variance_model": str(item.get("variance_model") or "not_available"),
+                 "cross_offset_variance_interpreted_as_covariance": False,
                 "quality_mask": item["quality_description"],
             } for item in rows],
         })
