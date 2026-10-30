@@ -73,8 +73,20 @@ def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) ->
         return result
 
     total_match = re.search(r"(?m)^\[INFO\]\s+(\d+)\s+all pair\(s\)", text)
+    marker_pairs = re.search(r"(?m)^PIXEL_STACK_PAIRS_EXAMINED=(\d+)\s*$", text)
+    marker_networks = re.search(r"(?m)^PIXEL_STACK_EXACT_NETWORKS=(\d+)\s*$", text)
+    marker_repeat = re.search(r"(?m)^PIXEL_STACK_NETWORKS_WITH_2_PLUS_PAIRS=(\d+)\s*$", text)
+    marker_status = re.search(r"(?m)^PIXEL_STACK_STATUS=(\S+)\s*$", text)
     if total_match:
         result["pairs_examined"] = int(total_match.group(1))
+    if marker_pairs:
+        result["pairs_examined"] = int(marker_pairs.group(1))
+    if marker_networks:
+        result["exact_networks"] = int(marker_networks.group(1))
+    if marker_repeat:
+        result["networks_with_2_plus_pairs"] = int(marker_repeat.group(1))
+    if marker_status:
+        result["status"] = marker_status.group(1)
     header = re.compile(
         r"(?m)^\s*(?P<geometry>[AD]\d{3})\s+chain\s+(?P<chain>\d+)\s+"
         r"(?P<start>\d{4}-\d{2}-\d{2})\s+\.\.\s+"
