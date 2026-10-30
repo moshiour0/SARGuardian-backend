@@ -73,6 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir -r science-source/requirements.txt
           python -m pip install --disable-pip-version-check --no-cache-dir numpy rasterio matplotlib pillow
           python -m pip install --disable-pip-version-check --no-cache-dir -r tools/requirements-retention.txt
 
