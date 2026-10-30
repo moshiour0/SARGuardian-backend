@@ -100,6 +100,14 @@ class AOISpatialCandidateTests(unittest.TestCase):
             feature = report["features"][0]
             self.assertEqual(feature["properties"]["status"], "SINGLE_PAIR_CANDIDATE_UNCONFIRMED")
             self.assertEqual(feature["properties"]["support_pairs"], 1)
+            self.assertEqual(feature["properties"]["candidate_local_floor_status"], "MEASURED_FOR_ONE_OR_MORE_PAIRS")
+            self.assertGreaterEqual(feature["properties"]["candidate_local_floor_measured_pairs"], 1)
+            local_rows = feature["properties"]["candidate_local_floor_by_pair"]
+            self.assertTrue(any(row["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" for row in local_rows))
+            measured_floor = next(row for row in local_rows if row["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR")
+            self.assertGreater(measured_floor["local_detection_floor_3sigma_mm_day"], 0)
+            self.assertGreaterEqual(measured_floor["background_pixels"], 30)
+            self.assertEqual(report["candidate_local_floor_measurements"], feature["properties"]["candidate_local_floor_measured_pairs"])
             saved = json.loads((root / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["candidate_features"], report["candidate_features"])
             geojson = json.loads((root / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
