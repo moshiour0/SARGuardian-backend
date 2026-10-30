@@ -192,7 +192,8 @@ class SciencePipelineReportTests(unittest.TestCase):
         fake.describe_network = lambda pairs: {}
         with patch.dict("sys.modules", {"timeseries": fake}):
             report = build_science_pipeline_report(
-                [], Path(tempfile.gettempdir()), {},
+                [], Path(tempfile.gettempdir()),
+                {"candidate_checks": {"status": "SKIPPED_UNSUPPORTED_CUSTOM_AOI"}},
                 site_context={"measurement_target": {"status": "NOT_PROVIDED"}},
                 common_reference_report={"status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS"},
                 aoi_displacement_candidates={"status": "NO_ELIGIBLE_RASTER_EXPORTS", "features": []},
