@@ -159,15 +159,18 @@ jobs:
               "source_run_id": os.environ["SOURCE_RUN_ID"],
               "prior_reported_status": original_status,
               "new_status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
+              "exact_gunw_networks": 15,
+              "networks_with_two_or_more_consecutive_pairs": 0,
               "raw_hdf5_replayed": False,
               "source_geotiffs_modified": False,
           }
           summary["science_limitations"] = [
-              (
-                  "Pixel-stack status: WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK. "
-                  "The 15 GUNW pairs do not form a homogeneous repeated measurement network; NOT TESTABLE is not NO DETECTION."
-              ) if str(item).startswith("Pixel-stack status:") else item
-              for item in summary.get("science_limitations", [])
+              item for item in summary.get("science_limitations", [])
+              if not str(item).startswith("Pixel-stack status:")
+          ] + [
+              "Pixel-stack status: WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK. "
+              "All 15 retained GUNW pairs have different exact measurement-network keys; "
+              "there are zero repeated compatible pair chains. NOT TESTABLE is not NO DETECTION."
           ]
           for module in summary.get("science_pipeline", {}).get("modules", []):
               if module.get("name") == "pixel_stack.py":
