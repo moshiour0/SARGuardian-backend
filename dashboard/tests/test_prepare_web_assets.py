@@ -604,6 +604,11 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("aoi-wide-candidate-fill", viewer)
             self.assertIn("candidate_feature_collection", viewer)
             self.assertIn("not a hazard detection", viewer.lower())
+            self.assertIn("GOFF offset-anomaly records", viewer)
+            self.assertIn("GUNW pairwise LOS anomaly records", viewer)
+            self.assertIn("extended-goff", viewer)
+            self.assertIn("extended-gunw", viewer)
+            self.assertIn("not probability", viewer.lower())
     def test_candidate_mask_quicklook_keeps_zero_and_nodata_transparent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "candidate-mask.png"
