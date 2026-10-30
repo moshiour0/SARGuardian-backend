@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import rasterio
@@ -102,10 +103,18 @@ class AOIRelativePixelTimeseriesTests(unittest.TestCase):
             self.assertEqual(network["redundancy"], 1)
             self.assertGreaterEqual(network["common_valid_pixels"], 200)
             self.assertGreaterEqual(network["reference_pixels"], 200)
+            self.assertGreaterEqual(network["minimum_spatial_reference_blocks_observed"], 4)
+            self.assertFalse(network["reference_independent_stability"])
+            self.assertIn("spatially balanced", network["reference_policy"])
 
             artifacts = network["artifacts"]
             self.assertTrue(any("velocity-mm-year" in item["relative_path"] for item in artifacts))
             self.assertTrue(any("closure-rmse" in item["relative_path"] for item in artifacts))
+            for required in (
+                "candidate-mask", "candidate-pair-count", "observed-pair-count",
+                "common-reference-mask",
+            ):
+                self.assertTrue(any(required in item["relative_path"] for item in artifacts), required)
             for item in artifacts:
                 relative = Path(item["relative_path"])
                 self.assertFalse(relative.is_absolute())
@@ -134,6 +143,45 @@ class AOIRelativePixelTimeseriesTests(unittest.TestCase):
             report = build_aoi_relative_pixel_timeseries_report(products, root, "b" * 64)
             self.assertFalse(report["target_required"])
             self.assertNotEqual(report["status"], "BLOCKED_NO_VALID_IN_AOI_TARGET")
+
+    def test_spatially_concentrated_reference_is_withheld(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            products = [
+                _write_gunw(root, "GUNW-001", "2026-08-01", "2026-08-13", 8.0, 7),
+                _write_gunw(root, "GUNW-002", "2026-08-13", "2026-08-25", 8.0, 19),
+                _write_gunw(root, "GUNW-003", "2026-08-01", "2026-08-25", 16.0, 31),
+            ]
+
+            def concentrated_candidate(item, **kwargs):
+                candidate = np.ones((80, 80), dtype=bool)
+                candidate[:20, :20] = False
+                return item | {
+                    "score_status": "SCORED",
+                    "candidate_mask": candidate,
+                    "score": candidate.astype("float32") * 5.0,
+                    "valid_pixels": 6400,
+                }
+
+            with patch(
+                "dashboard.aoi_relative_pixel_timeseries._score_pair",
+                side_effect=concentrated_candidate,
+            ):
+                report = build_aoi_relative_pixel_timeseries_report(
+                    products, root, "d" * 64,
+                    minimum_pairs=3,
+                    minimum_redundancy=1,
+                    minimum_common_valid_pixels=200,
+                    minimum_reference_blocks=4,
+                )
+
+            self.assertEqual(report["status"], "WITHHELD_SCIENCE_GATES")
+            network = report["networks"][0]
+            self.assertEqual(network["status"], "WITHHELD_POOR_REFERENCE_SPATIAL_DISTRIBUTION")
+            self.assertEqual(network["minimum_spatial_reference_blocks_observed"], 1)
+            self.assertEqual(network["artifacts"], [])
+            self.assertFalse(report["movement_confirmed"])
+            self.assertFalse(report["hazard_detected"])
 
     def test_network_without_redundant_cycles_is_withheld(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
