@@ -453,6 +453,10 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
                 "product_id": str(item.get("product_id") or ""),
                 "candidate_pixels": int(cm.sum()),
                 "background_pixels": int(bg.size),
+                "minimum_background_pixels": 30,
+                "background_ring_pixels": pad,
+                "residual_background_window_pixels": int(item.get("background_window_pixels") or 11),
+                "noise_scale_method": "1.4826 * median absolute deviation",
                 "local_background_sigma_mm": sigma,
                 "candidate_median_aoi_relative_residual_mm": (
                     float(np.median(candidate_values)) if candidate_values.size else None
@@ -497,6 +501,11 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             "secondary_date": sec,
             "candidate_pixels": int(candidate_union.sum()),
             "background_pixels": int(selected["background_pixels"]),
+            "minimum_background_pixels": int(selected["minimum_background_pixels"]),
+            "background_ring_pixels": int(selected["background_ring_pixels"]),
+            "residual_background_window_pixels": int(selected["residual_background_window_pixels"]),
+            "noise_scale_method": selected["noise_scale_method"],
+            "floor_formula": "3 * (1.4826 * MAD) / acquisition_span_days",
             "contributing_variants": len(variant_rows),
             "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
             "local_background_sigma_mm": sigma,
@@ -885,6 +894,18 @@ def build_aoi_spatial_candidate_report(
             int(feature.get("properties", {}).get("candidate_local_floor_measured_pairs") or 0) > 0
             for feature in all_features
         ),
+        "candidate_local_floor_policy": {
+            "method": "Empirical pair-local residual scatter around each target-free candidate polygon",
+            "residual": "metric raster minus spatial median filter",
+            "residual_background_window_pixels": background_window_pixels,
+            "background_ring_pixels": 5,
+            "minimum_background_pixels": 30,
+            "robust_sigma": "1.4826 * MAD",
+            "detection_floor": "3 * robust_sigma / acquisition_span_days",
+            "duplicate_interval_policy": "One interval counts once; maximum measured floor across same-interval subswath/variant exports is retained",
+            "stable_ground_validation": "NOT_PERFORMED",
+            "false_alarm_probability": "NOT_CALIBRATED",
+        },
         "products_examined": len({item["product_id"] for item in accepted}),
         "product_metrics_examined": len(accepted),
         "groups": group_reports,
