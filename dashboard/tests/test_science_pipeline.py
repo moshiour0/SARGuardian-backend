@@ -93,6 +93,7 @@ class SciencePipelineReportTests(unittest.TestCase):
             "status": "REPEATED_SPATIAL_CANDIDATES_NEED_GEOPHYSICAL_VALIDATION",
             "candidate_features": 4,
             "products_examined": 12,
+            "candidate_local_floor_measurements": 5,
             "reason": "Repeated spatial candidates found.",
         }
         goff = {
@@ -134,7 +135,10 @@ class SciencePipelineReportTests(unittest.TestCase):
         )
         self.assertEqual(
             stages["local_floor.py"]["status"],
-            "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS",
+            "CANDIDATE_REGION_LOCAL_FLOORS_MEASURED",
+        )
+        self.assertEqual(
+            stages["local_floor.py"]["candidate_region_local_floor_measurements"], 5,
         )
         self.assertEqual(
             stages["candidate_check.py"]["status"],
