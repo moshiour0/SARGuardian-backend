@@ -604,6 +604,19 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("aoi-wide-candidate-fill", viewer)
             self.assertIn("candidate_feature_collection", viewer)
             self.assertIn("not a hazard detection", viewer.lower())
+    def test_candidate_mask_quicklook_keeps_zero_and_nodata_transparent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "candidate-mask.png"
+            values = np.array([[0.0, 1.0, np.nan]], dtype="float32")
+            count, _, _ = __import__(
+                "dashboard.assets.prepare_web_assets", fromlist=["write_rgba"]
+            ).write_rgba(values, 0.0, 1.0, "candidate_mask", path)
+            self.assertEqual(count, 2)
+            rgba = np.asarray(Image.open(path).convert("RGBA"))
+            self.assertEqual(rgba[0, 0, 3], 0, "valid zero means no candidate and must be transparent")
+            self.assertEqual(rgba[0, 1, 3], 220, "candidate pixel must be visible")
+            self.assertEqual(rgba[0, 2, 3], 0, "NoData must remain transparent")
+
     def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
