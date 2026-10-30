@@ -604,6 +604,9 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         group_key = layer.pop("group_key")
         if layer["kind"] == "coherence":
             lo, hi, method = 0.0, 1.0, "fixed_coherence_0_to_1"
+        elif layer["kind"] == "binary_mask":
+            lo, hi, method = 0.0, 1.0, "discrete_flag_0_outlier_1_inlier"
+            layer["units"] = "binary flag (1=inlier, 0=global-MAD outlier retained for review)"
         else:
             joined = np.concatenate(groups[group_key])
             limit = float(np.percentile(np.abs(joined[np.isfinite(joined)]), 98))
@@ -616,7 +619,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         if count != layer["valid_pixels"] or image_path.stat().st_size <= 0:
             raise ValueError(f"Preview integrity check failed: {layer['id']}")
         layer.update({"preview_asset": rel, "preview_sha256": sha256(image_path), "preview_bytes": image_path.stat().st_size,
-                      "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98 if layer["kind"] != "coherence" else None},
+                      "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98 if layer["kind"] == "continuous" else None},
                       "value_min": min_value, "value_max": max_value})
         public_layers.append(layer)
 
