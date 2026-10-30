@@ -68,6 +68,51 @@ def matching_product_stats_rows(
     return matching
 
 
+def measurement_aoi_grid_count(
+    preflight: dict[str, Any], product_type: str
+) -> tuple[int | None, dict[str, Any]]:
+    """Return the AOI lattice count for the primary science measurement grid.
+
+    GUNW unwrapped phase and its low-resolution geometry-merge radar grid are
+    distinct grids. Taking the minimum over all preflight grids silently mixed
+    those denominators (e.g. 109,924 phase-grid cells vs 2,813 geometry cells).
+    GOFF layer1/2/3 are repeated checks of the same offset lattice.
+    """
+    preferred = {
+        "GUNW": "GUNW_unwrappedInterferogram",
+        "GOFF": "GOFF_pixelOffsets",
+    }.get(str(product_type or "").upper())
+    values_by_grid: dict[str, list[int]] = {}
+    for item in preflight.get("grid_checks", []):
+        if not isinstance(item, dict):
+            continue
+        grid_name = str(item.get("grid") or "").strip()
+        raw = item.get("grid_pixels_inside_aoi")
+        if not grid_name or raw is None:
+            continue
+        try:
+            count = int(raw)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if count < 0:
+            continue
+        values_by_grid.setdefault(grid_name, []).append(count)
+
+    selected_grid = preferred if preferred in values_by_grid else None
+    if selected_grid is None and len(values_by_grid) == 1:
+        selected_grid = next(iter(values_by_grid))
+    counts_by_grid = {
+        name: (values[0] if len(set(values)) == 1 else None)
+        for name, values in sorted(values_by_grid.items())
+    }
+    selected_values = values_by_grid.get(selected_grid or "", [])
+    selected_count = selected_values[0] if selected_values and len(set(selected_values)) == 1 else None
+    return selected_count, {
+        "selected_grid": selected_grid,
+        "counts_by_grid": counts_by_grid,
+    }
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -504,11 +549,9 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 exports.append({"name": source.name,"relative_path":dest.relative_to(out).as_posix(),
                                 "bytes":dest.stat().st_size,"quicklook":preview_rel,"quicklook_meta":preview})
             if not exports: raise ValueError("NO_STRUCTURALLY_VALIDATED_EXPORTS")
-            grid_counts = []
-            for item in preflight.get("grid_checks", []):
-                try:
-                    if item.get("grid_pixels_inside_aoi") is not None: grid_counts.append(int(item["grid_pixels_inside_aoi"]))
-                except (TypeError, ValueError): pass
+            grid_pixels_inside_aoi, grid_count_basis = measurement_aoi_grid_count(
+                preflight, str(product.get("product_type") or "")
+            )
             local_floor, target_measurement = collect_target_evidence(artifact)
             record["local_floor"] = local_floor
             record["target_measurement"] = target_measurement
@@ -519,7 +562,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
                 "metric_name":metric_key,"metric_value":metric_val,"valid_pixels":valid_pixels,
                 "screen_valid_pixels":screen_valid_pixels,"screen_outlier_pixels":screen_outlier_pixels,
-                "grid_pixels_inside_aoi":min(grid_counts) if grid_counts else None,
+                "grid_pixels_inside_aoi":grid_pixels_inside_aoi,
+                "grid_pixels_inside_aoi_basis":grid_count_basis,
                 "export_count":len(exports),"exports":exports,"quicklook":next((x["quicklook"] for x in exports if x["quicklook"]),None),
                 "stats":json_safe(stats),"preflight_report":json_safe(preflight),
                 "validation_scope":validation.get("validation_scope"),
