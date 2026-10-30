@@ -13,6 +13,7 @@ import json
 import math
 import re
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ import numpy as np
 import rasterio
 from rasterio.features import shapes
 from rasterio.warp import transform_geom
-from scipy.ndimage import label, median_filter
+from scipy.ndimage import binary_dilation, label, median_filter
 
 
 _IDENTITY = re.compile(
@@ -312,7 +313,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if valid_count < minimum_valid_pixels:
         return item | {"score_status": "INSUFFICIENT_VALID_PIXELS", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": None,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     center = float(np.median(values[valid]))
     centered = values - center
@@ -320,7 +321,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if global_sigma is None:
         return item | {"score_status": "INSUFFICIENT_ROBUST_BACKGROUND_SCALE", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": None,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     window = int(max(5, background_window_pixels))
     if window % 2 == 0:
@@ -332,7 +333,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if window < 3:
         return item | {"score_status": "INSUFFICIENT_SPATIAL_SUPPORT", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": global_sigma,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
     # Fill invalid pixels with the robust centre before filtering; invalid pixels
     # remain excluded in the final candidate mask.
     filled = np.where(valid, values, center).astype("float32", copy=False)
@@ -342,7 +343,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if local_sigma is None:
         return item | {"score_status": "INSUFFICIENT_ROBUST_LOCAL_SCALE", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": global_sigma,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     # GOFF marginal offset variances are in mm^2. Use their square root as
     # a conservative per-pixel noise floor, never as a stand-alone score that
@@ -375,6 +376,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
         "score": score,
         "robust_background_sigma": global_sigma,
         "robust_local_sigma": local_sigma,
+        "local_residual": local_residual.astype("float32", copy=False),
         "variance_score_used": bool(np.isfinite(variance_score).any()),
         "variance_valid_pixels": int(np.count_nonzero(np.isfinite(variance_score))),
         "variance_coverage": float(np.count_nonzero(np.isfinite(variance_score)) / max(1, valid_count)),
