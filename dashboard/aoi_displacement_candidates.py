@@ -250,6 +250,7 @@ def _read_metric_rasters(
                     # candidate support relies on flagged observations.
                     robust_flag_valid = np.zeros(range_offset.shape, dtype=bool)
                     robust_inlier_mask = np.zeros(range_offset.shape, dtype=bool)
+                    flag_values: np.ndarray | None = None
                     flag_index_raw = str(tags.get("outlier_flag_band") or "").strip()
                     if flag_index_raw and flag_index_raw.lower() != "not_exported":
                         try:
