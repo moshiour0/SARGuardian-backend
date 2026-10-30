@@ -105,7 +105,7 @@ class AOIRelativePixelTimeseriesTests(unittest.TestCase):
             self.assertGreaterEqual(network["reference_pixels"], 200)
             self.assertGreaterEqual(network["minimum_spatial_reference_blocks_observed"], 4)
             self.assertFalse(network["reference_independent_stability"])
-            self.assertIn("spatially balanced", network["reference_policy"])
+            self.assertIn("spatially balanced", network["reference_policy"].lower())
 
             artifacts = network["artifacts"]
             self.assertTrue(any("velocity-mm-year" in item["relative_path"] for item in artifacts))
