@@ -430,6 +430,16 @@ class PrepareWebAssetsTests(unittest.TestCase):
                             "status": "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR",
                             "local_detection_floor_3sigma_mm_day": 0.42,
                         }],
+                        "candidate_seasonality_inventory": {
+                            "status": "INSUFFICIENT_SEASONAL_COVERAGE",
+                            "monsoon_pairs": 1,
+                            "dry_season_pairs": 0,
+                        },
+                        "candidate_phase_ceiling_review": {
+                            "status": "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD",
+                            "threshold_mm": 59.6,
+                        },
+                        "candidate_cross_geometry_status": "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE",
                     },
                 }],
                 "raster_artifacts": [{
@@ -465,6 +475,9 @@ class PrepareWebAssetsTests(unittest.TestCase):
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("Candidate-local 3σ floor", viewer)
             self.assertIn("0.42 mm/day", viewer)
+            self.assertIn("Season coverage", viewer)
+            self.assertIn("GUNW λ/4 review", viewer)
+            self.assertIn("WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", viewer)
             self.assertEqual(hashlib.sha256(raster_path.read_bytes()).hexdigest(), raster_sha)
             self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
 
