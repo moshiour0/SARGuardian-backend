@@ -768,7 +768,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         from dashboard.science_pipeline import build_science_pipeline_report
         science_pipeline = build_science_pipeline_report(
             result_rows, args.science_root, science_diagnostics, site_context,
-            common_reference_report,
+            common_reference_report, aoi_displacement_candidates,
+            aoi_relative_pixel_timeseries, aoi_wide_screen,
         )
     except Exception as exc:
         science_pipeline = {
@@ -788,30 +789,6 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
     science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
     science_pipeline["aoi_displacement_candidates"] = aoi_displacement_candidates
     science_pipeline["aoi_relative_pixel_timeseries"] = aoi_relative_pixel_timeseries
-    modules = science_pipeline.get("modules")
-    if isinstance(modules, list):
-        modules.append({
-            "name": "aoi_displacement_candidates.py",
-            "status": str(aoi_displacement_candidates.get("status") or "NOT_REPORTED"),
-            "reason": str(aoi_displacement_candidates.get("reason") or ""),
-            "candidate_features": int(aoi_displacement_candidates.get("candidate_features") or 0),
-            "target_required": False,
-            "movement_confirmed": False,
-            "hazard_detected": False,
-            "interpretation": "Target-free GUNW/GOFF spatial anomaly screening. GOFF anomalies are offsets, not ground movement; GUNW candidates are relative LOS evidence only.",
-        })
-        modules.append({
-            "name": "aoi_relative_pixel_timeseries.py",
-            "status": str(aoi_relative_pixel_timeseries.get("status") or "NOT_REPORTED"),
-            "reason": str(aoi_relative_pixel_timeseries.get("reason") or ""),
-            "networks_calculated": int(aoi_relative_pixel_timeseries.get("networks_calculated") or 0),
-            "target_required": False,
-            "reference_independently_validated": False,
-            "movement_confirmed": False,
-            "hazard_detected": False,
-            "interpretation": "Target-free per-pixel GUNW LOS displacement/velocity diagnostic; AOI-derived relative reference, not independently stable-ground validated.",
-        })
-
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
         "schema_version":"sarguardian-aoi-dashboard-summary/1.0",
