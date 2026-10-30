@@ -131,6 +131,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(manifest["common_reference_timeseries"]["status"],
                              "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED")
             self.assertEqual(len(manifest["common_reference_timeseries"]["components"][0]["series"]), 3)
+            self.assertEqual(manifest["goff_common_reference_timeseries"], {})
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_los_median_mm"], 2.5)
             self.assertEqual(manifest["observations"][0]["metrics"]["target_local_floor_mm_day"], 8.1)
             site_geojson = json.loads((root / "web-dashboard" / "site.geojson").read_text(encoding="utf-8"))
@@ -188,6 +189,10 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn('id="scenarioSandbox"', viewer)
             self.assertIn("function compatiblePair(a,b)", viewer)
             self.assertIn("function renderCommonReferenceChart()", viewer)
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn('id="goffCumulativeChart"', viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
             self.assertIn("manifest.common_reference_timeseries", viewer)
             self.assertIn("DIAGNOSTIC ONLY", viewer)
             self.assertIn("No publishable cumulative diagnostic series", viewer)
@@ -213,59 +218,233 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("web-dashboard/index.html", updated_html)
 
 
-    def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
+    def test_goff_common_reference_series_reaches_the_dashboard_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            first_tif, first_hash = self._fixture(root)
-            report_path = root / "aoi-processing-report.json"
+            self._fixture(root)
             summary_path = root / "aoi-run-summary.json"
-            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report_path = root / "aoi-processing-report.json"
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            source = report["products"][0]
-            folder = root / "product-data" / "GUNW-002"
-            folder.mkdir(parents=True)
-            bounds = transform_bounds("EPSG:4326", "EPSG:32645", 90.38, 24.715, 90.45, 24.78)
-            transform = from_bounds(*bounds, 4, 4)
-            second_tif = folder / "fixture-zone45.tif"
-            los = np.array([[2, 4, np.nan, -2], [3, 5, 7, 8], [9, 10, 12, 13], [14, 15, 16, 18]], dtype="float32")
-            coherence = np.array([[.25, .35, .45, .55], [.65, .75, .85, .95], [.35, .45, .55, .65], [.75, .85, .95, 1.0]], dtype="float32")
-            with rasterio.open(second_tif, "w", driver="GTiff", width=4, height=4, count=2,
-                               dtype="float32", crs="EPSG:32645", transform=transform, nodata=np.nan) as ds:
-                ds.write(los, 1)
-                ds.write(coherence, 2)
-                ds.set_band_description(1, "LOS displacement (mm)")
-                ds.set_band_description(2, "coherence")
-            import copy
-            second = copy.deepcopy(source)
-            second.update({
-                "id": "GUNW-002", "reference_date": "2026-08-14", "secondary_date": "2026-09-07",
-                "valid_pixels": 15, "metric_value": 8.0,
-                "exports": [{"name": second_tif.name, "relative_path": "product-data/GUNW-002/" + second_tif.name, "quicklook": None}],
-            })
-            report["products"].append(second)
-            summary["products_expected"] = 2
-            summary["products_validated"] = 2
-            summary["products_missing"] = 0
-            summary["gunw_count"] = 2
-            report["summary"] = summary
+            goff_report = {
+                "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+                "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                "reason": "Synthetic integration fixture; stable-ground reference is unvalidated.",
+                "common_reference_is_independently_validated_stable_ground": False,
+                "networks": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "common_pixels_outside_target_buffer": 240,
+                }],
+                "components": [{
+                    "network": "DESC path 048 frame 71 CRID P05023 GOFF PR",
+                    "component": "range_offset",
+                    "component_index": 1,
+                    "status": "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+                    "pairs_count": 4,
+                    "redundancy": 1,
+                    "series": [
+                        {"epoch": "2026-07-21", "cumulative_offset_mm": 0.0,
+                         "graph_fit_ci95_low_mm": -0.2, "graph_fit_ci95_high_mm": 0.2},
+                        {"epoch": "2026-08-02", "cumulative_offset_mm": 1.5,
+                         "graph_fit_ci95_low_mm": 0.8, "graph_fit_ci95_high_mm": 2.2},
+                        {"epoch": "2026-08-14", "cumulative_offset_mm": 2.8,
+                         "graph_fit_ci95_low_mm": 1.9, "graph_fit_ci95_high_mm": 3.7},
+                    ],
+                }],
+            }
+            summary["goff_common_reference_timeseries"] = goff_report
             summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
             report_path.write_text(json.dumps(report), encoding="utf-8")
-            second_hash = hashlib.sha256(second_tif.read_bytes()).hexdigest()
 
             receipt = prepare_web_dashboard(root)
-            self.assertEqual(receipt["observations"], 2)
-            self.assertEqual(receipt["layers"], 4)
-            self.assertEqual(hashlib.sha256(first_tif.read_bytes()).hexdigest(), first_hash)
-            self.assertEqual(hashlib.sha256(second_tif.read_bytes()).hexdigest(), second_hash)
-            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
-            first = next(layer for layer in manifest["layers"] if layer["observation_id"] == "GUNW-001" and layer["band"] == 1)
-            second_layer = next(layer for layer in manifest["layers"] if layer["observation_id"] == "GUNW-002" and layer["band"] == 1)
-            self.assertEqual(first["source_crs"], "EPSG:32646")
-            self.assertEqual(second_layer["source_crs"], "EPSG:32645")
-            self.assertEqual(first["preview_crs"], "EPSG:4326")
-            self.assertEqual(second_layer["preview_crs"], "EPSG:4326")
-            self.assertEqual(first["display_scale"], second_layer["display_scale"])
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads(
+                (root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["goff_common_reference_timeseries"]["status"],
+                "DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED",
+            )
+            component = manifest["goff_common_reference_timeseries"]["components"][0]
+            self.assertEqual(component["component"], "range_offset")
+            self.assertEqual(len(component["series"]), 3)
+            self.assertFalse(
+                manifest["goff_common_reference_timeseries"][
+                    "common_reference_is_independently_validated_stable_ground"
+                ]
+            )
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("function renderGoffCommonReferenceChart()", viewer)
+            self.assertIn("manifest.goff_common_reference_timeseries", viewer)
+            self.assertIn("Cumulative GOFF", viewer)
+            self.assertIn("not a 3-D motion estimate", viewer)
 
+    def test_target_free_pixel_velocity_raster_is_exposed_as_a_separate_analysis_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product_tif, product_before_hash = self._fixture(root)
+            pixel_dir = root / "aoi-relative-pixel-timeseries"
+            pixel_dir.mkdir(parents=True)
+            pixel_tif = pixel_dir / "gunw-los-velocity-mm-year-test-network.tif"
+            with rasterio.open(product_tif) as source:
+                profile = source.profile.copy()
+            profile.update(count=1, dtype="float32", nodata=np.nan, compress="deflate")
+            velocity = np.array([
+                [-6.0, -4.0, -2.0, 0.0],
+                [-3.0, -1.0, 1.0, 3.0],
+                [0.0, 2.0, 4.0, 6.0],
+                [1.0, 2.0, np.nan, 4.0],
+            ], dtype="float32")
+            with rasterio.open(pixel_tif, "w", **profile) as destination:
+                destination.write(velocity, 1)
+                destination.set_band_description(1, "AOI-relative GUNW LOS velocity (mm/year)")
+                destination.update_tags(
+                    schema_version="sarguardian-aoi-relative-pixel-timeseries/1.0",
+                    target_required="false",
+                    reference_policy="AOI-derived background; not independently validated stable ground",
+                    movement_confirmed="false",
+                    hazard_detected="false",
+                )
+            pixel_sha = hashlib.sha256(pixel_tif.read_bytes()).hexdigest()
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["site_context"]["measurement_target"] = {"status": "NOT_PROVIDED"}
+            summary["target_measurement_count"] = 0
+            summary["local_floor_count"] = 0
+            summary["aoi_relative_pixel_timeseries"] = {
+                "schema_version": "sarguardian-aoi-relative-pixel-timeseries/1.0",
+                "status": "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE",
+                "target_required": False,
+                "movement_confirmed": False,
+                "hazard_detected": False,
+                "reference_independently_validated": False,
+                "networks_calculated": 1,
+                "networks": [{
+                    "network": "ASC path 098 frame 016 subswath 023 CRID X05026",
+                    "status": "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_REFERENCE_UNVALIDATED",
+                    "pair_count": 3,
+                    "epoch_count": 3,
+                    "redundancy": 1,
+                    "common_valid_pixels": 15,
+                    "reference_pixels": 14,
+                    "artifacts": [{
+                        "role": "AOI-relative GUNW LOS velocity",
+                        "relative_path": pixel_tif.relative_to(root).as_posix(),
+                        "units": "mm/year",
+                        "valid_pixels": 15,
+                        "sha256": pixel_sha,
+                    }],
+                }],
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report["products"][0]["target_measurement"] = {"status": "NOT_MEASURED", "measurements": {}}
+            report["products"][0]["local_floor"] = {"status": "NOT_MEASURED", "metrics": {}}
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+
+            self.assertEqual(receipt["status"], "PASS")
+            self.assertEqual(receipt["derived_layers"], 1)
+            self.assertEqual(receipt["aoi_relative_pixel_timeseries_status"],
+                             "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE")
+            self.assertEqual(receipt["derived_layer_errors"], 0)
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertFalse(manifest["aoi_relative_pixel_timeseries"]["target_required"])
+            self.assertFalse(manifest["aoi_relative_pixel_timeseries"]["reference_independently_validated"])
+            self.assertEqual(len(manifest["derived_layers"]), 1)
+            layer = manifest["derived_layers"][0]
+            self.assertEqual(layer["analysis_role"], "AOI-relative GUNW LOS velocity")
+            self.assertEqual(layer["units"], "mm/year")
+            self.assertFalse(layer["movement_confirmed"])
+            self.assertFalse(layer["hazard_detected"])
+            self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
+            dashboard_data = (root / "web-dashboard" / "dashboard-data.js").read_text(encoding="utf-8")
+            self.assertIn("SARGUARDIAN_DERIVED_LAYER_DATA", dashboard_data)
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="derivedLayerSelect"', viewer)
+            self.assertIn("function renderDerivedLayer()", viewer)
+            self.assertIn("AOI-derived background", viewer)
+            self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
+            self.assertEqual(hashlib.sha256(pixel_tif.read_bytes()).hexdigest(), pixel_sha)
+
+    def test_target_free_candidate_rasters_are_published_as_map_layers_and_pngs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product_tif, product_before_hash = self._fixture(root)
+            candidate_dir = root / "aoi-spatial-candidates"
+            candidate_dir.mkdir(parents=True)
+            with rasterio.open(product_tif) as source:
+                profile = source.profile.copy()
+            profile.update(count=1, dtype="float32", nodata=np.nan, compress="deflate")
+            candidate_values = np.array([
+                [0.0, 0.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+                [0.0, 0.0, np.nan, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ], dtype="float32")
+            raster_path = candidate_dir / "candidate-mask-fixture.tif"
+            with rasterio.open(raster_path, "w", **profile) as dataset:
+                dataset.write(candidate_values, 1)
+                dataset.set_band_description(1, "AOI spatial candidate mask")
+                dataset.update_tags(
+                    schema_version="sarguardian-aoi-spatial-candidates-raster/1.0",
+                    target_required="false",
+                    aoi_wkt_sha256="d" * 64,
+                    metric="AOI spatial candidate mask",
+                    units="binary candidate flag",
+                    movement_confirmed="false",
+                    hazard_detected="false",
+                )
+            raster_sha = hashlib.sha256(raster_path.read_bytes()).hexdigest()
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["site_context"]["measurement_target"] = {"status": "NOT_PROVIDED"}
+            summary["target_measurement_count"] = 0
+            summary["local_floor_count"] = 0
+            summary["aoi_displacement_candidates"] = {
+                "status": "SINGLE_PAIR_CANDIDATES_NEED_TEMPORAL_CONFIRMATION",
+                "target_required": False,
+                "movement_confirmed": False,
+                "hazard_detected": False,
+                "candidate_features": 1,
+                "features": [],
+                "raster_artifacts": [{
+                    "role": "AOI spatial candidate mask",
+                    "relative_path": raster_path.relative_to(root).as_posix(),
+                    "units": "binary candidate flag",
+                    "valid_pixels": int(np.isfinite(candidate_values).sum()),
+                    "sha256": raster_sha,
+                    "network": "GUNW fixture network",
+                }],
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+
+            self.assertEqual(receipt["status"], "PASS")
+            self.assertEqual(receipt["derived_layers"], 1)
+            self.assertEqual(receipt["derived_layer_errors"], 0)
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED")
+            self.assertTrue(manifest["aoi_displacement_candidates"]["target_required"] is False)
+            layer = manifest["derived_layers"][0]
+            self.assertEqual(layer["analysis_role"], "AOI spatial candidate mask")
+            self.assertEqual(layer["units"], "binary candidate flag")
+            self.assertFalse(layer["movement_confirmed"])
+            self.assertFalse(layer["hazard_detected"])
+            self.assertEqual(layer["source_sha256"], raster_sha)
+            self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
+            self.assertEqual(hashlib.sha256(raster_path.read_bytes()).hexdigest(), raster_sha)
+            self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
 
     def test_goff_screen_and_robust_inlier_counts_reach_dashboard_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -425,6 +604,71 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("aoi-wide-candidate-fill", viewer)
             self.assertIn("candidate_feature_collection", viewer)
             self.assertIn("not a hazard detection", viewer.lower())
+    def test_candidate_mask_quicklook_keeps_zero_and_nodata_transparent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "candidate-mask.png"
+            values = np.array([[0.0, 1.0, np.nan]], dtype="float32")
+            count, _, _ = __import__(
+                "dashboard.assets.prepare_web_assets", fromlist=["write_rgba"]
+            ).write_rgba(values, 0.0, 1.0, "candidate_mask", path)
+            self.assertEqual(count, 2)
+            rgba = np.asarray(Image.open(path).convert("RGBA"))
+            self.assertEqual(rgba[0, 0, 3], 0, "valid zero means no candidate and must be transparent")
+            self.assertEqual(rgba[0, 1, 3], 220, "candidate pixel must be visible")
+            self.assertEqual(rgba[0, 2, 3], 0, "NoData must remain transparent")
+
+    def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first_tif, first_hash = self._fixture(root)
+            report_path = root / "aoi-processing-report.json"
+            summary_path = root / "aoi-run-summary.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            source = report["products"][0]
+            folder = root / "product-data" / "GUNW-002"
+            folder.mkdir(parents=True)
+            bounds = transform_bounds("EPSG:4326", "EPSG:32645", 90.38, 24.715, 90.45, 24.78)
+            transform = from_bounds(*bounds, 4, 4)
+            second_tif = folder / "fixture-zone45.tif"
+            los = np.array([[2, 4, np.nan, -2], [3, 5, 7, 8], [9, 10, 12, 13], [14, 15, 16, 18]], dtype="float32")
+            coherence = np.array([[.25, .35, .45, .55], [.65, .75, .85, .95], [.35, .45, .55, .65], [.75, .85, .95, 1.0]], dtype="float32")
+            with rasterio.open(second_tif, "w", driver="GTiff", width=4, height=4, count=2,
+                               dtype="float32", crs="EPSG:32645", transform=transform, nodata=np.nan) as ds:
+                ds.write(los, 1)
+                ds.write(coherence, 2)
+                ds.set_band_description(1, "LOS displacement (mm)")
+                ds.set_band_description(2, "coherence")
+            import copy
+            second = copy.deepcopy(source)
+            second.update({
+                "id": "GUNW-002", "reference_date": "2026-08-14", "secondary_date": "2026-09-07",
+                "valid_pixels": 15, "metric_value": 8.0,
+                "exports": [{"name": second_tif.name, "relative_path": "product-data/GUNW-002/" + second_tif.name, "quicklook": None}],
+            })
+            report["products"].append(second)
+            summary["products_expected"] = 2
+            summary["products_validated"] = 2
+            summary["products_missing"] = 0
+            summary["gunw_count"] = 2
+            report["summary"] = summary
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            second_hash = hashlib.sha256(second_tif.read_bytes()).hexdigest()
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["observations"], 2)
+            self.assertEqual(receipt["layers"], 4)
+            self.assertEqual(hashlib.sha256(first_tif.read_bytes()).hexdigest(), first_hash)
+            self.assertEqual(hashlib.sha256(second_tif.read_bytes()).hexdigest(), second_hash)
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            first = next(layer for layer in manifest["layers"] if layer["observation_id"] == "GUNW-001" and layer["band"] == 1)
+            second_layer = next(layer for layer in manifest["layers"] if layer["observation_id"] == "GUNW-002" and layer["band"] == 1)
+            self.assertEqual(first["source_crs"], "EPSG:32646")
+            self.assertEqual(second_layer["source_crs"], "EPSG:32645")
+            self.assertEqual(first["preview_crs"], "EPSG:4326")
+            self.assertEqual(second_layer["preview_crs"], "EPSG:4326")
+            self.assertEqual(first["display_scale"], second_layer["display_scale"])
 
 
 if __name__ == "__main__":

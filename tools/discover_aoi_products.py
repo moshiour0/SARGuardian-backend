@@ -22,7 +22,7 @@ from typing import Any
 import requests
 
 ASF_API = "https://api.daac.asf.alaska.edu/services/search/param"
-SCIENCE_COMMIT = "f038e4dfdb53c8d9793aaaefe173570a1032026c"
+SCIENCE_COMMIT = "3b227f968b9a9ea068d06ef4424c6906302d3caa"
 MAX_PRODUCTS = 200
 MAX_RESULTS = 2000
 DEFAULT_DATE_FILTER_MODE = "secondary-acquisition-in-window"

@@ -107,24 +107,12 @@ def reproject_band(path: Path, band: int, aoi_geometry: dict[str, Any]) -> tuple
         description = (src.descriptions[band - 1] if src.descriptions else None) or f"Band {band}"
         unit = (src.units[band - 1] if src.units else None) or ""
         if not unit:
-            description_lower = description.lower()
-            if "robust inlier flag" in description_lower:
-                # Do not parse the explanatory parentheses as a physical unit.
-                unit = "binary flag (1=inlier, 0=global-MAD outlier retained for review)"
-            elif "coherence" in description_lower:
-                unit = "dimensionless"
-            else:
-                found = re.search(r"\(([^()]*)\)\s*$", description)
-                unit = found.group(1).strip() if found else "source units not declared"
-        source_tags = {str(k): str(v) for k, v in src.tags().items()}
+            found = re.search(r"\(([^()]*)\)\s*$", description)
+            unit = found.group(1).strip() if found else ("dimensionless" if "coherence" in description.lower() else "source units not declared")
         return out, (float(west), float(south), float(east), float(north)), {
             "description": description.strip(), "units": unit, "source_crs": src.crs.to_string(),
             "source_transform": [float(v) for v in src.transform[:6]],
             "source_width": src.width, "source_height": src.height, "source_valid_pixels": source_valid,
-            "source_tags": source_tags,
-            "robust_inlier_pixels": int(source_tags["robust_inlier_pixels"]) if source_tags.get("robust_inlier_pixels", "").isdigit() else None,
-            "screen_valid_pixels": int(source_tags["screen_valid_pixels"]) if source_tags.get("screen_valid_pixels", "").isdigit() else source_valid,
-            "screen_outlier_pixels": int(source_tags["robust_outlier_pixels"]) if source_tags.get("robust_outlier_pixels", "").isdigit() else 0,
             "data_type": src.dtypes[band - 1], "source_nodata": float(src.nodata) if src.nodata is not None and math.isfinite(float(src.nodata)) else None,
             "preview_crs": WEB_CRS, "preview_transform": [float(v) for v in transform[:6]],
             "preview_width": width, "preview_height": height,
@@ -141,10 +129,18 @@ def write_rgba(values: np.ndarray, lo: float, hi: float, kind: str, path: Path) 
         rgba[..., :3] = (colormaps[palette](normalized)[..., :3] * 255).astype(np.uint8)
         rgba[..., 3] = np.where(valid, 220, 0).astype(np.uint8)
         if kind == "binary_mask":
-            # Band 4 is review metadata, not displacement: 1=inlier, 0=global
-            # MAD outlier retained specifically for spatial candidate screening.
+            # Red means retained global-MAD outlier for spatial review;
+            # green means robust inlier. This is not displacement magnitude.
             rgba[valid & (values < 0.5), :3] = np.array([255, 110, 95], dtype=np.uint8)
             rgba[valid & (values >= 0.5), :3] = np.array([55, 190, 155], dtype=np.uint8)
+        elif kind == "candidate_mask":
+            selected = valid & (values > 0.5)
+            rgba[..., 3] = np.where(selected, 220, 0).astype(np.uint8)
+            rgba[selected, :3] = np.array([255, 110, 95], dtype=np.uint8)
+        elif kind == "reference_mask":
+            selected = valid & (values > 0.5)
+            rgba[..., 3] = np.where(selected, 190, 0).astype(np.uint8)
+            rgba[selected, :3] = np.array([55, 190, 155], dtype=np.uint8)
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(rgba, mode="RGBA").save(path, format="PNG", optimize=True)
     return count, (float(np.nanmin(values)) if count else None), (float(np.nanmax(values)) if count else None)
@@ -161,39 +157,50 @@ def write_viewer(path: Path) -> None:
 <header><div><div class="kicker">SARGuardian · Earth in sight</div><h1>Interactive Science Dashboard</h1><p class="muted">AOI-clipped NISAR observations · pair-aware map playback · reproducible evidence</p></div><div class="controls"><button id="presentation">Presentation mode</button><a href="../index.html" style="color:var(--aqua);padding:9px">Processing report ↗</a></div></header>
 <div class="warn"><strong>Scientific interpretation:</strong> a processing PASS confirms structural/provenance checks, not independent geophysical accuracy. Pairwise LOS measurements are not automatically cumulative or 3-D motion. Playback switches actual observations; it does not interpolate or forecast.</div>
 <div class="cards" id="summaryCards"></div>
-<div class="layout"><section class="panel"><div class="maphead"><div><div class="kicker">Geospatial workspace</div><strong id="mapTitle">Loading map layers…</strong></div><div class="controls"><label>Band <select id="bandSelect" aria-label="Select raster band"></select></label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="80" aria-label="Raster opacity"></label><label>AOI-wide candidates <input id="showAoiCandidates" type="checkbox" checked aria-label="Show AOI-wide candidate regions"></label><label>Speed <select id="speed"><option value="2500">0.5×</option><option value="1500" selected>1×</option><option value="750">2×</option></select></label></div></div><div class="mapbox"><div id="map"></div><div id="mapFallback" class="hidden" style="padding:20px"><strong>Interactive map unavailable.</strong><p>The processing report and georeferenced assets remain in this bundle; the basemap/MapLibre library requires an internet connection.</p></div></div><div id="legend" class="legend"></div><div class="timeline"><div class="controls"><button id="previous" aria-label="Previous observation">◀</button><button id="play">Play</button><button id="next" aria-label="Next observation">▶</button></div><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Observation pair timeline"><small id="dateLabel">—</small></div><p class="muted" id="timelineNote">Each point is a real acquisition pair. No synthetic intermediate observations are created.</p>
-<div class="panel" style="margin:12px 0;padding:14px"><div class="kicker">Find Displacements · whole AOI</div><strong>Target-free GOFF candidate scan</strong><p class="muted" id="aoiWideCandidateStatus">Loading AOI-wide candidate status…</p><div id="aoiWideCandidateList"></div><p class="muted">No crown/target polygon is required here. Candidate regions are repeatable offset anomalies for review, not confirmed landslides or a hazard alert. GUNW LOS velocity is analyzed separately.</p></div>
+<div class="layout"><section class="panel"><div class="maphead"><div><div class="kicker">Geospatial workspace</div><strong id="mapTitle">Loading map layers…</strong></div><div class="controls"><label>Observed pair band <select id="bandSelect" aria-label="Select raster band"></select></label><label>AOI-wide analysis layer <select id="derivedLayerSelect" aria-label="Select target-free AOI-wide derived layer"><option value="">Observed pair playback</option></select></label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="80" aria-label="Raster opacity"></label><label>Speed <select id="speed"><option value="2500">0.5×</option><option value="1500" selected>1×</option><option value="750">2×</option></select></label></div></div><div class="mapbox"><div id="map"></div><div id="mapFallback" class="hidden" style="padding:20px"><strong>Interactive map unavailable.</strong><p>The processing report and georeferenced assets remain in this bundle; the basemap/MapLibre library requires an internet connection.</p></div></div><div id="legend" class="legend"></div><div class="timeline"><div class="controls"><button id="previous" aria-label="Previous observation">◀</button><button id="play">Play</button><button id="next" aria-label="Next observation">▶</button></div><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Observation pair timeline"><small id="dateLabel">—</small></div><p class="muted" id="timelineNote">Each point is a real acquisition pair. No synthetic intermediate observations are created.</p>
 <details id="pairCompare"><summary>Side-by-side observed pair comparison</summary><p class="muted" style="font-size:11px">Compares two actual pairwise raster previews only when both source products have the same product family, track/look and exact source grid. This is not optical before/after imagery, not a computed difference, and not a cumulative trajectory.</p><div class="compare-controls"><label>Observed pair A<select id="compareA"></select></label><label>Observed pair B<select id="compareB"></select></label><label>Shared raster band<select id="compareBand"></select></label></div><p class="muted" id="compareStatus" role="status">Select two compatible observations to compare.</p><div class="compare-grid"><div><h3 id="compareTitleA" class="compare-map-title">Pair A</h3><div class="compare-mapbox"><div id="compareMapA"></div></div><p id="compareLegendA" class="legend"></p></div><div><h3 id="compareTitleB" class="compare-map-title">Pair B</h3><div class="compare-mapbox"><div id="compareMapB"></div></div><p id="compareLegendB" class="legend"></p></div></div></details>
 <details id="scenarioSandbox"><summary>Hypothetical motion sensitivity sandbox (not a forecast)</summary><p class="muted" style="font-size:11px">Enter a hypothetical constant rate and duration to draw a scenario curve. It is generated by the calculator, not NISAR observations, not a landslide/glacier-collapse prediction, and must never be read as an alert. Any displayed noise floor comes only from a measured pair-local floor in this run.</p><div class="scenario-grid"><label>Hypothetical rate (mm/day)<input id="scenarioRate" type="number" min="-500" max="500" step="0.1" placeholder="Enter rate"></label><label>Duration (days)<input id="scenarioDays" type="number" min="1" max="90" step="1" placeholder="Enter duration"></label><div style="display:flex;align-items:end"><button id="simulateScenario" type="button">Simulate scenario</button></div></div><svg id="scenarioChart" class="chart" role="img" aria-label="Explicitly hypothetical cumulative displacement scenario" viewBox="0 0 560 180"></svg><div id="scenarioResult" class="scenario-result muted" role="status">No scenario generated.</div></details>
 </section>
-<aside class="panel"><div class="kicker">Selected observation</div><h2 id="productTitle">—</h2><p class="muted" id="productDescription">—</p><div class="metriclist" id="productMetrics"></div><label>Jump to pair <select id="productSelect"></select></label><div class="kicker" style="margin-top:18px">Quality / support by product</div><svg id="supportChart" class="chart" role="img" aria-label="Bar chart of valid pixels by product"></svg><p class="muted" style="font-size:11px">Bars show per-product valid-pixel counts; they are not a movement trend.</p><div class="kicker" style="margin-top:12px">Observed pair measurements · selected track</div><label>Metric <select id="measurementMetric" aria-label="Select one measurement metric and its units"></select></label><label>Measurement track <select id="measurementTrack" aria-label="Choose one track for the selected metric"></select></label><svg id="measurementChart" class="chart" role="img" aria-label="Per-product pairwise science metrics shown as separate bars, not a time series"></svg><p class="muted" style="font-size:11px">Each bar belongs to a real acquisition pair. Metric choices keep measurement families and units separate. Target-local values remain pair-specific; detection floors are noise bounds, not observed motion. White whiskers show the stored target-floor confidence interval when available; bars are not connected into a cumulative trend.</p><div class="kicker" style="margin-top:18px">Common-reference cumulative LOS diagnostic</div><p class="muted" style="font-size:11px">This graph appears only when the retained GUNW rasters share one projected grid, at least 200 common-valid AOI pixels remain outside a 2 km target buffer, the temporal network has redundancy, and leave-one-out velocity signs agree. The zero is an AOI-derived median, not an independently surveyed stable-ground reference; fit-only error bars omit systematic datum uncertainty.</p><label>Network/component <select id="cumulativeNetwork" aria-label="Select eligible common-reference network"></select></label><div id="cumulativeStatus" class="muted" role="status">Checking common-reference eligibility…</div><svg id="cumulativeChart" class="chart" role="img" aria-label="Cumulative line of actual connected GUNW acquisition epochs with fit-only uncertainty where available"></svg><p class="muted" style="font-size:11px">Only actual inversion epochs are plotted; no intermediate observations are created. This is a research diagnostic, not a hazard alert or forecast.</p><div class="kicker" style="margin-top:18px">Scientific pipeline coverage</div><div id="scienceStages" class="metriclist"></div><p class="muted" style="font-size:11px">A withheld stage is shown explicitly rather than filled with invented numbers. See its reason and the network redundancy before interpreting any movement.</p><div class="kicker" style="margin-top:12px">Observation list</div><div class="product-list" id="productList"></div><details><summary>Provenance and limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details></aside></div>
+<aside class="panel"><div class="kicker">Selected observation</div><h2 id="productTitle">—</h2><p class="muted" id="productDescription">—</p><div class="metriclist" id="productMetrics"></div><label>Jump to pair <select id="productSelect"></select></label><div class="kicker" style="margin-top:18px">Quality / support by product</div><svg id="supportChart" class="chart" role="img" aria-label="Bar chart of valid pixels by product"></svg><p class="muted" style="font-size:11px">Bars show per-product valid-pixel counts; they are not a movement trend.</p><div class="kicker" style="margin-top:12px">Observed pair measurements · selected track</div><label>Metric <select id="measurementMetric" aria-label="Select one measurement metric and its units"></select></label><label>Measurement track <select id="measurementTrack" aria-label="Choose one track for the selected metric"></select></label><svg id="measurementChart" class="chart" role="img" aria-label="Per-product pairwise science metrics shown as separate bars, not a time series"></svg><p class="muted" style="font-size:11px">Each bar belongs to a real acquisition pair. Metric choices keep measurement families and units separate. Target-local values remain pair-specific; detection floors are noise bounds, not observed motion. White whiskers show the stored target-floor confidence interval when available; bars are not connected into a cumulative trend.</p><div class="kicker" style="margin-top:18px">Common-reference cumulative LOS diagnostic</div><p class="muted" style="font-size:11px">This graph appears only when the retained GUNW rasters share one projected grid, at least 200 common-valid AOI pixels remain outside a 2 km target buffer, the temporal network has redundancy, and leave-one-out velocity signs agree. The zero is an AOI-derived median, not an independently surveyed stable-ground reference; fit-only error bars omit systematic datum uncertainty.</p><label>Network/component <select id="cumulativeNetwork" aria-label="Select eligible common-reference network"></select></label><div id="cumulativeStatus" class="muted" role="status">Checking common-reference eligibility…</div><svg id="cumulativeChart" class="chart" role="img" aria-label="Cumulative line of actual connected GUNW acquisition epochs with fit-only uncertainty where available"></svg><p class="muted" style="font-size:11px">Only actual inversion epochs are plotted; no intermediate observations are created. This is a research diagnostic, not a hazard alert or forecast.</p><div class="kicker" style="margin-top:18px">Common-reference cumulative GOFF offset diagnostic</div><p class="muted" style="font-size:11px">This separate chart appears only when retained GOFF range/azimuth rasters pass exact-AOI, common-grid, shared-pixel, target-window and redundant-network gates. Range and along-track offsets are separate components, not vertical motion or full 3-D displacement. The zero is an AOI-derived median, not independently surveyed stable ground; no alert or forecast is produced.</p><label>GOFF network/component <select id="goffCumulativeNetwork" aria-label="Select GOFF common-reference network and offset component"></select></label><div id="goffCumulativeStatus" class="muted" role="status">Checking GOFF common-reference eligibility…</div><svg id="goffCumulativeChart" class="chart" role="img" aria-label="Diagnostic cumulative GOFF range or azimuth offset with fit-only uncertainty where available"></svg><div class="kicker" style="margin-top:18px">AOI-wide per-pixel GUNW LOS analysis</div><div id="pixelTimeseriesStatus" class="muted" role="status">Checking target-free per-pixel inversion eligibility…</div><div id="pixelTimeseriesNetworks" class="metriclist"></div><p class="muted" style="font-size:11px">When eligible, the map selector can display AOI-relative LOS velocity (mm/year), fit uncertainty and network closure RMSE. The reference is an AOI-derived background, not independently surveyed stable ground; LOS is not vertical or 3-D motion.</p><div class="kicker" style="margin-top:18px">Target-free AOI displacement candidates</div><div id="aoiCandidateStatus" class="muted" role="status">Preparing polygon-wide candidate screen…</div><div id="aoiCandidateList" class="metriclist"></div><p class="muted" style="font-size:11px">Highlighted polygons are spatial anomalies, not confirmed movement. A single-pair candidate needs further temporal and geophysical validation; no candidate is a hazard alert.</p><div class="kicker" style="margin-top:18px">Scientific pipeline coverage</div><div id="scienceStages" class="metriclist"></div><p class="muted" style="font-size:11px">A withheld stage is shown explicitly rather than filled with invented numbers. See its reason and the network redundancy before interpreting any movement.</p><div class="kicker" style="margin-top:12px">Observation list</div><div class="product-list" id="productList"></div><details><summary>Provenance and limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details></aside></div>
 <footer class="foot">Map data attribution: © OpenStreetMap contributors. Raster preview is reprojected from the validated clipped GeoTIFF; native raster and per-product records remain the scientific source assets. This is a research viewer, not a hazard-alert service.</footer>
 </main><script src="./dashboard-data.js"></script><script type="module">
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs';
 (function(){const $=id=>document.getElementById(id);const manifest=window.SARGUARDIAN_DASHBOARD;let M=null,selected=0,playing=false,timer=null,activeLayer=null;const esc=s=>String(s==null?'—':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));if(!manifest){$('mapTitle').textContent='Manifest is missing';$('mapFallback').classList.remove('hidden');return}const obs=manifest.observations||[],layers=manifest.layers||[],aoi=manifest.aoi&&manifest.aoi.geometry,n=obs.length;
 $('timeline').max=String(Math.max(0,n-1));$('timeline').disabled=n<2;$('productSelect').innerHTML=obs.map((p,i)=>'<option value="'+i+'">'+esc(p.secondary_date)+' · '+esc(p.id)+'</option>').join('');
-const site=(manifest.site_context||{}),place=site.place||{},target=site.measurement_target||{};const aoiWideScreen=manifest.aoi_wide_displacement_screen||{},aoiWideFeatures=((aoiWideScreen.candidate_feature_collection||{}).features||[]);const cards=[['Products',n],['GUNW',obs.filter(p=>p.product_type==='GUNW').length],['GOFF',obs.filter(p=>p.product_type==='GOFF').length],['AOI-wide candidates',Number(aoiWideScreen.candidate_count||0)],['Target local measurements',obs.filter(p=>{const m=p.metrics||{};return m.target_measurement_status==='MEASURED'&&(m.target_local_los_median_mm!=null||m.target_local_range_median_mm!=null);}).length],['Selected place',place.name||'Not selected']];$('summaryCards').innerHTML=cards.map(x=>'<div class="card"><div class="label">'+esc(x[0])+'</div><div class="big">'+esc(x[1])+'</div></div>').join('');
-function renderAoiWideCandidatePanel(){
- const status=$('aoiWideCandidateStatus'),list=$('aoiWideCandidateList'),toggle=$('showAoiCandidates');
- if(!status||!list)return;
- const screen=aoiWideScreen||{},features=aoiWideFeatures||[];
- const goffCount=(screen.series||[]).length;
- const gunw=(screen.gunw_per_pixel_stack||{}).status||'NOT_REPORTED';
- status.textContent='Status: '+String(screen.status||'NOT_REPORTED')+' · '+features.length+' review region(s) · '+goffCount+' compatible GOFF series · target required: no · GUNW LOS stack: '+gunw+'. '+(features.length?'Regions are shown in orange on the map when the overlay checkbox is on.':'No region passed the current spatial/persistence gates. This is not evidence of zero displacement or no hazard.');
- if(toggle)toggle.disabled=features.length===0;
- if(!features.length){list.textContent='No AOI-wide candidate polygons were emitted for this run. Check valid-pixel support, per-series status, and the candidate-screen summary before interpreting this as a null result.';return;}
- const rows=features.slice(0,100).map(f=>{const p=f.properties||{};return '<div style="display:grid;grid-template-columns:minmax(90px,1.2fr) repeat(3,minmax(70px,1fr));gap:8px;padding:7px 0;border-bottom:1px solid #29414f"><strong>'+esc(p.candidate_id)+'</strong><span>'+esc((p.direction||'')+' T'+(p.track||'—'))+'</span><span>'+esc(p.area_km2_approx)+' km²</span><span>'+esc(p.pairs_with_candidate)+' pair(s)</span></div>';}).join('');
- list.innerHTML='<div class="muted" style="display:grid;grid-template-columns:minmax(90px,1.2fr) repeat(3,minmax(70px,1fr));gap:8px;padding:6px 0"><b>Candidate</b><b>Series</b><b>Approx. area</b><b>Persistence</b></div>'+rows+(features.length>100?'<p class="muted">Showing first 100 of '+features.length+' regions. Full GeoJSON/CSV is in the result bundle.</p>':'');
-}
-renderAoiWideCandidatePanel();
+const site=(manifest.site_context||{}),place=site.place||{},target=site.measurement_target||{},aoiWideScreen=manifest.aoi_wide_displacement_screen||{};const cards=[['Products',n],['GUNW',obs.filter(p=>p.product_type==='GUNW').length],['GOFF',obs.filter(p=>p.product_type==='GOFF').length],['AOI-wide GOFF candidates',Number(aoiWideScreen.candidate_count||0)],['Target local measurements',obs.filter(p=>{const m=p.metrics||{};return m.target_measurement_status==='MEASURED'&&(m.target_local_los_median_mm!=null||m.target_local_range_median_mm!=null);}).length],['Measured local floors',obs.filter(p=>{const m=p.metrics||{};return m.target_local_floor_status==='MEASURED'&&m.target_local_floor_mm_day!=null;}).length],['Selected place',place.name||'Not selected']];$('summaryCards').innerHTML=cards.map(x=>'<div class="card"><div class="label">'+esc(x[0])+'</div><div class="big">'+esc(x[1])+'</div></div>').join('');
 function addFallback(){ $('mapFallback').classList.remove('hidden'); }
-if(maplibregl && typeof maplibregl.Map==='function'){try{M=new maplibregl.Map({container:'map',style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster',source:'osm'}]},center:[0,0],zoom:2});M.addControl(new maplibregl.NavigationControl(),'top-right');M.on('load',function(){if(aoi){M.addSource('aoi',{type:'geojson',data:manifest.aoi});M.addLayer({id:'aoi-fill',type:'fill',source:'aoi',paint:{'fill-color':'#66e2d3','fill-opacity':0.09}});M.addLayer({id:'aoi-outline',type:'line',source:'aoi',paint:{'line-color':'#66e2d3','line-width':2,'line-dasharray':[2,1]}});const coords=aoi.coordinates[0]||[];if(coords.length){let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;coords.forEach(c=>{west=Math.min(west,c[0]);south=Math.min(south,c[1]);east=Math.max(east,c[0]);north=Math.max(north,c[1]);});M.fitBounds([[west,south],[east,north]],{padding:55,maxZoom:14});}}if(place&&Number.isFinite(Number(place.longitude))&&Number.isFinite(Number(place.latitude))){M.addSource('selected-site',{type:'geojson',data:{type:'Feature',properties:{name:place.name||'Selected place'},geometry:{type:'Point',coordinates:[Number(place.longitude),Number(place.latitude)]}}});M.addLayer({id:'selected-site-marker',type:'circle',source:'selected-site',paint:{'circle-radius':8,'circle-color':'#f7c76b','circle-stroke-color':'#ffffff','circle-stroke-width':2}});}if(target.status==='IN_AOI_TARGET_CAPTURED'&&Number.isFinite(Number(target.longitude))&&Number.isFinite(Number(target.latitude))){M.addSource('selected-target',{type:'geojson',data:{type:'Feature',properties:{name:'Measurement target'},geometry:{type:'Point',coordinates:[Number(target.longitude),Number(target.latitude)]}}});M.addLayer({id:'selected-target-marker',type:'circle',source:'selected-target',paint:{'circle-radius':4,'circle-color':'#ff806e','circle-stroke-color':'#ffffff','circle-stroke-width':1.5}});}layers.forEach(function(l){const source='src-'+l.id;M.addSource(source,{type:'image',url:(window.SARGUARDIAN_LAYER_DATA||{})[l.id]||l.preview_asset,coordinates:l.corners});M.addLayer({id:'raster-'+l.id,type:'raster',source:source,layout:{visibility:'none'},paint:{'raster-opacity':Number($('opacity').value)/100,'raster-resampling':'nearest'}});});const candidateToggle=$('showAoiCandidates'),candidateFC=aoiWideScreen.candidate_feature_collection||{type:'FeatureCollection',features:[]};if(candidateFC.features&&candidateFC.features.length){M.addSource('aoi-wide-candidates',{type:'geojson',data:candidateFC});M.addLayer({id:'aoi-wide-candidate-fill',type:'fill',source:'aoi-wide-candidates',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#ff806e','fill-opacity':0.20}});M.addLayer({id:'aoi-wide-candidate-outline',type:'line',source:'aoi-wide-candidates',filter:['==',['geometry-type'],'Polygon'],paint:{'line-color':'#ff806e','line-width':2}});M.on('click','aoi-wide-candidate-fill',function(e){const p=(e.features&&e.features[0]&&e.features[0].properties)||{};new maplibregl.Popup().setLngLat(e.lngLat).setHTML('<strong>'+esc(p.candidate_id)+'</strong><br>'+esc(p.direction)+' T'+esc(p.track)+'<br>'+esc(p.area_km2_approx)+' km²<br>'+esc(p.pairs_with_candidate)+' pair(s)<br>Review candidate; not a hazard detection.').addTo(M);});}else if(candidateToggle)candidateToggle.disabled=true;if(candidateToggle)candidateToggle.addEventListener('change',function(){['aoi-wide-candidate-fill','aoi-wide-candidate-outline'].forEach(function(id){if(M.getLayer(id))M.setLayoutProperty(id,'visibility',candidateToggle.checked?'visible':'none');});});if(n)renderProduct();});}catch(e){addFallback();}}else addFallback();
-function current(){return obs[selected]||null;}function obsLayers(p){return layers.filter(l=>l.observation_id===p.id);}function hideLayers(){if(!M)return;layers.forEach(l=>{const id='raster-'+l.id;if(M.getLayer(id))M.setLayoutProperty(id,'visibility','none');});activeLayer=null;}
-function renderLegend(l){if(!l){$('legend').textContent='No renderable raster overlay for this product.';return;}const d=l.display_scale||{};const ramp=l.kind==='coherence'?'linear-gradient(90deg,#440154,#21918c,#fde725)':'linear-gradient(90deg,#053061,#f7f7f7,#67001f)';const safeRamp=l.kind==='binary_mask'?'linear-gradient(90deg,#ff6e5f 0%,#37be9b 100%)':ramp;$('legend').innerHTML='<strong>'+esc(l.description)+'</strong> · '+esc(l.units)+' · preview-valid pixels '+esc(l.valid_pixels)+'<br>Scale '+esc(d.min)+' to '+esc(d.max)+' '+esc(l.units)+' ('+esc(d.method)+')<div class="legendbar" style="background:'+safeRamp+'"></div>';}
-function renderProduct(){const p=current();if(!p)return;const pl=obsLayers(p);$('timeline').value=String(selected);$('productSelect').value=String(selected);$('dateLabel').textContent=(p.reference_date||'—')+' → '+(p.secondary_date||'—');$('mapTitle').textContent=p.id+' · '+p.product_type+' · '+(p.track||'track unavailable');$('productTitle').textContent=p.id+' · '+p.product_type;$('productDescription').textContent=(p.reference_date||'—')+' reference → '+(p.secondary_date||'—')+' secondary · '+(p.maturity||'maturity not reported')+' · '+(p.look_direction||'view geometry in metadata');
+if(maplibregl && typeof maplibregl.Map==='function'){try{M=new maplibregl.Map({container:'map',style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster',source:'osm'}]},center:[0,0],zoom:2});M.addControl(new maplibregl.NavigationControl(),'top-right');M.on('load',function(){if(aoi){M.addSource('aoi',{type:'geojson',data:manifest.aoi});M.addLayer({id:'aoi-fill',type:'fill',source:'aoi',paint:{'fill-color':'#66e2d3','fill-opacity':0.09}});M.addLayer({id:'aoi-outline',type:'line',source:'aoi',paint:{'line-color':'#66e2d3','line-width':2,'line-dasharray':[2,1]}});const candidateReport=manifest.aoi_displacement_candidates||{};const candidateFeatures=Array.isArray(candidateReport.features)?candidateReport.features:[];if(candidateFeatures.length&&!M.getSource('aoi-candidate-regions')){M.addSource('aoi-candidate-regions',{type:'geojson',data:{type:'FeatureCollection',features:candidateFeatures}});M.addLayer({id:'aoi-candidate-fill',type:'fill',source:'aoi-candidate-regions',paint:{'fill-color':['case',['==',['get','product_type'],'GOFF'],'#7dd3fc',['==',['get','status'],'REPEATED_SPATIAL_CANDIDATE'],'#ff6b6b','#e8b24b'],'fill-opacity':0.28}});M.addLayer({id:'aoi-candidate-outline',type:'line',source:'aoi-candidate-regions',paint:{'line-color':['case',['==',['get','product_type'],'GOFF'],'#7dd3fc',['==',['get','status'],'REPEATED_SPATIAL_CANDIDATE'],'#ff6b6b','#e8b24b'],'line-width':2}});}const legacyFC=aoiWideScreen.candidate_feature_collection||{type:'FeatureCollection',features:[]};if(Array.isArray(legacyFC.features)&&legacyFC.features.length&&!M.getSource('legacy-aoi-wide-candidates')){M.addSource('legacy-aoi-wide-candidates',{type:'geojson',data:legacyFC});M.addLayer({id:'aoi-wide-candidate-fill',type:'fill',source:'legacy-aoi-wide-candidates',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#ff806e','fill-opacity':0.16}});M.addLayer({id:'aoi-wide-candidate-outline',type:'line',source:'legacy-aoi-wide-candidates',filter:['==',['geometry-type'],'Polygon'],paint:{'line-color':'#ff806e','line-width':2}});M.on('click','aoi-wide-candidate-fill',function(e){const p=(e.features&&e.features[0]&&e.features[0].properties)||{};new maplibregl.Popup().setLngLat(e.lngLat).setHTML('<strong>'+esc(p.candidate_id||'GOFF candidate')+'</strong><br>'+esc(p.direction||'')+' T'+esc(p.track||'—')+'<br>'+esc(p.area_km2_approx||'—')+' km²<br>'+esc(p.pairs_with_candidate||0)+' supporting pair(s)<br>GOFF offset anomaly only; not ground motion; not a hazard detection.').addTo(M);});}const coords=aoi.coordinates[0]||[];if(coords.length){let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;coords.forEach(c=>{west=Math.min(west,c[0]);south=Math.min(south,c[1]);east=Math.max(east,c[0]);north=Math.max(north,c[1]);});M.fitBounds([[west,south],[east,north]],{padding:55,maxZoom:14});}}if(place&&Number.isFinite(Number(place.longitude))&&Number.isFinite(Number(place.latitude))){M.addSource('selected-site',{type:'geojson',data:{type:'Feature',properties:{name:place.name||'Selected place'},geometry:{type:'Point',coordinates:[Number(place.longitude),Number(place.latitude)]}}});M.addLayer({id:'selected-site-marker',type:'circle',source:'selected-site',paint:{'circle-radius':8,'circle-color':'#f7c76b','circle-stroke-color':'#ffffff','circle-stroke-width':2}});}if(target.status==='IN_AOI_TARGET_CAPTURED'&&Number.isFinite(Number(target.longitude))&&Number.isFinite(Number(target.latitude))){M.addSource('selected-target',{type:'geojson',data:{type:'Feature',properties:{name:'Measurement target'},geometry:{type:'Point',coordinates:[Number(target.longitude),Number(target.latitude)]}}});M.addLayer({id:'selected-target-marker',type:'circle',source:'selected-target',paint:{'circle-radius':4,'circle-color':'#ff806e','circle-stroke-color':'#ffffff','circle-stroke-width':1.5}});}layers.forEach(function(l){const source='src-'+l.id;M.addSource(source,{type:'image',url:(window.SARGUARDIAN_LAYER_DATA||{})[l.id]||l.preview_asset,coordinates:l.corners});M.addLayer({id:'raster-'+l.id,type:'raster',source:source,layout:{visibility:'none'},paint:{'raster-opacity':Number($('opacity').value)/100,'raster-resampling':'nearest'}});});(manifest.derived_layers||[]).forEach(function(l){const source='src-derived-'+l.id;M.addSource(source,{type:'image',url:(window.SARGUARDIAN_DERIVED_LAYER_DATA||{})[l.id]||l.preview_asset,coordinates:l.corners});M.addLayer({id:'raster-derived-'+l.id,type:'raster',source:source,layout:{visibility:'none'},paint:{'raster-opacity':Number($('opacity').value)/100,'raster-resampling':'nearest'}});});if(M.getLayer('aoi-candidate-fill'))M.moveLayer('aoi-candidate-fill');if(M.getLayer('aoi-candidate-outline'))M.moveLayer('aoi-candidate-outline');if(n)renderProduct();});}catch(e){addFallback();}}else addFallback();
+function current(){return obs[selected]||null;}function obsLayers(p){return layers.filter(l=>l.observation_id===p.id);}function hideLayers(){if(!M)return;layers.forEach(l=>{const id='raster-'+l.id;if(M.getLayer(id))M.setLayoutProperty(id,'visibility','none');});(manifest.derived_layers||[]).forEach(l=>{const id='raster-derived-'+l.id;if(M.getLayer(id))M.setLayoutProperty(id,'visibility','none');});activeLayer=null;}
+function renderLegend(l){if(!l){$('legend').textContent='No renderable raster overlay for this product.';return;}const d=l.display_scale||{};const ramp=l.kind==='coherence'?'linear-gradient(90deg,#440154,#21918c,#fde725)':'linear-gradient(90deg,#053061,#f7f7f7,#67001f)';const safeRamp=l.kind==='binary_mask'?'linear-gradient(90deg,#ff6e5f 0%,#37be9b 100%)':l.kind==='candidate_mask'?'linear-gradient(90deg,transparent 0%,#ff6e5f 100%)':l.kind==='reference_mask'?'linear-gradient(90deg,transparent 0%,#37be9b 100%)':ramp;$('legend').innerHTML='<strong>'+esc(l.description)+'</strong> · '+esc(l.units)+' · preview-valid pixels '+esc(l.valid_pixels)+'<br>Scale '+esc(d.min)+' to '+esc(d.max)+' '+esc(l.units)+' ('+esc(d.method)+')<div class="legendbar" style="background:'+safeRamp+'"></div>';}
+function renderDerivedLayer(){
+ const select=$('derivedLayerSelect'),id=select?select.value:'',derived=manifest.derived_layers||[];
+ if(!id){if(n)renderProduct();return;}
+ const layer=derived.find(item=>item.id===id);if(!layer||!M)return;
+ hideLayers();const mapLayer='raster-derived-'+layer.id;
+ if(M.getLayer(mapLayer)){M.setLayoutProperty(mapLayer,'visibility','visible');M.setPaintProperty(mapLayer,'raster-opacity',Number($('opacity').value)/100);activeLayer='derived-'+layer.id;}
+ $('mapTitle').textContent='AOI-wide analysis · '+layer.description;
+ renderLegend(layer);
+}
+function renderAOIPixelTimeseriesStatus(){
+ const r=manifest.aoi_relative_pixel_timeseries||{},status=$('pixelTimeseriesStatus'),root=$('pixelTimeseriesNetworks'),select=$('derivedLayerSelect');
+ if(!status||!root||!select)return;
+ const velocityLayers=(manifest.derived_layers||[]).filter(layer=>String(layer.analysis_role||'').includes('velocity'));
+ const networks=Array.isArray(r.networks)?r.networks:[];
+ status.textContent=String(r.status||'NOT_REPORTED')+' · '+String(r.reason||'No AOI-wide per-pixel report is available.');
+ const old=select.value;
+ select.innerHTML='<option value="">Observed pair playback</option>'+(manifest.derived_layers||[]).map(layer=>'<option value="'+esc(layer.id)+'">'+esc(layer.description)+' · '+esc(layer.network)+'</option>').join('');
+ select.disabled=!(manifest.derived_layers||[]).length;
+ if(old&&(manifest.derived_layers||[]).some(layer=>layer.id===old))select.value=old;
+ if(!networks.length){root.innerHTML='<div class="metricitem"><div class="label">Temporal inversion</div><strong>No GUNW network assessed</strong><small>No valid per-pixel velocity was inferred.</small></div>';return;}
+ root.innerHTML=networks.map(network=>'<div class="metricitem"><div class="label">'+esc(network.network||'GUNW network')+'</div><strong>'+esc(network.status||'NOT_REPORTED')+'</strong><small style="display:block;margin-top:4px">'+esc(network.pair_count||0)+' unique pairs · '+esc(network.epoch_count||0)+' epochs · redundancy '+esc(network.redundancy||0)+' · common pixels '+esc(network.common_valid_pixels||0)+'</small><small style="display:block;margin-top:4px">'+esc(network.reason||'See the JSON report for gate details.')+'</small></div>').join('');
+ if(velocityLayers.length){status.textContent+=' · '+velocityLayers.length+' velocity layer(s) available; diagnostic only, reference unvalidated.';}
+}
+
+function renderProduct(){const p=current();if(!p)return;const derivedSelect=$('derivedLayerSelect');if(derivedSelect)derivedSelect.value='';const pl=obsLayers(p);$('timeline').value=String(selected);$('productSelect').value=String(selected);$('dateLabel').textContent=(p.reference_date||'—')+' → '+(p.secondary_date||'—');$('mapTitle').textContent=p.id+' · '+p.product_type+' · '+(p.track||'track unavailable');$('productTitle').textContent=p.id+' · '+p.product_type;$('productDescription').textContent=(p.reference_date||'—')+' reference → '+(p.secondary_date||'—')+' secondary · '+(p.maturity||'maturity not reported')+' · '+(p.look_direction||'view geometry in metadata');
 const priorBand=$('bandSelect').value;$('bandSelect').innerHTML=pl.map(l=>'<option value="'+esc(l.id)+'">Band '+esc(l.band)+': '+esc(l.description)+'</option>').join('');if(pl.some(l=>l.id===priorBand))$('bandSelect').value=priorBand;$('bandSelect').disabled=!pl.length;const layer=pl.find(l=>l.id===$('bandSelect').value)||pl[0]||null;hideLayers();if(layer&&M&&M.getLayer('raster-'+layer.id)){M.setLayoutProperty('raster-'+layer.id,'visibility','visible');M.setPaintProperty('raster-'+layer.id,'raster-opacity',Number($('opacity').value)/100);activeLayer=layer.id;}renderLegend(layer);
 const m=p.metrics||{};const siteTarget=manifest.site_context&&manifest.site_context.measurement_target;const items=[['Reference date',p.reference_date],['Secondary date',p.secondary_date],['Track / look',p.track||'Not reported'],['Maturity',p.maturity],['Measurement-valid pixels',p.valid_pixels],['Screen-valid pixels',p.screen_valid_pixels==null?'Not reported':p.screen_valid_pixels],['Global-MAD outliers retained for review',p.screen_outlier_pixels==null?'Not applicable':p.screen_outlier_pixels],['Reader median',m.reader_median==null?'Not reported':String(m.reader_median)+' '+(m.reader_median_units||'(source units)')],['Target local LOS/range',m.target_local_los_median_mm!=null?m.target_local_los_median_mm+' mm':m.target_local_range_median_mm!=null?m.target_local_range_median_mm+' mm':'Not measured'],['Target local along-track',m.target_local_azimuth_median_mm==null?'Not measured':m.target_local_azimuth_median_mm+' mm'],['Target local floor',m.target_local_floor_mm_day==null?'Not measured':m.target_local_floor_mm_day+' mm/day'],['Target floor CI',m.target_local_floor_ci_lo_mm_day==null||m.target_local_floor_ci_hi_mm_day==null?'Not reported':m.target_local_floor_ci_lo_mm_day+'–'+m.target_local_floor_ci_hi_mm_day+' mm/day'],['Mean coherence',m.mean_coherence==null?'Not reported':m.mean_coherence],['CRID',p.crid]];$('productMetrics').innerHTML=items.map(x=>'<div class="metricitem"><div class="label">'+esc(x[0])+'</div><strong>'+esc(x[1])+'</strong></div>').join('');$('provenance').innerHTML='<p>Run: '+esc(manifest.run.github_run_id)+'</p><p>AOI SHA-256: '+esc(manifest.run.aoi_wkt_sha256)+'</p><p>Science commit: '+esc(manifest.run.science_commit)+'</p><p>Orchestration commit: '+esc(manifest.run.orchestration_commit)+'</p><p>Source hash: '+esc(p.source_sha256)+'</p><p>'+esc(p.validation_scope||'Structural/provenance only; independent geophysical validation not performed.')+'</p><p>'+(p.warnings||[]).map(esc).join('<br>')+'</p>';document.querySelectorAll('.product-row').forEach(row=>row.setAttribute('aria-current',row.dataset.idx===String(selected)?'true':'false'));}
-function renderSciencePipeline(){const root=$('scienceStages'),r=manifest.science_pipeline||{};const modules=Array.isArray(r.modules)?r.modules:[];const networks=Array.isArray(r.networks)?r.networks:[];if(!modules.length){root.innerHTML='<div class="metricitem"><div class="label">Science pipeline</div><strong>Not reported</strong><small>Older result bundles may not contain stage-level eligibility.</small></div>';return;}root.innerHTML=modules.map(m=>'<div class="metricitem"><div class="label">'+esc(m.name)+'</div><strong>'+esc(m.status)+'</strong><small style="display:block;margin-top:4px">'+esc(m.reason||m.interpretation||m.limitation||m.produces||'See the structured pipeline report.')+'</small></div>').join('');if(networks.length){root.insertAdjacentHTML('beforeend','<div class="metricitem"><div class="label">Temporal network diagnostics</div><strong>'+networks.length+' network component(s)</strong><small style="display:block;margin-top:4px">'+networks.map(n=>esc(n.geometry)+': '+esc(n.n_pairs)+' pairs, '+esc(n.n_epochs)+' epochs, redundancy '+esc(n.redundancy)+' ('+esc(n.topology_status)+')').join('<br>')+'</small></div>');}const overall=document.createElement('div');overall.className='metricitem';overall.innerHTML='<div class="label">Stage assessment</div><strong>'+esc(r.overall_status||r.network_assessment_status||'PARTIAL')+'</strong><small style="display:block;margin-top:4px">'+esc((r.warnings||[]).join(' '))+'</small>';root.prepend(overall);}function renderList(){$('productList').innerHTML=obs.map((p,i)=>'<button class="product-row" data-idx="'+i+'" aria-current="'+(i===selected?'true':'false')+'"><span><strong>'+esc(p.id)+' · '+esc(p.product_type)+'</strong><small>'+esc(p.reference_date)+' → '+esc(p.secondary_date)+' · '+esc(p.track||'track N/A')+'</small></span><span>'+esc(p.valid_pixels)+' measured px<br><small>'+esc(p.screen_valid_pixels==null?'—':p.screen_valid_pixels)+' screening px</small></span></button>').join('');document.querySelectorAll('.product-row').forEach(b=>b.addEventListener('click',()=>select(Number(b.dataset.idx))));}
+function renderAoiCandidateScreen(){const root=$('aoiCandidateList'),status=$('aoiCandidateStatus'),r=manifest.aoi_displacement_candidates||{};if(!root||!status)return;status.textContent=String(r.status||'NOT_REPORTED')+' · '+String(r.reason||'No spatial candidate screen report is available.');const features=Array.isArray(r.features)?r.features:[],legacy=manifest.aoi_wide_displacement_screen||{},legacyFeatures=((legacy.candidate_feature_collection||{}).features||[]);status.textContent+=' · legacy GOFF-only screen: '+String(legacy.status||'NOT_REPORTED')+' · '+Number(legacy.candidate_count||0)+' candidate region(s)';if(!features.length&&!legacyFeatures.length){root.innerHTML='<div class="metricitem"><div class="label">AOI-wide candidate screen</div><strong>No candidate polygons reported at configured thresholds</strong><small>No candidate does not mean zero movement. Check raster quality, valid support, date coverage and withheld-stage reasons.</small></div>';return;}root.innerHTML=features.slice(0,30).map(f=>{const p=f.properties||{};const statusText=String(p.status||'UNCONFIRMED');const family=String(p.product_type||'SAR');const label=family==='GOFF'?'GOFF offset anomaly — not ground motion':(family==='GUNW'?'GUNW LOS displacement anomaly — unconfirmed':family)+' · '+String(p.metric||'spatial anomaly');return '<div class="metricitem"><div class="label">'+esc(label)+'</div><strong>'+esc(statusText)+(family==='GOFF'?' · offset evidence only':'')+'</strong><small style="display:block;margin-top:4px">Max same-pixel pair support: '+esc(p.support_pairs||0)+' · pair intervals intersecting region: '+esc(p.overlapping_pair_count||p.support_pairs||0)+' · pixels: '+esc(p.pixel_count||0)+' · approximate area: '+esc(p.approx_area_m2||0)+' m² · max robust score: '+esc(p.max_robust_score||0)+'</small><small style="display:block;margin-top:4px">'+esc(p.interpretation||'Candidate only; not validated movement.')+'</small></div>';}).join('')+legacyFeatures.slice(0,30).map(f=>{const p=f.properties||{};return '<div class="metricitem"><div class="label">Legacy GOFF offset-anomaly screen · '+esc(p.candidate_id||'Candidate')+'</div><strong>GOFF_OFFSET_ANOMALY_NOT_GROUND_MOTION</strong><small style="display:block;margin-top:4px">'+esc(p.direction||'')+' T'+esc(p.track||'—')+' · '+esc(p.area_km2_approx||'—')+' km² · '+esc(p.pairs_with_candidate||0)+' supporting pair(s)</small><small>Exploratory GOFF screen only; not confirmed ground movement or hazard.</small></div>';}).join('')+(features.length>30||legacyFeatures.length>30?'<div class="metricitem"><small>Showing up to 30 regions per screen. Full GeoJSON and CSV remain in the result bundle.</small></div>':'');}
+function renderSciencePipeline(){const root=$('scienceStages'),r=manifest.science_pipeline||{};const modules=Array.isArray(r.modules)?r.modules:[];const networks=Array.isArray(r.networks)?r.networks:[];if(!modules.length){root.innerHTML='<div class="metricitem"><div class="label">Science pipeline</div><strong>Not reported</strong><small>Older result bundles may not contain stage-level eligibility.</small></div>';return;}root.innerHTML=modules.map(m=>'<div class="metricitem"><div class="label">'+esc(m.name)+'</div><strong>'+esc(m.status)+'</strong><small style="display:block;margin-top:4px">'+esc(m.reason||m.interpretation||m.limitation||m.produces||'See the structured pipeline report.')+'</small></div>').join('');if(networks.length){root.insertAdjacentHTML('beforeend','<div class="metricitem"><div class="label">Temporal network diagnostics</div><strong>'+networks.length+' network component(s)</strong><small style="display:block;margin-top:4px">'+networks.map(n=>esc(n.geometry)+': '+esc(n.n_pairs)+' pairs, '+esc(n.n_epochs)+' epochs, redundancy '+esc(n.redundancy)+' ('+esc(n.topology_status)+')').join('<br>')+'</small></div>');}const overall=document.createElement('div');overall.className='metricitem';overall.innerHTML='<div class="label">Stage assessment</div><strong>'+esc(r.overall_status||r.network_assessment_status||'PARTIAL')+'</strong><small style="display:block;margin-top:4px">'+esc((r.warnings||[]).join(' '))+'</small>';root.prepend(overall);}function renderList(){$('productList').innerHTML=obs.map((p,i)=>'<button class="product-row" data-idx="'+i+'" aria-current="'+(i===selected?'true':'false')+'"><span><strong>'+esc(p.id)+' · '+esc(p.product_type)+'</strong><small>'+esc(p.reference_date)+' → '+esc(p.secondary_date)+' · '+esc(p.track||'track N/A')+'</small></span><span>'+esc(p.valid_pixels)+' px</span></button>').join('');document.querySelectorAll('.product-row').forEach(b=>b.addEventListener('click',()=>select(Number(b.dataset.idx))));}
 function renderChart(){const svg=$('supportChart'),w=480,h=170;svg.setAttribute('viewBox','0 0 '+w+' '+h);svg.replaceChildren();const max=Math.max(1,...obs.map(p=>Number(p.valid_pixels)||0)),pad=25,bw=Math.max(4,(w-pad*2)/Math.max(1,obs.length)*.62),step=(w-pad*2)/Math.max(1,obs.length);obs.forEach((p,i)=>{const value=Math.max(0,Number(p.valid_pixels)||0),bar=Math.max(1,value/max*105),x=pad+i*step+(step-bw)/2;const r=document.createElementNS('http://www.w3.org/2000/svg','rect');r.setAttribute('x',x);r.setAttribute('y',125-bar);r.setAttribute('width',bw);r.setAttribute('height',bar);r.setAttribute('rx',2);r.setAttribute('fill',p.product_type==='GUNW'?'#66e2d3':'#f7c76b');const t=document.createElementNS('http://www.w3.org/2000/svg','title');t.textContent=p.id+': '+value+' valid pixels';r.append(t);svg.append(r);if(obs.length<=16){const tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x',x+bw/2);tx.setAttribute('y',143);tx.setAttribute('text-anchor','middle');tx.textContent=p.id.replace('GUNW-','').replace('GOFF-','');svg.append(tx);}});const t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',pad);t.setAttribute('y',12);t.textContent='Valid pixels in each product (not unique across pairs)';svg.append(t);}
 function metricValue(p,key){const m=p.metrics||{};let value=null;if(key==='gunw_los_median'&&p.product_type==='GUNW'&&m.reader_median_units==='mm')value=m.reader_median;else if(key==='goff_range_median'&&p.product_type==='GOFF')value=m.goff_range_median_mm;else if(key==='goff_azimuth_median'&&p.product_type==='GOFF')value=m.goff_azimuth_median_mm;else if(key==='goff_detection_floor'&&p.product_type==='GOFF')value=m.goff_detect_floor_mm_day;else if(key==='gunw_target_los'&&p.product_type==='GUNW'&&m.target_measurement_status==='MEASURED')value=m.target_local_los_median_mm;else if(key==='goff_target_range'&&p.product_type==='GOFF'&&m.target_measurement_status==='MEASURED')value=m.target_local_range_median_mm;else if(key==='goff_target_azimuth'&&p.product_type==='GOFF'&&m.target_measurement_status==='MEASURED')value=m.target_local_azimuth_median_mm;else if(key==='target_local_floor'&&m.target_local_floor_status==='MEASURED')value=m.target_local_floor_mm_day;return value!==null&&value!==undefined&&Number.isFinite(Number(value))?Number(value):null}
 function metricUncertainty(p,key){if(key!=='target_local_floor')return null;const m=p.metrics||{},lo=m.target_local_floor_ci_lo_mm_day,hi=m.target_local_floor_ci_hi_mm_day;if(lo===null||lo===undefined||hi===null||hi===undefined||!Number.isFinite(Number(lo))||!Number.isFinite(Number(hi))||Number(hi)<Number(lo))return null;return [Number(lo),Number(hi)];}
@@ -372,8 +379,44 @@ function renderCommonReferenceChart(){
  addText(left,H-17,rows[0].epoch,'start');addText(W-right,H-17,rows[rows.length-1].epoch,'end');
  addText(W-right,14,'White bars: fit-only 95% interval','end');
 }
+function renderGoffCommonReferenceChart(){
+ const report=manifest.goff_common_reference_timeseries||{},selectBox=$('goffCumulativeNetwork'),status=$('goffCumulativeStatus'),svg=$('goffCumulativeChart');
+ if(!selectBox||!status||!svg)return;
+ const components=(report.components||[]).filter(c=>c.status==='DIAGNOSTIC_SERIES_AVAILABLE_REFERENCE_UNVALIDATED'&&Array.isArray(c.series)&&c.series.length>=3);
+ const oldValue=selectBox.value;
+ selectBox.innerHTML=components.map((c,i)=>'<option value="'+i+'">'+esc(c.network)+' · '+esc(c.component)+'</option>').join('');
+ selectBox.disabled=!components.length;svg.replaceChildren();
+ if(!components.length){
+  status.textContent='Series withheld · '+String(report.status||'NOT_REPORTED')+' · '+(report.reason||'No GOFF network passed the common-pixel, target-window and redundant graph gates.');
+  svg.setAttribute('viewBox','0 0 560 85');svg.style.height='85px';
+  const textNode=document.createElementNS('http://www.w3.org/2000/svg','text');textNode.setAttribute('x','10');textNode.setAttribute('y','34');textNode.textContent='No eligible GOFF common-reference diagnostic series for this run.';svg.append(textNode);return;
+ }
+ if(oldValue!==''&&Number.isInteger(Number(oldValue))&&Number(oldValue)>=0&&Number(oldValue)<components.length)selectBox.value=oldValue;
+ const component=components[Number(selectBox.value)||0],rows=component.series.filter(p=>p.cumulative_offset_mm!==null&&p.cumulative_offset_mm!==undefined&&Number.isFinite(Number(p.cumulative_offset_mm)));
+ if(rows.length<3){status.textContent='Series withheld: insufficient finite GOFF acquisition-epoch values.';return;}
+ const componentLabel=component.component==='range_offset'?'slant-range offset component':'along-track azimuth offset component';
+ status.textContent='DIAGNOSTIC ONLY · '+component.network+' · '+componentLabel+' · '+rows.length+' actual epochs · '+component.pairs_count+' pairs · redundancy '+component.redundancy+'. The common datum is AOI-derived and reference stability is not independently validated; these offsets are not a 3-D motion estimate.';
+ const epochs=rows.map(p=>Date.parse(p.epoch+'T00:00:00Z')),values=rows.map(p=>Number(p.cumulative_offset_mm));
+ const uncertainty=rows.map(p=>({lo:p.graph_fit_ci95_low_mm,hi:p.graph_fit_ci95_high_mm})).filter(v=>v.lo!==null&&v.hi!==null&&Number.isFinite(Number(v.lo))&&Number.isFinite(Number(v.hi)));
+ const yVals=[...values,...uncertainty.flatMap(v=>[Number(v.lo),Number(v.hi)])],minY=Math.min(0,...yVals),maxY=Math.max(0,...yVals),spanY=Math.max(1,maxY-minY);
+ const minX=Math.min(...epochs),maxX=Math.max(...epochs),spanX=Math.max(1,maxX-minX);
+ const W=600,H=230,left=66,right=18,top=30,bottom=45,plotW=W-left-right,plotH=H-top-bottom;
+ const xMap=x=>left+(x-minX)/spanX*plotW,yMap=y=>top+(maxY-y)/spanY*plotH;
+ svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.style.height='230px';
+ const addLine=(x1,y1,x2,y2,stroke,width,dash)=>{const e=document.createElementNS('http://www.w3.org/2000/svg','line');[['x1',x1],['y1',y1],['x2',x2],['y2',y2],['stroke',stroke],['stroke-width',width],['stroke-dasharray',dash||'']].forEach(([k,v])=>e.setAttribute(k,v));svg.append(e);};
+ const addText=(x,y,text,anchor='middle')=>{const e=document.createElementNS('http://www.w3.org/2000/svg','text');e.setAttribute('x',x);e.setAttribute('y',y);e.setAttribute('text-anchor',anchor);e.textContent=text;svg.append(e);};
+ for(let i=0;i<=4;i++){const value=minY+spanY*i/4,y=yMap(value);addLine(left,y,W-right,y,'#29414f',1,'3 4');addText(left-8,y+3,value.toFixed(1),'end');}
+ addLine(left,top,left,H-bottom,'#72909d',1,'');addLine(left,H-bottom,W-right,H-bottom,'#72909d',1,'');
+ addText(left,14,'Cumulative GOFF '+component.component.replace('_',' ')+' · mm (relative to first connected epoch)','start');
+ const pathNode=document.createElementNS('http://www.w3.org/2000/svg','path');pathNode.setAttribute('d',rows.map((p,i)=>(i?'L':'M')+xMap(epochs[i]).toFixed(2)+' '+yMap(values[i]).toFixed(2)).join(' '));pathNode.setAttribute('fill','none');pathNode.setAttribute('stroke','#f7c76b');pathNode.setAttribute('stroke-width','2.5');svg.append(pathNode);
+ rows.forEach((p,i)=>{const x=xMap(epochs[i]),y=yMap(values[i]),lo=p.graph_fit_ci95_low_mm,hi=p.graph_fit_ci95_high_mm;
+  if(lo!==null&&hi!==null&&Number.isFinite(Number(lo))&&Number.isFinite(Number(hi))){const y1=yMap(Number(hi)),y2=yMap(Number(lo));addLine(x,y1,x,y2,'#ffffff',1.4,'');addLine(x-4,y1,x+4,y1,'#ffffff',1.4,'');addLine(x-4,y2,x+4,y2,'#ffffff',1.4,'');}
+  const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('cx',x);dot.setAttribute('cy',y);dot.setAttribute('r',4);dot.setAttribute('fill','#f7c76b');dot.setAttribute('stroke','#07121c');dot.setAttribute('stroke-width',1);const title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=p.epoch+': '+values[i].toFixed(2)+' mm cumulative '+component.component;dot.append(title);svg.append(dot);
+ });
+ addText(left,H-17,rows[0].epoch,'start');addText(W-right,H-17,rows[rows.length-1].epoch,'end');addText(W-right,14,'White bars: fit-only 95% interval','end');
+}
 function select(i){if(!n)return;selected=(i+n)%n;renderProduct();}function stop(){playing=false;if(timer)clearInterval(timer);timer=null;$('play').textContent='Play';}function play(){if(!n)return;if(playing){stop();return;}playing=true;$('play').textContent='Pause';timer=setInterval(()=>select((selected+1)%n),Number($('speed').value||1500));}
-$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
+$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('goffCumulativeNetwork').addEventListener('change',renderGoffCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('derivedLayerSelect').addEventListener('change',renderDerivedLayer);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderGoffCommonReferenceChart();renderAoiCandidateScreen();renderAOIPixelTimeseriesStatus();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
 </script></body></html>'''
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
@@ -385,6 +428,79 @@ def metric_number(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _add_derived_raster_layer(
+    *,
+    root: Path,
+    webroot: Path,
+    geometry: dict[str, Any],
+    artifact: dict[str, Any],
+    network: str,
+    status: str,
+    derived_layers: list[dict[str, Any]],
+    derived_layer_errors: list[dict[str, str]],
+) -> None:
+    role = str(artifact.get("role") or "")
+    relative = str(artifact.get("relative_path") or "")
+    try:
+        source_path = safe_path(root, relative)
+        if not source_path.is_file() or source_path.suffix.lower() not in {".tif", ".tiff"}:
+            raise ValueError("DERIVED_RASTER_MISSING")
+        expected_hash = str(artifact.get("sha256") or "")
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_hash) or sha256(source_path) != expected_hash:
+            raise ValueError("DERIVED_RASTER_SHA256_MISMATCH")
+        values, bounds, meta = reproject_band(source_path, 1, geometry)
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            raise ValueError("DERIVED_RASTER_HAS_NO_DISPLAYABLE_PIXELS")
+
+        if "velocity" in role.lower() and "sigma" not in role.lower():
+            limit = float(np.percentile(np.abs(finite), 98))
+            if not math.isfinite(limit) or limit <= 0:
+                limit = max(float(np.max(np.abs(finite))), 1.0)
+            lo, hi, method, kind = -limit, limit, "symmetric_abs_98th_percentile", "continuous"
+        elif "candidate mask" in role.lower():
+            lo, hi, method, kind = 0.0, 1.0, "fixed_candidate_mask_0_to_1", "candidate_mask"
+        elif "reference mask" in role.lower():
+            lo, hi, method, kind = 0.0, 1.0, "fixed_reference_mask_0_to_1", "reference_mask"
+        elif "mask" in role.lower():
+            lo, hi, method, kind = 0.0, 1.0, "fixed_binary_mask_0_to_1", "coherence"
+        else:
+            lo, hi, method, kind = 0.0, float(np.percentile(finite, 98)), "positive_98th_percentile", "coherence"
+            if not math.isfinite(hi) or hi <= 0:
+                hi = max(float(np.max(finite)), 1.0)
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "-", network or "network").strip("-").lower()[:55]
+        role_slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role).strip("-").lower()[:38]
+        layer_id = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{role_slug}-{slug}").strip("-")[:110]
+        preview_relative = f"layers/derived-{layer_id}.png"
+        image_path = webroot / preview_relative
+        count, value_min, value_max = write_rgba(values, lo, hi, kind, image_path)
+        if count <= 0 or image_path.stat().st_size <= 0:
+            raise ValueError("DERIVED_PREVIEW_HAS_NO_VALID_PIXELS")
+        derived_layers.append({
+            "id": layer_id, "observation_id": None, "product_type": "AOI_DERIVED",
+            "description": role, "units": str(artifact.get("units") or meta.get("units") or "source units not declared"),
+            "kind": kind, "analysis_role": role, "network": network or "AOI network", "status": status,
+            "source_asset": relative, "source_sha256": expected_hash,
+            "native_valid_pixels": int(artifact.get("valid_pixels") or 0),
+            "preview_asset": preview_relative, "preview_sha256": sha256(image_path),
+            "preview_bytes": image_path.stat().st_size, "source_crs": meta["source_crs"],
+            "source_transform": meta["source_transform"], "source_width": meta["source_width"],
+            "source_height": meta["source_height"], "preview_crs": WEB_CRS,
+            "preview_transform": meta["preview_transform"], "preview_width": meta["preview_width"],
+            "preview_height": meta["preview_height"], "bounds_wgs84": list(bounds),
+            "corners": [[bounds[0], bounds[3]], [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]],
+            "valid_pixels": count, "value_min": value_min, "value_max": value_max,
+            "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98},
+            "reference_policy": "AOI-derived/relative as declared by source artifact; not independently validated stable ground",
+            "movement_confirmed": False, "hazard_detected": False,
+        })
+    except (OSError, ValueError, rasterio.errors.RasterioError) as exc:
+        derived_layer_errors.append({
+            "network": network, "role": role, "source_asset": relative,
+            "reason": f"{type(exc).__name__}:{str(exc)[:180]}",
+        })
 
 
 def prepare_web_dashboard(root: Path) -> dict[str, Any]:
@@ -414,7 +530,6 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         if not exports:
             exports = [{"relative_path": next((p.relative_to(root).as_posix() for p in (root / "product-data" / pid).glob("*.tif")), "")}]
         band1_source_counts: list[int] = []
-        band1_robust_inlier_counts: list[int] = []
         for export_index, export in enumerate(exports):
             relative = str(export.get("relative_path") or "")
             if not relative:
@@ -425,6 +540,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             original_hash = sha256(raster_path)
             with rasterio.open(raster_path) as ds:
                 band_count = ds.count
+                source_tags_for_layers = ds.tags()
             for band in range(1, band_count + 1):
                 values, bounds, meta = reproject_band(raster_path, band, geometry)
                 overlaps = bounds[0] <= bbox[2] and bounds[2] >= bbox[0] and bounds[1] <= bbox[3] and bounds[3] >= bbox[1]
@@ -433,20 +549,16 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 valid = values[np.isfinite(values)]
                 if band == 1:
                     band1_source_counts.append(meta["source_valid_pixels"])
-                    robust_inliers = meta.get("robust_inlier_pixels")
-                    if robust_inliers is not None:
-                        band1_robust_inlier_counts.append(int(robust_inliers))
                 if not valid.size:
                     continue
                 track_value = (product.get("stats") or {}).get("track") or product.get("track")
                 track = str(track_value) if track_value else "geometry-unclassified:" + pid
                 description_lower = meta["description"].lower()
-                if "robust inlier flag" in description_lower:
-                    kind = "binary_mask"
-                elif "coherence" in description_lower:
-                    kind = "coherence"
-                else:
-                    kind = "continuous"
+                kind = (
+                    "coherence" if "coherence" in description_lower else
+                    "binary_mask" if "robust inlier flag" in description_lower else
+                    "continuous"
+                )
                 group_key = (str(product.get("product_type") or "UNKNOWN"), track, meta["description"])
                 groups.setdefault(group_key, []).append(valid.astype("float32", copy=False))
                 layer_id = f"{pid}-e{export_index+1}-band-{band}"
@@ -456,11 +568,19 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                     "kind": kind, "source_sha256": original_hash, "source_asset": relative,
                     "source_crs": meta["source_crs"], "source_transform": meta["source_transform"],
                     "source_width": meta["source_width"], "source_height": meta["source_height"],
-                    "source_valid_pixels": meta["source_valid_pixels"],
-                    "screen_valid_pixels": meta.get("screen_valid_pixels"),
-                    "robust_inlier_pixels": meta.get("robust_inlier_pixels"),
-                    "screen_outlier_pixels": meta.get("screen_outlier_pixels"),
-                    "data_type": meta["data_type"],
+                    "source_valid_pixels": meta["source_valid_pixels"], "data_type": meta["data_type"],
+                    "screen_valid_pixels": (
+                        int(source_tags_for_layers["screen_valid_pixels"])
+                        if band == 4 and source_tags_for_layers.get("screen_valid_pixels", "").isdigit() else None
+                    ),
+                    "robust_inlier_pixels": (
+                        int(source_tags_for_layers["robust_inlier_pixels"])
+                        if band == 4 and source_tags_for_layers.get("robust_inlier_pixels", "").isdigit() else None
+                    ),
+                    "screen_outlier_pixels": (
+                        int(source_tags_for_layers["robust_outlier_pixels"])
+                        if band == 4 and source_tags_for_layers.get("robust_outlier_pixels", "").isdigit() else None
+                    ),
                     "preview_crs": WEB_CRS, "preview_transform": meta["preview_transform"],
                     "preview_width": meta["preview_width"], "preview_height": meta["preview_height"],
                     "bounds_wgs84": list(bounds),
@@ -470,27 +590,47 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 })
             if sha256(raster_path) != original_hash:
                 raise RuntimeError(f"Source GeoTIFF unexpectedly changed: {raster_path.name}")
-        if band1_source_counts and product.get("valid_pixels") is not None:
+        if band1_source_counts:
+            # Band 1 preserves the broad, quality-valid screening mask for GOFF;
+            # the stricter measurement-valid count is recorded separately after
+            # the global-MAD gate. Do not compare screen pixels to measurement pixels.
+            expected_screen_raw = product.get("screen_valid_pixels")
+            expected_raw = expected_screen_raw if expected_screen_raw is not None else product.get("valid_pixels")
             try:
-                expected_valid = int(product["valid_pixels"])
+                expected_screen = int(expected_raw)
             except (TypeError, ValueError):
-                expected_valid = -1
-            # Find Displacements exports keep pre-global-MAD quality-valid
-            # offsets to avoid losing compact real movement patches. Compare
-            # the normal reader summary only with an explicit robust-inlier
-            # count; legacy exports without the tag retain the old equality.
-            count_for_validation = (
-                max(band1_robust_inlier_counts)
-                if band1_robust_inlier_counts else max(band1_source_counts)
-            )
-            if expected_valid >= 0 and count_for_validation != expected_valid:
+                expected_screen = -1
+            if expected_screen >= 0 and max(band1_source_counts) != expected_screen:
                 raise ValueError(
-                    f"Product robust-inlier pixel summary mismatch for {pid}: "
-                    f"record={expected_valid}, export_robust_inliers={count_for_validation}, "
-                    f"screen_valid={max(band1_source_counts)}"
+                    f"Product screen-valid pixel summary mismatch for {pid}: "
+                    f"record={expected_screen}, max_export={max(band1_source_counts)}"
                 )
 
     webroot = root / "web-dashboard"
+    # Publish all AOI-wide scientific derivatives as selectable map layers and
+    # PNG quicklooks. Native GeoTIFFs remain authoritative.
+    derived_layers: list[dict[str, Any]] = []
+    derived_layer_errors: list[dict[str, str]] = []
+    pixel_report = summary.get("aoi_relative_pixel_timeseries") or {}
+    for network in pixel_report.get("networks", []) if isinstance(pixel_report.get("networks"), list) else []:
+        if network.get("status") != "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_REFERENCE_UNVALIDATED":
+            continue
+        for artifact in network.get("artifacts", []) if isinstance(network.get("artifacts"), list) else []:
+            _add_derived_raster_layer(
+                root=root, webroot=webroot, geometry=geometry, artifact=artifact,
+                network=str(network.get("network") or "GUNW network"),
+                status=str(network.get("status") or "NOT_REPORTED"),
+                derived_layers=derived_layers, derived_layer_errors=derived_layer_errors,
+            )
+
+    candidate_report = summary.get("aoi_displacement_candidates") or {}
+    for artifact in candidate_report.get("raster_artifacts", []) if isinstance(candidate_report.get("raster_artifacts"), list) else []:
+        _add_derived_raster_layer(
+            root=root, webroot=webroot, geometry=geometry, artifact=artifact,
+            network=str(artifact.get("network") or "AOI candidate screen"),
+            status=str(candidate_report.get("status") or "NOT_REPORTED"),
+            derived_layers=derived_layers, derived_layer_errors=derived_layer_errors,
+        )
     public_layers = []
     for layer in pending:
         values = layer.pop("values")
@@ -499,6 +639,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             lo, hi, method = 0.0, 1.0, "fixed_coherence_0_to_1"
         elif layer["kind"] == "binary_mask":
             lo, hi, method = 0.0, 1.0, "discrete_flag_0_outlier_1_inlier"
+            layer["units"] = "binary flag (1=inlier, 0=global-MAD outlier retained for review)"
         else:
             joined = np.concatenate(groups[group_key])
             limit = float(np.percentile(np.abs(joined[np.isfinite(joined)]), 98))
@@ -511,7 +652,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         if count != layer["valid_pixels"] or image_path.stat().st_size <= 0:
             raise ValueError(f"Preview integrity check failed: {layer['id']}")
         layer.update({"preview_asset": rel, "preview_sha256": sha256(image_path), "preview_bytes": image_path.stat().st_size,
-                      "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98 if layer["kind"] != "coherence" else None},
+                      "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98 if layer["kind"] == "continuous" else None},
                       "value_min": min_value, "value_max": max_value})
         public_layers.append(layer)
 
@@ -543,7 +684,6 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "status": product.get("status"), "valid_pixels": product.get("valid_pixels"),
             "screen_valid_pixels": product.get("screen_valid_pixels"),
             "screen_outlier_pixels": product.get("screen_outlier_pixels"),
-            "measurement_pixel_support": product.get("measurement_pixel_support"),
             "grid_pixels_inside_aoi": product.get("grid_pixels_inside_aoi"), "source_sha256": product.get("source_sha256"),
             "warnings": product.get("warnings") or [], "validation_scope": product.get("validation_scope") or "structural_and_provenance_not_independent_geophysical_validation",
             "native_assets": [item.get("relative_path") for item in product.get("exports", []) if item.get("relative_path")],
@@ -581,7 +721,10 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         limitations.append(f"Pixel-stack status: {stack.get('status')}; inspect saved logs and diagnostics before interpreting a trend.")
     candidate = diagnostics.get("candidate_checks") or {}
     if str(candidate.get("status", "")).startswith("SKIPPED"):
-        limitations.append("Named-site event-prior checks were skipped for this arbitrary WKT AOI; the separate Find Displacements AOI-wide GOFF screen is reported independently.")
+        limitations.append("The legacy named-AOI candidate_check.py was skipped for this arbitrary WKT polygon; the separate target-free AOI spatial screen reports unconfirmed candidate regions and does not validate movement or hazard.")
+    # Retain the pre-existing GOFF-only target-free AOI screen alongside the
+    # newer cross-family candidate report. They use different methods and are
+    # displayed as separate evidence layers; neither is promoted to movement.
     aoi_wide_screen = summary.get("aoi_wide_displacement_screen") or {}
     candidate_feature_collection = {"type": "FeatureCollection", "features": []}
     candidate_path_text = str(aoi_wide_screen.get("candidates_geojson") or "").strip()
@@ -607,18 +750,24 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "aoi_wkt_sha256": summary.get("aoi_wkt_sha256"), "science_commit": summary.get("science_commit"),
             "orchestration_commit": summary.get("orchestration_sha"), "workflow_commit": summary.get("dispatcher_workflow_sha"),
         },
-        "validation": {"processing_status": summary.get("status", "UNKNOWN"), "visual_assets_status": "PASS" if public_layers else "NO_RENDERABLE_LAYERS",
+        "validation": {"processing_status": summary.get("status", "UNKNOWN"), "visual_assets_status": "PASS" if (public_layers or derived_layers) else "NO_RENDERABLE_LAYERS",
                        "independent_geophysical_validation": "NOT_PERFORMED", "products_expected": summary.get("products_expected"),
                        "products_validated": summary.get("products_validated")},
         "aoi": feature, "aoi_bbox": bbox,
         "time_window": {"start_date": summary.get("date_start"), "end_date": summary.get("date_end"),
                         "date_basis": summary.get("date_basis"), "date_filter_mode": summary.get("date_filter_mode")},
-        "observations": observations, "layers": public_layers, "science_limitations": limitations,
+        "observations": observations, "layers": public_layers, "derived_layers": derived_layers,
+        "derived_layer_errors": derived_layer_errors,
+        "aoi_relative_pixel_timeseries": pixel_report,
+        "science_limitations": limitations,
         "science_pipeline": summary.get("science_pipeline") or {},
-        "aoi_wide_displacement_screen": aoi_wide_screen_for_manifest,
         "site_context": summary.get("site_context") or {},
         "common_reference_timeseries": summary.get("common_reference_timeseries") or {},
-        "display_policy": "Actual pair selection only. The common-reference graph is explicitly diagnostic when shown; no extrapolation or hazard inference is added by the visualization layer.",
+        "goff_common_reference_timeseries": summary.get("goff_common_reference_timeseries") or {},
+        "aoi_displacement_candidates": summary.get("aoi_displacement_candidates") or {},
+        "aoi_wide_displacement_screen": aoi_wide_screen_for_manifest,
+        "display_policy": "Find Displacements is target-free. Actual pair playback and AOI-wide derived layers are separate; GOFF offset anomalies are not ground velocity, GUNW velocity is relative LOS, and no extrapolation or hazard inference is added.",
+         "target_free_analysis": True,
     }
     webroot.mkdir(parents=True, exist_ok=True)
     (webroot / "aoi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feature]}, indent=2) + "\n", encoding="utf-8")
@@ -674,11 +823,15 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     for layer in public_layers:
         image = safe_path(webroot, layer["preview_asset"])
         image_data[layer["id"]] = "data:image/png;base64," + base64.b64encode(image.read_bytes()).decode("ascii")
+    derived_image_data = {}
+    for layer in derived_layers:
+        image = safe_path(webroot, layer["preview_asset"])
+        derived_image_data[layer["id"]] = "data:image/png;base64," + base64.b64encode(image.read_bytes()).decode("ascii")
     manifest_blob = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     manifest_blob = manifest_blob.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     (webroot / "dashboard-data.js").write_text(
         "window.SARGUARDIAN_DASHBOARD=" + manifest_blob + ";\nwindow.SARGUARDIAN_LAYER_DATA=" +
-        json.dumps(image_data, separators=(",", ":"), allow_nan=False) + ";\n", encoding="utf-8"
+        json.dumps(image_data, separators=(",", ":"), allow_nan=False) + ";\nwindow.SARGUARDIAN_DERIVED_LAYER_DATA=" + json.dumps(derived_image_data, separators=(",", ":"), allow_nan=False) + ";\n", encoding="utf-8"
     )
 
     stac_root = webroot / "stac"
@@ -743,12 +896,18 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             content = re.sub(r"(<main(?:\s[^>]*)?>)", lambda m: m.group(1) + link, content, count=1, flags=re.I)
             report_html.write_text(content, encoding="utf-8")
 
-    receipt = {"schema_version": SCHEMA, "status": "PASS" if public_layers else "PARTIAL", "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    renderable_layer_count = len(public_layers) + len(derived_layers)
+    receipt = {"schema_version": SCHEMA, "status": ("PASS" if renderable_layer_count and not derived_layer_errors else "PARTIAL"), "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                "manifest": "web-dashboard/manifest.json", "viewer": "web-dashboard/index.html",
                "viewer_data": "web-dashboard/dashboard-data.js", "aoi_geojson": "web-dashboard/aoi.geojson",
                "timeline": "web-dashboard/timeline.json", "metrics": "web-dashboard/metrics.json",
                "stac_catalog": "web-dashboard/stac/catalog.json", "observations": len(observations),
-               "layers": len(public_layers), "source_geotiffs_unchanged": True}
+               "layers": len(public_layers), "derived_layers": len(derived_layers),
+                "renderable_layers": renderable_layer_count,
+               "aoi_relative_pixel_timeseries_status": pixel_report.get("status", "NOT_REPORTED"),
+                "aoi_candidate_features": int((summary.get("aoi_displacement_candidates") or {}).get("candidate_features") or 0),
+                "legacy_goff_candidate_features": int((summary.get("aoi_wide_displacement_screen") or {}).get("candidate_count") or 0),
+               "derived_layer_errors": len(derived_layer_errors), "source_geotiffs_unchanged": True}
     (root / "web-dashboard-build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     return receipt
 

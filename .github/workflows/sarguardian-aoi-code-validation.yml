@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: f038e4dfdb53c8d9793aaaefe173570a1032026c
+          ref: 3b227f968b9a9ea068d06ef4424c6906302d3caa
           path: science-source
 
       - name: Set up Python
@@ -51,7 +51,7 @@ jobs:
           check-latest: false
 
       - name: Install static test tools
-        run: python -m pip install --disable-pip-version-check pytest pyyaml requests numpy h5py rasterio pyproj
+        run: python -m pip install --disable-pip-version-check pytest pyyaml requests numpy scipy h5py rasterio pyproj
 
       - name: Compile every backend Python tool
         run: python -m compileall -q tools

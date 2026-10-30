@@ -603,29 +603,115 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
     print("FIND_DISPLACEMENTS_AOI_WIDE_STATUS=" + str(aoi_wide_screen.get("status", "UNKNOWN")))
     print("FIND_DISPLACEMENTS_AOI_WIDE_CANDIDATES=" + str(aoi_wide_screen.get("candidate_count", 0)))
 
-    # Build a common-reference diagnostic only from retained GUNW exports.
-    # No raw HDF5 files are needed. This stage may still be withheld if grids,
-    # common pixels, target support or the temporal network do not meet gates.
+    # Point-buffered common-reference processing is optional and only runs
+    # when the caller explicitly supplied an in-AOI target. The AOI-wide
+    # Find Displacements candidate screen and pixel inversion below do not need it.
+    target_context = (site_context or {}).get("measurement_target") or {}
+    target_supplied = target_context.get("status") == "IN_AOI_TARGET_CAPTURED"
+    if target_supplied:
+        try:
+            repo_root = str(Path(__file__).resolve().parents[1])
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            from dashboard.common_reference import build_common_reference_report
+            common_reference_report = build_common_reference_report(
+                result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+                str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+            )
+        except Exception as exc:
+            common_reference_report = {
+                "schema_version": "sarguardian-common-reference-timeseries/1.0",
+                "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
+                "series_are_independent_geophysical_validation": False,
+                "reason": type(exc).__name__ + ":" + str(exc)[:300],
+                "networks": [], "pairwise_measurements": [], "components": [],
+                "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+            }
+            (out / "common-reference-timeseries.json").write_text(
+                json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+                encoding="utf-8",
+            )
+    else:
+        common_reference_report = {
+            "schema_version": "sarguardian-common-reference-timeseries/1.0",
+            "status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS",
+            "target_required": True,
+            "reason": "Point-buffered common-reference diagnostics need an explicit measurement target; Find Displacements continues with its target-free AOI-wide spatial and per-pixel analysis.",
+            "series_are_independent_geophysical_validation": False,
+            "networks": [], "pairwise_measurements": [], "components": [],
+            "warnings": ["No measurement target was invented; AOI-wide candidate discovery and GUNW pixel inversion are independent of this point diagnostic."],
+        }
+
+    # Target-free AOI-wide candidate discovery is separate from the target-aware
+    # point time-series diagnostics above. It scans retained, quality-masked rasters
+    # across the polygon and emits unconfirmed spatial candidates without fabricating
+    # a target coordinate, stable datum, movement result, or hazard alert.
     try:
         repo_root = str(Path(__file__).resolve().parents[1])
         if repo_root not in sys.path:
             sys.path.insert(0, repo_root)
-        from dashboard.common_reference import build_common_reference_report
-        common_reference_report = build_common_reference_report(
-            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
-            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+        from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_report
+        aoi_displacement_candidates = build_aoi_spatial_candidate_report(
+            result_rows, out, str(manifest.get("aoi_wkt_sha256") or ""),
         )
     except Exception as exc:
-        common_reference_report = {
-            "schema_version": "sarguardian-common-reference-timeseries/1.0",
-            "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
-            "series_are_independent_geophysical_validation": False,
-            "reason": type(exc).__name__ + ":" + str(exc)[:300],
-            "networks": [], "pairwise_measurements": [], "components": [],
-            "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+        aoi_displacement_candidates = {
+            "schema_version": "sarguardian-aoi-spatial-candidates/1.0",
+            "status": "UNAVAILABLE",
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "analysis_scope": "target-free spatial anomaly screening of retained AOI-clipped raster exports",
+            "target_required": False, "candidate_features": 0,
+            "movement_confirmed": False, "hazard_detected": False,
+            "groups": [], "features": [],
+            "reason": type(exc).__name__ + ":" + str(exc)[:250],
+            "warnings": ["Candidate screening failed; no movement or hazard result was inferred."],
         }
-        (out / "common-reference-timeseries.json").write_text(
-            json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+        (out / "aoi-displacement-candidates.json").write_text(
+            json.dumps(aoi_displacement_candidates, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+            encoding="utf-8",
+        )
+        (out / "aoi-displacement-candidates.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": [], "properties": {
+                "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+                "movement_confirmed": False, "hazard_detected": False,
+            }}, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+            encoding="utf-8",
+        )
+        (out / "aoi-displacement-candidates.csv").write_text(
+            "network,product_type,metric,status,support_pairs,pixel_count,approx_area_m2,max_robust_score,product_ids,pair_intervals" + chr(10),
+            encoding="utf-8",
+        )
+
+    # Target-free AOI-wide per-pixel GUNW inversion. Unlike the point-based
+    # common-reference diagnostics above, this scans every common-valid pixel
+    # and does not require a user-selected measurement target. Outputs are
+    # explicitly relative to an AOI-derived background and never labelled as
+    # independently validated ground motion or a hazard declaration.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.aoi_relative_pixel_timeseries import build_aoi_relative_pixel_timeseries_report
+        aoi_relative_pixel_timeseries = build_aoi_relative_pixel_timeseries_report(
+            result_rows, out, str(manifest.get("aoi_wkt_sha256") or ""),
+        )
+    except Exception as exc:
+        aoi_relative_pixel_timeseries = {
+            "schema_version": "sarguardian-aoi-relative-pixel-timeseries/1.0",
+            "status": "UNAVAILABLE",
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "analysis_scope": "target-free per-pixel GUNW LOS temporal inversion",
+            "target_required": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+            "reference_independently_validated": False,
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [],
+            "artifacts": [],
+            "warnings": ["AOI-wide pixel inversion failed; no movement or hazard result was inferred."],
+        }
+        (out / "aoi-relative-pixel-timeseries.json").write_text(
+            json.dumps(aoi_relative_pixel_timeseries, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
             encoding="utf-8",
         )
 
@@ -656,6 +742,31 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "error": type(exc).__name__ + ":" + str(exc)[:250],
         }
     science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
+    science_pipeline["aoi_displacement_candidates"] = aoi_displacement_candidates
+    science_pipeline["aoi_relative_pixel_timeseries"] = aoi_relative_pixel_timeseries
+    modules = science_pipeline.get("modules")
+    if isinstance(modules, list):
+        modules.append({
+            "name": "aoi_displacement_candidates.py",
+            "status": str(aoi_displacement_candidates.get("status") or "NOT_REPORTED"),
+            "reason": str(aoi_displacement_candidates.get("reason") or ""),
+            "candidate_features": int(aoi_displacement_candidates.get("candidate_features") or 0),
+            "target_required": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+            "interpretation": "Target-free GUNW/GOFF spatial anomaly screening. GOFF anomalies are offsets, not ground movement; GUNW candidates are relative LOS evidence only.",
+        })
+        modules.append({
+            "name": "aoi_relative_pixel_timeseries.py",
+            "status": str(aoi_relative_pixel_timeseries.get("status") or "NOT_REPORTED"),
+            "reason": str(aoi_relative_pixel_timeseries.get("reason") or ""),
+            "networks_calculated": int(aoi_relative_pixel_timeseries.get("networks_calculated") or 0),
+            "target_required": False,
+            "reference_independently_validated": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+            "interpretation": "Target-free per-pixel GUNW LOS displacement/velocity diagnostic; AOI-derived relative reference, not independently stable-ground validated.",
+        })
 
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
@@ -691,6 +802,8 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "screen_outlier_pixels_total":sum(int(x.get("screen_outlier_pixels") or 0) for x in result_rows),
         "science_diagnostics":science_diagnostics,
         "aoi_wide_displacement_screen":aoi_wide_screen,
+        "aoi_displacement_candidates":aoi_displacement_candidates,
+        "aoi_relative_pixel_timeseries":aoi_relative_pixel_timeseries,
         "science_pipeline":science_pipeline,
         "site_context":site_context,
         "common_reference_timeseries":common_reference_report,
