@@ -419,6 +419,11 @@ function renderDerivedLayer(){
 function renderPixelStackDiagnostic(){
  const report=manifest.pixel_stack_diagnostic||{},summary=$('pixelStackSummary'),root=$('pixelStackChains');
  if(!summary||!root)return;
+ if(report.status==='WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK'){
+  summary.textContent=String(report.interpretation||'The GUNW pairs do not form a compatible repeated measurement network. This is NOT TESTABLE, not NO DETECTION.');
+  root.innerHTML='<div class="metricitem"><div class="label">AOI-wide GUNW per-pixel time series</div><strong>No compatible multi-date GUNW network</strong><small style="display:block;margin-top:4px">'+esc(report.pairs_examined??'—')+' pairs · '+esc(report.exact_networks??'—')+' separate networks · '+esc(report.networks_with_2_plus_pairs??'—')+' networks with 2+ consecutive compatible pairs</small><small style="display:block;margin-top:4px">NOT TESTABLE, not NO DETECTION. Different subswaths or processing CRIDs must not be joined into one time series.</small></div>';
+  return;
+ }
  if(!report.available||!Array.isArray(report.chains)||!report.chains.length){
   summary.textContent='The detailed exploratory GUNW pixel-stack log was not retained in this bundle. No support or movement conclusion is inferred from this missing report.';
   root.innerHTML='<div class="metricitem"><strong>Pixel support not reported</strong><small>Missing diagnostics are not zero movement.</small></div>';
