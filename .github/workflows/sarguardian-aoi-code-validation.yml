@@ -51,7 +51,7 @@ jobs:
           check-latest: false
 
       - name: Install static test tools
-        run: python -m pip install --disable-pip-version-check pytest pyyaml requests numpy h5py rasterio pyproj
+        run: python -m pip install --disable-pip-version-check pytest pyyaml requests numpy scipy h5py rasterio pyproj
 
       - name: Compile every backend Python tool
         run: python -m compileall -q tools
