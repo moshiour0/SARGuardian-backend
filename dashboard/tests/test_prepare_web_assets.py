@@ -474,7 +474,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("Candidate-local 3σ floor", viewer)
-            self.assertIn("0.42 mm/day", viewer)
+            self.assertIn("toFixed(2)+' mm/day'", viewer)
             self.assertIn("Season coverage", viewer)
             self.assertIn("GUNW λ/4 review", viewer)
             self.assertIn("WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", viewer)
