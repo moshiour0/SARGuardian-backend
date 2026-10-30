@@ -540,59 +540,77 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
-    # Build a common-reference diagnostic only from retained GUNW exports.
-    # No raw HDF5 files are needed. This stage may still be withheld if grids,
-    # common pixels, target support or the temporal network do not meet gates.
-    try:
-        repo_root = str(Path(__file__).resolve().parents[1])
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
-        from dashboard.common_reference import build_common_reference_report
-        common_reference_report = build_common_reference_report(
-            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
-            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
-        )
-    except Exception as exc:
+    # Target-buffered common-reference diagnostics belong to Known Place Analysis.
+    # Find Displacements receives only an AOI polygon, so do not execute target
+    # measurement/reference helpers or invent a centroid to satisfy their contract.
+    target_context = (site_context or {}).get("measurement_target") or {}
+    target_supplied = target_context.get("status") == "IN_AOI_TARGET_CAPTURED"
+    if target_supplied:
+        try:
+            repo_root = str(Path(__file__).resolve().parents[1])
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            from dashboard.common_reference import build_common_reference_report
+            common_reference_report = build_common_reference_report(
+                result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+                str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+            )
+        except Exception as exc:
+            common_reference_report = {
+                "schema_version": "sarguardian-common-reference-timeseries/1.0",
+                "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
+                "series_are_independent_geophysical_validation": False,
+                "reason": type(exc).__name__ + ":" + str(exc)[:300],
+                "networks": [], "pairwise_measurements": [], "components": [],
+                "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+            }
+    else:
         common_reference_report = {
             "schema_version": "sarguardian-common-reference-timeseries/1.0",
-            "status": "UNAVAILABLE_COMMON_REFERENCE_DIAGNOSTIC",
+            "status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS",
+            "target_required": True,
+            "reason": "The target-buffered common-reference adapter is reserved for Known Place Analysis. Find Displacements does not accept or synthesize a measurement target.",
             "series_are_independent_geophysical_validation": False,
-            "reason": type(exc).__name__ + ":" + str(exc)[:300],
             "networks": [], "pairwise_measurements": [], "components": [],
-            "warnings": ["No common-reference or cumulative values were inferred after the diagnostic exception."],
+            "warnings": ["No target-specific reference helper was executed in target-free AOI discovery."],
         }
-        (out / "common-reference-timeseries.json").write_text(
-            json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
-            encoding="utf-8",
-        )
 
-    # Build a guarded common-reference diagnostic from retained GOFF range/
-    # azimuth exports as well. This is independent of the GUNW phase diagnostic:
-    # it never mixes range and azimuth, PR/UR, or different NISAR geometries.
-    try:
-        repo_root = str(Path(__file__).resolve().parents[1])
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
-        from dashboard.goff_common_reference import build_goff_common_reference_report
-        goff_common_reference_report = build_goff_common_reference_report(
-            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
-            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
-        )
-    except Exception as exc:
+    # Keep the target-dependent GOFF common-reference measurement only for an
+    # explicitly target-selected analysis. The target-free AOI GOFF screen below
+    # reports image-offset anomalies only and does not compute a target series.
+    if target_supplied:
+        try:
+            repo_root = str(Path(__file__).resolve().parents[1])
+            if repo_root not in sys.path:
+                sys.path.insert(0, repo_root)
+            from dashboard.goff_common_reference import build_goff_common_reference_report
+            goff_common_reference_report = build_goff_common_reference_report(
+                result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+                str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+            )
+        except Exception as exc:
+            goff_common_reference_report = {
+                "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+                "status": "UNAVAILABLE_GOFF_COMMON_REFERENCE_DIAGNOSTIC",
+                "series_are_independent_geophysical_validation": False,
+                "common_reference_is_independently_validated_stable_ground": False,
+                "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+                "reason": type(exc).__name__ + ":" + str(exc)[:300],
+                "networks": [], "pairwise_measurements": [], "components": [],
+                "warnings": ["GOFF common-reference diagnostics were unavailable; no cumulative values were inferred."],
+            }
+    else:
         goff_common_reference_report = {
             "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
-            "status": "UNAVAILABLE_GOFF_COMMON_REFERENCE_DIAGNOSTIC",
+            "status": "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS",
+            "target_required": True,
+            "reason": "Target-buffered GOFF reference is not used in Find Displacements; GOFF pairwise offset candidates are evaluated separately without a target.",
             "series_are_independent_geophysical_validation": False,
             "common_reference_is_independently_validated_stable_ground": False,
             "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
-            "reason": type(exc).__name__ + ":" + str(exc)[:300],
             "networks": [], "pairwise_measurements": [], "components": [],
-            "warnings": ["GOFF common-reference diagnostics were unavailable; no cumulative values were inferred."],
+            "warnings": ["No target-specific GOFF reference helper was executed in target-free AOI discovery."],
         }
-        (out / "goff-common-reference-timeseries.json").write_text(
-            json.dumps(goff_common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
-            encoding="utf-8",
-        )
 
     # Target-free AOI-wide candidate discovery is separate from the target-aware
     # point time-series diagnostics above. It scans retained, quality-masked rasters
