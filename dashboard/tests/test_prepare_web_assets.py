@@ -673,3 +673,33 @@ class PrepareWebAssetsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_very_low_aoi_coverage_is_exposed_for_cautious_display(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product_tif, _ = self._fixture(root)
+            with rasterio.open(product_tif, "r+") as dataset:
+                band = dataset.read(1)
+                keep = np.zeros(band.shape, dtype=bool)
+                keep.flat[:2] = True
+                band[~keep] = np.nan
+                dataset.write(band, 1)
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            product = report["products"][0]
+            product["valid_pixels"] = 2
+            product["metric_value"] = 123.4
+            product["stats"].update({"aoi_px": 1000, "aoi_pct": 0.2})
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            observation = manifest["observations"][0]
+            self.assertEqual(observation["valid_pixels"], 2)
+            self.assertEqual(observation["aoi_support_pixels"], 1000)
+            self.assertAlmostEqual(observation["aoi_coverage_pct"], 0.2)
+            self.assertEqual(observation["support_level"], "VERY_LOW_COVERAGE")
+            self.assertIn("Not interpreted — only", (root / "web-dashboard" / "index.html").read_text(encoding="utf-8"))
