@@ -13,7 +13,7 @@ import json
 import math
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -437,11 +437,19 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
                 sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
                 floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
                 status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
+            candidate_values = (
+                np.asarray(residual, dtype="float64")[row0:row1, col0:col1][cm]
+                if residual is not None else np.array([])
+            )
+            candidate_values = candidate_values[np.isfinite(candidate_values)]
             variant_rows.append({
                 "product_id": str(item.get("product_id") or ""),
                 "candidate_pixels": int(cm.sum()),
                 "background_pixels": int(bg.size),
                 "local_background_sigma_mm": sigma,
+                "candidate_median_residual_mm": (
+                    float(np.median(candidate_values)) if candidate_values.size else None
+                ),
                 "local_detection_floor_3sigma_mm_day": floor,
                 "status": status,
             })
@@ -476,6 +484,7 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             "contributing_variants": len(variant_rows),
             "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
             "local_background_sigma_mm": sigma,
+            "candidate_median_residual_mm": selected["candidate_median_residual_mm"],
             "local_detection_floor_3sigma_mm_day": floor,
             "span_days": span or None,
             "status": status,
@@ -668,6 +677,54 @@ def build_aoi_spatial_candidate_report(
                 if product_family == "GOFF"
                 else "GUNW_LOS_DISPLACEMENT_ANOMALY_UNCONFIRMED"
             )
+            season_months = []
+            for floor_row in local_floor_rows:
+                try:
+                    first_day = date.fromisoformat(str(floor_row["reference_date"])[:10])
+                    last_day = date.fromisoformat(str(floor_row["secondary_date"])[:10])
+                    midpoint = first_day + timedelta(days=max(0, (last_day - first_day).days // 2))
+                    season_months.append(midpoint.month)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            monsoon_pairs = sum(6 <= month <= 9 for month in season_months)
+            dry_pairs = len(season_months) - monsoon_pairs
+            seasonality_inventory = {
+                "status": (
+                    "MULTI_SEASON_SUPPORT_PRESENT" if monsoon_pairs and dry_pairs
+                    else "INSUFFICIENT_SEASONAL_COVERAGE"
+                ),
+                "monsoon_pairs": monsoon_pairs,
+                "dry_season_pairs": dry_pairs,
+                "months_used": sorted(set(season_months)),
+                "interpretation": "Descriptive acquisition-season coverage only; not a causal monsoon test and not evidence for or against motion.",
+            }
+            phase_ceiling_mm = 0.25 * (299792458.0 / 1257500000.0) * 1000.0
+            phase_review_pairs = [
+                row for row in local_floor_rows
+                if row.get("candidate_median_residual_mm") is not None
+                and abs(float(row["candidate_median_residual_mm"])) > phase_ceiling_mm
+            ] if sample["product_type"] == "GUNW" else []
+            phase_ceiling_review = {
+                "status": (
+                    "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+                    if phase_review_pairs else (
+                        "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD"
+                        if sample["product_type"] == "GUNW" and local_floor_rows
+                        else "NOT_APPLICABLE_NON_GUNW_OFFSET_METRIC"
+                        if sample["product_type"] != "GUNW"
+                        else "NOT_TESTABLE_NO_CANDIDATE_PAIR_RESIDUAL"
+                    )
+                ),
+                "threshold_mm": round(phase_ceiling_mm, 3),
+                "pairs_exceeding_threshold": [
+                    {
+                        "reference_date": row["reference_date"],
+                        "secondary_date": row["secondary_date"],
+                        "candidate_median_residual_mm": row["candidate_median_residual_mm"],
+                    } for row in phase_review_pairs
+                ],
+                "interpretation": "A review trigger for pairwise GUNW LOS differential only; phase unwrapping may recover cycles, so exceedance is not automatic rejection or proof of error.",
+            }
             properties = {
                 "network": group_label,
                 "product_type": product_family,
@@ -689,6 +746,9 @@ def build_aoi_spatial_candidate_report(
                 "candidate_local_floor_status": "MEASURED_FOR_ONE_OR_MORE_PAIRS" if local_floor_measured else "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND",
                 "candidate_local_floor_measured_pairs": local_floor_measured,
                 "candidate_local_floor_by_pair": local_floor_rows,
+                "candidate_seasonality_inventory": seasonality_inventory,
+                "candidate_phase_ceiling_review": phase_ceiling_review,
+                "candidate_cross_geometry_status": "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE",
                 "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
                 "interpretation": (
                     (
