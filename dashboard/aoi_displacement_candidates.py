@@ -263,10 +263,13 @@ def _read_metric_rasters(
                         if "robust inlier flag" not in flag_description:
                             raise ValueError("GOFF_OUTLIER_FLAG_BAND_DESCRIPTION_MISMATCH")
                         flag_values = ds.read(flag_index, masked=True).filled(np.nan).astype("float32")
-                        robust_flag_valid = valid & np.isfinite(flag_values) & np.isin(flag_values, (0.0, 1.0))
-                        robust_inlier_mask = robust_flag_valid & (flag_values == 1.0)
                     corr_limit = max(0.3, _finite(tags.get("correlation_min")) or 0.3)
                     valid = np.isfinite(range_offset) & np.isfinite(azimuth_offset) & np.isfinite(correlation) & (correlation >= corr_limit)
+                    if flag_values is not None:
+                        robust_flag_valid = (
+                            valid & np.isfinite(flag_values) & np.isin(flag_values, (0.0, 1.0))
+                        )
+                        robust_inlier_mask = robust_flag_valid & (flag_values == 1.0)
                     metrics = [
                         ("GOFF_SLANT_RANGE_OFFSET_MM", range_offset, valid, range_variance, cross_offset_variance),
                         ("GOFF_ALONG_TRACK_OFFSET_MM", azimuth_offset, valid, azimuth_variance, cross_offset_variance),
