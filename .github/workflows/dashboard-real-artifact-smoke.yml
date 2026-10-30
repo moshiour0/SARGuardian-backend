@@ -190,6 +190,52 @@ jobs:
           report["science_reaudit"] = summary["science_reaudit"]
           summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
           report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
+
+          # Recompute the new target-free candidate-local diagnostics from the
+          # same verified, AOI-clipped product GeoTIFFs. No raw HDF5 or ASF access.
+          from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_report
+          from dashboard.science_pipeline import build_science_pipeline_report
+
+          products = report.get("products")
+          assert isinstance(products, list) and len(products) == int(summary["products_expected"]), (
+              "Retained processing report must contain every product record"
+          )
+          candidate_report = build_aoi_spatial_candidate_report(
+              products, root, str(summary.get("aoi_wkt_sha256") or "")
+          )
+          summary["aoi_displacement_candidates"] = candidate_report
+          science_pipeline = build_science_pipeline_report(
+              products,
+              Path("science-source"),
+              summary.get("science_diagnostics"),
+              summary.get("site_context"),
+              summary.get("common_reference_timeseries") or {},
+              candidate_report,
+              summary.get("aoi_relative_pixel_timeseries") or {},
+              summary.get("aoi_wide_displacement_screen") or {},
+          )
+          science_pipeline["science_commit_expected"] = str(summary.get("science_commit") or "")
+          summary["science_pipeline"] = science_pipeline
+          report["summary"] = summary
+          report["science_pipeline"] = science_pipeline
+          report["aoi_displacement_candidates"] = candidate_report
+          summary_path.write_text(
+              json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+              encoding="utf-8",
+          )
+          report_path.write_text(
+              json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+              encoding="utf-8",
+          )
+          (root / "science-pipeline-report.json").write_text(
+              json.dumps(science_pipeline, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+              encoding="utf-8",
+          )
+          print("TARGET_FREE_CANDIDATE_REAUDIT=PASS")
+          print("TARGET_FREE_CANDIDATE_FEATURES=" + str(candidate_report.get("candidate_features", 0)))
+          print("CANDIDATE_LOCAL_FLOOR_MEASUREMENTS=" + str(candidate_report.get("candidate_local_floor_measurements", 0)))
+          print("CANDIDATE_FEATURES_WITH_LOCAL_FLOOR=" + str(candidate_report.get("candidate_features_with_local_floor", 0)))
+          print("TARGET_FREE_STAGE_REPORT=" + str(science_pipeline.get("overall_status")))
           print("RETAINED_GUNW_PIXEL_STACK_REAUDIT=PASS")
           print("SCIENCE_REAUDIT_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK")
           print("RAW_HDF5_REPLAYED=false")
@@ -239,8 +285,47 @@ jobs:
           extended = manifest.get("aoi_displacement_candidates", {})
           assert int(legacy.get("candidate_count", 0)) == 120, legacy
           assert int(extended.get("candidate_features", 0)) == 2208, extended
+          assert int(extended.get("candidate_local_floor_measurements", -1)) >= 0, extended
+          assert int(extended.get("candidate_features_with_local_floor", -1)) >= 0, extended
+          floor_policy = extended.get("candidate_local_floor_policy", {})
+          assert floor_policy.get("background_ring_pixels") == 5, floor_policy
+          assert floor_policy.get("minimum_background_pixels") == 30, floor_policy
+          assert "3 * robust_sigma / acquisition_span_days" in floor_policy.get("detection_floor", ""), floor_policy
           assert extended.get("movement_confirmed") is False
           assert extended.get("hazard_detected") is False
+          features = extended.get("features", [])
+          assert len(features) == 2208, len(features)
+          for feature in features:
+              properties = feature.get("properties", {})
+              floor_rows = properties.get("candidate_local_floor_by_pair")
+              assert isinstance(floor_rows, list), properties
+              for floor_row in floor_rows:
+                  assert floor_row.get("minimum_background_pixels") == 30, floor_row
+                  assert floor_row.get("background_ring_pixels") == 5, floor_row
+                  assert floor_row.get("floor_formula") == "3 * (1.4826 * MAD) / acquisition_span_days", floor_row
+              assert isinstance(properties.get("candidate_seasonality_inventory"), dict), properties
+              assert isinstance(properties.get("candidate_phase_ceiling_review"), dict), properties
+              assert properties.get("candidate_cross_geometry_status") == "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", properties
+
+          pipeline = manifest.get("science_pipeline", {})
+          modules = {row.get("name"): row for row in pipeline.get("modules", [])}
+          assert modules["aoi_displacement_candidates.py"]["candidate_features"] == 2208, modules
+          assert modules["local_floor.py"]["status"] in {
+              "CANDIDATE_REGION_LOCAL_FLOORS_MEASURED",
+              "WITHHELD_INSUFFICIENT_CANDIDATE_LOCAL_BACKGROUND",
+              "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS",
+          }, modules.get("local_floor.py")
+          assert modules["inverse_velocity.py"]["status"] == "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE", modules
+          assert modules["geometry_merge.py"]["status"] == "WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE", modules
+          assert pipeline.get("structural_validation_is_geophysical_validation") is False
+
+          print("REAL_AOI_CANDIDATE_LOCAL_FLOOR_MEASUREMENTS=" + str(extended.get("candidate_local_floor_measurements", 0)))
+          print("REAL_AOI_CANDIDATE_FEATURES_WITH_LOCAL_FLOOR=" + str(extended.get("candidate_features_with_local_floor", 0)))
+          print("REAL_AOI_CANDIDATE_PHASE_REVIEW_FEATURES=" + str(sum(
+              1 for feature in features
+              if feature["properties"]["candidate_phase_ceiling_review"].get("status") == "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+          )))
+          print("REAL_AOI_TARGET_FREE_STAGE_STATUS=" + str(pipeline.get("overall_status")))
 
           # Record the rebuilt viewer receipt without changing the source science.
           summary["web_dashboard"] = receipt
