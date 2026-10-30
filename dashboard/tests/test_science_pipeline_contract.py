@@ -54,7 +54,7 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("aoi_relative_pixel_timeseries.py", pipeline)
         self.assertIn("aoi_wide_displacement_screen.py", pipeline)
         self.assertIn("PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD", pipeline)
-        self.assertIn("OPTIONAL_POINT_LOCAL_DIAGNOSTIC_NOT_A_FIND_DISPLACEMENTS_PREREQUISITE", pipeline)
+        self.assertIn("OPTIONAL_POINT_LOCAL_DIAGNOSTIC_WITH_TARGET_FREE_CANDIDATE_EXTENSION", pipeline)
         self.assertIn("build_science_pipeline_report", aggregator)
         self.assertIn("aoi_displacement_candidates,\n            aoi_relative_pixel_timeseries, aoi_wide_screen,", aggregator)
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
