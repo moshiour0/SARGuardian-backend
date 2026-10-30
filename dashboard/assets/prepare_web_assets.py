@@ -72,13 +72,13 @@ def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) ->
         result["log_status"] = type(exc).__name__
         return result
 
-    total_match = re.search(r"(?m)^\\[INFO\\]\\s+(\\d+)\\s+all pair\\(s\\)", text)
+    total_match = re.search(r"(?m)^\[INFO\]\s+(\d+)\s+all pair\(s\)", text)
     if total_match:
         result["pairs_examined"] = int(total_match.group(1))
     header = re.compile(
-        r"(?m)^\\s*(?P<geometry>[AD]\\d{3})\\s+chain\\s+(?P<chain>\\d+)\\s+"
-        r"(?P<start>\\d{4}-\\d{2}-\\d{2})\\s+\\.\\.\\s+"
-        r"(?P<end>\\d{4}-\\d{2}-\\d{2})\\s+\\((?P<pairs>\\d+)\\s+pairs,\\s*(?P<days>\\d+)\\s+d\\)\\s*$"
+        r"(?m)^\s*(?P<geometry>[AD]\d{3})\s+chain\s+(?P<chain>\d+)\s+"
+        r"(?P<start>\d{4}-\d{2}-\d{2})\s+\.\.\s+"
+        r"(?P<end>\d{4}-\d{2}-\d{2})\s+\((?P<pairs>\d+)\s+pairs,\s*(?P<days>\d+)\s+d\)\s*$"
     )
     matches = list(header.finditer(text))
     chains: list[dict[str, Any]] = []
@@ -86,20 +86,20 @@ def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) ->
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         block = text[match.end():end]
         support = re.search(
-            r"pixels with a complete series\\s*:\\s*([\\d,]+)\\s+of\\s+([\\d,]+)",
+            r"pixels with a complete series\s*:\s*([\d,]+)\s+of\s+([\d,]+)",
             block,
             flags=re.I,
         )
         complete = int(support.group(1).replace(",", "")) if support else None
         total = int(support.group(2).replace(",", "")) if support else None
         coverage = (100.0 * complete / total) if complete is not None and total else None
-        cluster = re.search(r"largest connected cluster\\s*:\\s*([\\d,]+)\\s+px", block, flags=re.I)
+        cluster = re.search(r"largest connected cluster\s*:\s*([\d,]+)\s+px", block, flags=re.I)
         noise = re.search(
-            r"clusters from noise ALONE\\s*:\\s*median\\s+([\\d,]+)\\s+px,\\s*95th pct\\s+([\\d,]+)\\s+px,\\s*max\\s+([\\d,]+)\\s+px",
+            r"clusters from noise ALONE\s*:\s*median\s+([\d,]+)\s+px,\s*95th pct\s+([\d,]+)\s+px,\s*max\s+([\d,]+)\s+px",
             block,
             flags=re.I,
         )
-        verdict = re.search(r"VERDICT:\\s*([A-Z ]+)", block)
+        verdict = re.search(r"VERDICT:\s*([A-Z ]+)", block)
         nothing_to_fit = bool(re.search(r"nothing to fit", block, flags=re.I))
         chains.append({
             "geometry": match.group("geometry"),
