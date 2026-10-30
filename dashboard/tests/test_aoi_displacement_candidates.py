@@ -9,13 +9,14 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_report
+from dashboard.aoi_displacement_candidates import _score_pair, build_aoi_spatial_candidate_report
 
 
 def _write_product(
     root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int,
     *, subswath: str = "023", crid: str = "X05026", product_flag: str = "N",
     hotspot_box: tuple[int, int, int, int] = (28, 40, 32, 44),
+    with_variance: bool = False,
 ) -> dict:
     granule = (
         f"NISAR_L2_PR_{family}_022_098_A_016_{subswath}_4000_SH_"
@@ -52,6 +53,23 @@ def _write_product(
             "layer": "HH/layer2", "correlation_min": "0.3",
             "source": granule + ".h5",
         }
+        if with_variance:
+            data = np.concatenate([
+                data,
+                np.full((1, 80, 80), 100.0, dtype="float32"),
+                np.full((1, 80, 80), 144.0, dtype="float32"),
+                np.full((1, 80, 80), -0.01, dtype="float32"),
+            ], axis=0)
+            descriptions += (
+                "slant-range offset variance (mm^2)",
+                "along-track offset variance (mm^2)",
+                "cross offset variance (mm^2; preserved as supplied, not assumed to be covariance)",
+            )
+            tags.update({
+                "range_variance_band": "4",
+                "along_track_variance_band": "5",
+                "cross_offset_variance_band": "6",
+            })
     with rasterio.open(
         path, "w", driver="GTiff", height=80, width=80, count=data.shape[0],
         dtype="float32", crs="EPSG:32645", transform=transform, nodata=-9999.0,
@@ -170,6 +188,52 @@ class AOISpatialCandidateTests(unittest.TestCase):
                 self.assertIn("not ground displacement", props["interpretation"].lower())
             self.assertFalse(report["movement_confirmed"])
             self.assertFalse(report["hazard_detected"])
+
+    def test_goff_marginal_variance_bands_are_used_as_conservative_noise_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product = _write_product(
+                root, "GOFF-001", "GOFF", "2026-06-08", "2026-06-20", 123,
+                with_variance=True,
+            )
+            report = build_aoi_spatial_candidate_report([product], root, "f" * 64)
+            pair_results = [
+                row
+                for group in report["groups"]
+                for row in group["pair_results"]
+            ]
+            self.assertEqual(len(pair_results), 2)
+            for row in pair_results:
+                self.assertTrue(row["variance_score_used"])
+                self.assertEqual(row["variance_valid_pixels"], 6400)
+                self.assertEqual(row["variance_coverage"], 1.0)
+                self.assertFalse(row["cross_offset_variance_interpreted_as_covariance"])
+                self.assertIn("crossOffsetVariance", row["variance_model"])
+
+    def test_small_reported_variance_cannot_artificially_inflate_robust_score(self) -> None:
+        rng = np.random.default_rng(20261030)
+        values = rng.normal(0.0, 1.0, size=(80, 80)).astype("float32")
+        hotspot = np.zeros(values.shape, dtype=bool)
+        hotspot[30:34, 30:34] = True
+        values[hotspot] += 8.0
+        valid = np.ones(values.shape, dtype=bool)
+        base = {
+            "values": values,
+            "valid": valid,
+            "variance_values": np.full(values.shape, 0.0001, dtype="float32"),
+            "variance_valid": valid,
+        }
+        with_variance = _score_pair(base, threshold_z=4.5, background_window_pixels=11, minimum_valid_pixels=200)
+        without_variance = _score_pair(
+            {**base, "variance_values": None, "variance_valid": np.zeros(values.shape, dtype=bool)},
+            threshold_z=4.5, background_window_pixels=11, minimum_valid_pixels=200,
+        )
+        self.assertTrue(with_variance["variance_score_used"])
+        self.assertEqual(with_variance["candidate_pixels"], without_variance["candidate_pixels"])
+        self.assertLessEqual(
+            with_variance["score"][hotspot].max(),
+            without_variance["score"][hotspot].max() + 1e-6,
+        )
 
     def test_bad_export_contract_is_withheld_instead_of_inventing_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
