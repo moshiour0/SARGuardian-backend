@@ -670,11 +670,6 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(second_layer["preview_crs"], "EPSG:4326")
             self.assertEqual(first["display_scale"], second_layer["display_scale"])
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_very_low_aoi_coverage_is_exposed_for_cautious_display(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -703,3 +698,25 @@ if __name__ == "__main__":
             self.assertAlmostEqual(observation["aoi_coverage_pct"], 0.2)
             self.assertEqual(observation["support_level"], "VERY_LOW_COVERAGE")
             self.assertIn("Not interpreted — only", (root / "web-dashboard" / "index.html").read_text(encoding="utf-8"))
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            if shutil.which("node"):
+                metric_start = viewer.index("function metricValue(p,key){")
+                metric_end = viewer.index("\nfunction metricUncertainty", metric_start)
+                metric_function = viewer[metric_start:metric_end]
+                script = metric_function + """
+const veryLow = {support_level: "VERY_LOW_COVERAGE", product_type: "GOFF",
+  metrics: {goff_range_median_mm: -4851.99, goff_azimuth_median_mm: 84.34}};
+const noPixels = {support_level: "NO_USABLE_PIXELS", product_type: "GUNW",
+  metrics: {reader_median_units: "mm", reader_median: 29.0}};
+const limited = {support_level: "LOW_COVERAGE", product_type: "GUNW",
+  metrics: {reader_median_units: "mm", reader_median: 29.883}};
+if (metricValue(veryLow, "goff_range_median") !== null) throw new Error("VERY_LOW_RANGE_MEDIAN_VISIBLE");
+if (metricValue(veryLow, "goff_azimuth_median") !== null) throw new Error("VERY_LOW_AZIMUTH_MEDIAN_VISIBLE");
+if (metricValue(noPixels, "gunw_los_median") !== null) throw new Error("NO_PIXEL_MEDIAN_VISIBLE");
+if (metricValue(limited, "gunw_los_median") !== 29.883) throw new Error("LOW_COVERAGE_POLICY_CHANGED");
+"""
+                checked = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+                self.assertEqual(checked.returncode, 0, checked.stderr)
+
+if __name__ == "__main__":
+    unittest.main()
