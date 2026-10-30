@@ -212,7 +212,7 @@ def _read_metric_rasters(
                     displacement = ds.read(1, masked=True).filled(np.nan).astype("float32")
                     coherence = ds.read(2, masked=True).filled(np.nan).astype("float32")
                     valid = np.isfinite(displacement) & np.isfinite(coherence) & (coherence >= 0.3)
-                    metrics = [("GUNW_LOS_DISPLACEMENT_MM", displacement, valid)]
+                    metrics = [("GUNW_LOS_DISPLACEMENT_MM", displacement, valid, None, None)]
                     quality_description = "finite LOS displacement, finite coherence >= 0.3"
                 else:
                     if ds.count < 3 or "layer2" not in str(tags.get("layer", "")).lower():
@@ -220,13 +220,38 @@ def _read_metric_rasters(
                     range_offset = ds.read(1, masked=True).filled(np.nan).astype("float32")
                     azimuth_offset = ds.read(2, masked=True).filled(np.nan).astype("float32")
                     correlation = ds.read(3, masked=True).filled(np.nan).astype("float32")
+
+                    def optional_variance(tag_name: str, description_fragment: str) -> np.ndarray | None:
+                        raw_index = str(tags.get(tag_name) or "").strip()
+                        if not raw_index or raw_index.lower() == "not_exported":
+                            return None
+                        try:
+                            band_index = int(raw_index)
+                        except (TypeError, ValueError, OverflowError):
+                            raise ValueError(f"INVALID_GOFF_VARIANCE_BAND_INDEX:{tag_name}")
+                        if band_index < 1 or band_index > ds.count:
+                            raise ValueError(f"GOFF_VARIANCE_BAND_INDEX_OUT_OF_RANGE:{tag_name}")
+                        description = str(ds.descriptions[band_index - 1] or "").lower()
+                        if description_fragment not in description:
+                            raise ValueError(f"GOFF_VARIANCE_BAND_DESCRIPTION_MISMATCH:{tag_name}")
+                        return ds.read(band_index, masked=True).filled(np.nan).astype("float32")
+
+                    range_variance = optional_variance("range_variance_band", "slant-range offset variance")
+                    azimuth_variance = optional_variance("along_track_variance_band", "along-track offset variance")
+                    # The product also carries a crossOffsetVariance field. Preserve its identity
+                    # and provenance, but do not treat it as covariance until the exact product
+                    # specification and convention are verified.
+                    cross_offset_variance = optional_variance("cross_offset_variance_band", "cross offset variance")
                     corr_limit = max(0.3, _finite(tags.get("correlation_min")) or 0.3)
                     valid = np.isfinite(range_offset) & np.isfinite(azimuth_offset) & np.isfinite(correlation) & (correlation >= corr_limit)
                     metrics = [
-                        ("GOFF_SLANT_RANGE_OFFSET_MM", range_offset, valid),
-                        ("GOFF_ALONG_TRACK_OFFSET_MM", azimuth_offset, valid),
+                        ("GOFF_SLANT_RANGE_OFFSET_MM", range_offset, valid, range_variance, cross_offset_variance),
+                        ("GOFF_ALONG_TRACK_OFFSET_MM", azimuth_offset, valid, azimuth_variance, cross_offset_variance),
                     ]
-                    quality_description = f"finite range/azimuth/correlation; correlation >= {corr_limit:g}"
+                    quality_description = (
+                        f"finite range/azimuth/correlation; correlation >= {corr_limit:g}; "
+                        "marginal per-component variance used when available; crossOffsetVariance preserved but not interpreted as covariance"
+                    )
                 grid = _grid_key(ds)
                 transform = ds.transform
                 crs = ds.crs
@@ -252,16 +277,28 @@ def _read_metric_rasters(
             family, identity["processing"], identity["path"], identity["frame"], identity["direction"],
             identity["bandwidth"], identity["polarisation"], identity["crid"], grid,
         )
-        for metric_name, values, valid_metric in metrics:
+        for metric_name, values, valid_metric, variance_values, cross_offset_variance_values in metrics:
+            variance_valid = (
+                valid_metric & np.isfinite(variance_values) & (variance_values > 0)
+                if variance_values is not None else np.zeros(valid_metric.shape, dtype=bool)
+            )
             accepted.append({
                 "product": product, "product_id": str(product.get("id") or ""),
                 "granule_name": name, "product_type": family,
                 "metric": metric_name, "values": values, "valid": valid_metric,
+                "variance_values": variance_values,
+                "variance_valid": variance_valid,
+                "cross_offset_variance_values": cross_offset_variance_values,
                 "identity": identity, "network_key": network, "grid": grid,
                 "transform": transform, "crs": crs, "resolution": resolution,
                 "reference_date": ref_date, "secondary_date": sec_date,
                 "raster_path": raster_path, "valid_pixels": int(np.count_nonzero(valid_metric)),
                 "quality_description": quality_description,
+                "variance_valid_pixels": int(np.count_nonzero(variance_valid)),
+                "variance_coverage": (
+                    float(np.count_nonzero(variance_valid) / max(1, np.count_nonzero(valid_metric)))
+                    if variance_values is not None else 0.0
+                ),
             })
     return accepted, rejected
 
