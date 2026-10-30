@@ -128,6 +128,11 @@ def write_rgba(values: np.ndarray, lo: float, hi: float, kind: str, path: Path) 
         palette = "viridis" if kind == "coherence" else "RdBu_r"
         rgba[..., :3] = (colormaps[palette](normalized)[..., :3] * 255).astype(np.uint8)
         rgba[..., 3] = np.where(valid, 220, 0).astype(np.uint8)
+        if kind == "binary_mask":
+            # Red means retained global-MAD outlier for spatial review;
+            # green means robust inlier. This is not displacement magnitude.
+            rgba[valid & (values < 0.5), :3] = np.array([255, 110, 95], dtype=np.uint8)
+            rgba[valid & (values >= 0.5), :3] = np.array([55, 190, 155], dtype=np.uint8)
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(rgba, mode="RGBA").save(path, format="PNG", optimize=True)
     return count, (float(np.nanmin(values)) if count else None), (float(np.nanmax(values)) if count else None)
