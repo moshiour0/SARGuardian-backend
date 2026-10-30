@@ -372,6 +372,80 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
             self.assertEqual(hashlib.sha256(pixel_tif.read_bytes()).hexdigest(), pixel_sha)
 
+    def test_target_free_candidate_rasters_are_published_as_map_layers_and_pngs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product_tif, product_before_hash = self._fixture(root)
+            candidate_dir = root / "aoi-spatial-candidates"
+            candidate_dir.mkdir(parents=True)
+            with rasterio.open(product_tif) as source:
+                profile = source.profile.copy()
+            profile.update(count=1, dtype="float32", nodata=np.nan, compress="deflate")
+            candidate_values = np.array([
+                [0.0, 0.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0, 0.0],
+                [0.0, 0.0, np.nan, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ], dtype="float32")
+            raster_path = candidate_dir / "candidate-mask-fixture.tif"
+            with rasterio.open(raster_path, "w", **profile) as dataset:
+                dataset.write(candidate_values, 1)
+                dataset.set_band_description(1, "AOI spatial candidate mask")
+                dataset.update_tags(
+                    schema_version="sarguardian-aoi-spatial-candidates-raster/1.0",
+                    target_required="false",
+                    aoi_wkt_sha256="d" * 64,
+                    metric="AOI spatial candidate mask",
+                    units="binary candidate flag",
+                    movement_confirmed="false",
+                    hazard_detected="false",
+                )
+            raster_sha = hashlib.sha256(raster_path.read_bytes()).hexdigest()
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["site_context"]["measurement_target"] = {"status": "NOT_PROVIDED"}
+            summary["target_measurement_count"] = 0
+            summary["local_floor_count"] = 0
+            summary["aoi_displacement_candidates"] = {
+                "status": "SINGLE_PAIR_CANDIDATES_NEED_TEMPORAL_CONFIRMATION",
+                "target_required": False,
+                "movement_confirmed": False,
+                "hazard_detected": False,
+                "candidate_features": 1,
+                "features": [],
+                "raster_artifacts": [{
+                    "role": "AOI spatial candidate mask",
+                    "relative_path": raster_path.relative_to(root).as_posix(),
+                    "units": "binary candidate flag",
+                    "valid_pixels": int(np.isfinite(candidate_values).sum()),
+                    "sha256": raster_sha,
+                    "network": "GUNW fixture network",
+                }],
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+
+            self.assertEqual(receipt["status"], "PASS")
+            self.assertEqual(receipt["derived_layers"], 1)
+            self.assertEqual(receipt["derived_layer_errors"], 0)
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED")
+            self.assertTrue(manifest["aoi_displacement_candidates"]["target_required"] is False)
+            layer = manifest["derived_layers"][0]
+            self.assertEqual(layer["analysis_role"], "AOI spatial candidate mask")
+            self.assertEqual(layer["units"], "binary candidate flag")
+            self.assertFalse(layer["movement_confirmed"])
+            self.assertFalse(layer["hazard_detected"])
+            self.assertEqual(layer["source_sha256"], raster_sha)
+            self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
+            self.assertEqual(hashlib.sha256(raster_path.read_bytes()).hexdigest(), raster_sha)
+            self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
+
     def test_cross_utm_zones_keep_source_tiffs_and_shared_group_scale(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
