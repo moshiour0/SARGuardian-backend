@@ -412,7 +412,36 @@ class PrepareWebAssetsTests(unittest.TestCase):
                 "movement_confirmed": False,
                 "hazard_detected": False,
                 "candidate_features": 1,
-                "features": [],
+                "candidate_local_floor_measurements": 1,
+                "features": [{
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [85.0, 27.0]},
+                    "properties": {
+                        "product_type": "GUNW",
+                        "metric": "GUNW_LOS_DISPLACEMENT_MM",
+                        "status": "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
+                        "support_pairs": 1,
+                        "pixel_count": 8,
+                        "approx_area_m2": 51200,
+                        "max_robust_score": 5.2,
+                        "candidate_local_floor_by_pair": [{
+                            "reference_date": "2026-06-08",
+                            "secondary_date": "2026-06-20",
+                            "status": "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR",
+                            "local_detection_floor_3sigma_mm_day": 0.42,
+                        }],
+                        "candidate_seasonality_inventory": {
+                            "status": "INSUFFICIENT_SEASONAL_COVERAGE",
+                            "monsoon_pairs": 1,
+                            "dry_season_pairs": 0,
+                        },
+                        "candidate_phase_ceiling_review": {
+                            "status": "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD",
+                            "threshold_mm": 59.6,
+                        },
+                        "candidate_cross_geometry_status": "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE",
+                    },
+                }],
                 "raster_artifacts": [{
                     "role": "AOI spatial candidate mask",
                     "relative_path": raster_path.relative_to(root).as_posix(),
@@ -443,6 +472,12 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertFalse(layer["hazard_detected"])
             self.assertEqual(layer["source_sha256"], raster_sha)
             self.assertTrue((root / "web-dashboard" / layer["preview_asset"]).is_file())
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Candidate-local 3σ floor", viewer)
+            self.assertIn("toFixed(2)+' mm/day'", viewer)
+            self.assertIn("Season coverage", viewer)
+            self.assertIn("GUNW λ/4 review", viewer)
+            self.assertIn("candidate_cross_geometry_status", viewer)
             self.assertEqual(hashlib.sha256(raster_path.read_bytes()).hexdigest(), raster_sha)
             self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
 

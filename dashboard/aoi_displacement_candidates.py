@@ -13,6 +13,7 @@ import json
 import math
 import re
 from collections import defaultdict
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ import numpy as np
 import rasterio
 from rasterio.features import shapes
 from rasterio.warp import transform_geom
-from scipy.ndimage import label, median_filter
+from scipy.ndimage import binary_dilation, label, median_filter
 
 
 _IDENTITY = re.compile(
@@ -312,7 +313,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if valid_count < minimum_valid_pixels:
         return item | {"score_status": "INSUFFICIENT_VALID_PIXELS", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": None,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     center = float(np.median(values[valid]))
     centered = values - center
@@ -320,7 +321,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if global_sigma is None:
         return item | {"score_status": "INSUFFICIENT_ROBUST_BACKGROUND_SCALE", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": None,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     window = int(max(5, background_window_pixels))
     if window % 2 == 0:
@@ -332,7 +333,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if window < 3:
         return item | {"score_status": "INSUFFICIENT_SPATIAL_SUPPORT", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": global_sigma,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
     # Fill invalid pixels with the robust centre before filtering; invalid pixels
     # remain excluded in the final candidate mask.
     filled = np.where(valid, values, center).astype("float32", copy=False)
@@ -342,7 +343,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     if local_sigma is None:
         return item | {"score_status": "INSUFFICIENT_ROBUST_LOCAL_SCALE", "candidate_mask": np.zeros(valid.shape, dtype=bool),
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": global_sigma,
-                       "robust_local_sigma": None, "valid_pixels": valid_count}
+                       "robust_local_sigma": None, "local_residual": None, "valid_pixels": valid_count}
 
     # GOFF marginal offset variances are in mm^2. Use their square root as
     # a conservative per-pixel noise floor, never as a stand-alone score that
@@ -375,6 +376,7 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
         "score": score,
         "robust_background_sigma": global_sigma,
         "robust_local_sigma": local_sigma,
+        "local_residual": local_residual.astype("float32", copy=False),
         "variance_score_used": bool(np.isfinite(variance_score).any()),
         "variance_valid_pixels": int(np.count_nonzero(np.isfinite(variance_score))),
         "variance_coverage": float(np.count_nonzero(np.isfinite(variance_score)) / max(1, valid_count)),
@@ -392,6 +394,119 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
         "background_window_pixels": window,
     }
 
+
+def _candidate_local_floor_rows(region_mask, scored_rows):
+    """Measure one conservative local floor per distinct acquisition interval."""
+    rows = []
+    row_ids = np.flatnonzero(np.any(region_mask, axis=1))
+    col_ids = np.flatnonzero(np.any(region_mask, axis=0))
+    if row_ids.size == 0 or col_ids.size == 0:
+        return rows
+    pad = 5
+    row0 = max(0, int(row_ids[0]) - pad)
+    row1 = min(region_mask.shape[0], int(row_ids[-1]) + pad + 1)
+    col0 = max(0, int(col_ids[0]) - pad)
+    col1 = min(region_mask.shape[1], int(col_ids[-1]) + pad + 1)
+    region_crop = region_mask[row0:row1, col0:col1]
+
+    by_interval = defaultdict(list)
+    for item in scored_rows:
+        key = (str(item.get("reference_date") or ""), str(item.get("secondary_date") or ""))
+        by_interval[key].append(item)
+
+    for (ref, sec), interval_items in sorted(by_interval.items()):
+        try:
+            span = (date.fromisoformat(sec[:10]) - date.fromisoformat(ref[:10])).days
+        except ValueError:
+            span = 0
+        variant_rows = []
+        candidate_union = np.zeros(region_crop.shape, dtype=bool)
+        for item in interval_items:
+            candidate = np.asarray(item.get("candidate_mask"), dtype=bool)[row0:row1, col0:col1]
+            cm = region_crop & candidate
+            if not np.any(cm):
+                continue
+            candidate_union |= cm
+            residual = item.get("local_residual")
+            valid = np.asarray(item.get("valid"), dtype=bool)[row0:row1, col0:col1]
+            ring = binary_dilation(cm, iterations=pad) & ~region_crop & valid & ~candidate
+            residual_crop = (
+                np.asarray(residual)[row0:row1, col0:col1].astype("float64", copy=False)
+                if residual is not None else np.array([])
+            )
+            bg = residual_crop[ring] if residual is not None else np.array([])
+            bg = bg[np.isfinite(bg)]
+            if span <= 0 or bg.size < 30:
+                sigma, floor, status = None, None, "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND"
+            else:
+                sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
+                floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
+                status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
+            # Phase-ceiling review uses candidate LOS contrast against this
+            # pair's AOI median, not the locally detrended residual used by
+            # the local noise-floor estimator.
+            pair_values = np.asarray(item.get("values"))[row0:row1, col0:col1].astype("float64", copy=False)
+            pair_centre = _finite(item.get("background_median_mm"))
+            candidate_values = pair_values[cm] - float(pair_centre) if pair_centre is not None else np.array([])
+            candidate_values = candidate_values[np.isfinite(candidate_values)]
+            variant_rows.append({
+                "product_id": str(item.get("product_id") or ""),
+                "candidate_pixels": int(cm.sum()),
+                "background_pixels": int(bg.size),
+                "local_background_sigma_mm": sigma,
+                "candidate_median_aoi_relative_residual_mm": (
+                    float(np.median(candidate_values)) if candidate_values.size else None
+                ),
+                "local_detection_floor_3sigma_mm_day": floor,
+                "status": status,
+            })
+        if not variant_rows:
+            continue
+        measured = [
+            item for item in variant_rows
+            if item["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+        ]
+        if measured:
+            # Subswaths/duplicate variants of one interval are not independent
+            # temporal samples. Keep one interval row and its largest measured
+            # local floor so the detectability gate is conservative.
+            selected = max(
+                measured,
+                key=lambda item: (float(item["local_detection_floor_3sigma_mm_day"]), item["product_id"]),
+            )
+            status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+            floor = selected["local_detection_floor_3sigma_mm_day"]
+            sigma = selected["local_background_sigma_mm"]
+        else:
+            selected = max(variant_rows, key=lambda item: (item["background_pixels"], item["product_id"]))
+            status = selected["status"]
+            floor = None
+            sigma = selected["local_background_sigma_mm"]
+        phase_variants = [
+            item for item in variant_rows
+            if item.get("candidate_median_aoi_relative_residual_mm") is not None
+        ]
+        phase_selected = max(
+            phase_variants,
+            key=lambda item: (abs(float(item["candidate_median_aoi_relative_residual_mm"])), item["product_id"]),
+        ) if phase_variants else selected
+        rows.append({
+            "product_id": selected["product_id"],
+            "phase_review_source_product_id": phase_selected["product_id"],
+            "reference_date": ref,
+            "secondary_date": sec,
+            "candidate_pixels": int(candidate_union.sum()),
+            "background_pixels": int(selected["background_pixels"]),
+            "contributing_variants": len(variant_rows),
+            "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
+            "local_background_sigma_mm": sigma,
+            "candidate_median_aoi_relative_residual_mm": phase_selected.get("candidate_median_aoi_relative_residual_mm"),
+            "local_detection_floor_3sigma_mm_day": floor,
+            "span_days": span or None,
+            "status": status,
+            "interpretation": "Pair-specific local residual floor; same-interval subswaths/variants are not independent temporal samples. Nearby background is not independently validated stable ground.",
+        })
+    return rows
 
 def build_aoi_spatial_candidate_report(
     products: list[dict[str, Any]],
@@ -477,6 +592,7 @@ def build_aoi_spatial_candidate_report(
                     "valid": np.zeros(sample["valid"].shape, dtype=bool),
                     "score": np.zeros(sample["valid"].shape, dtype="float32"),
                     "product_ids": set(),
+                    "items": [],
                 }
             pair = pair_masks[pair_key]
             mask = item["candidate_mask"]
@@ -484,6 +600,7 @@ def build_aoi_spatial_candidate_report(
             pair["valid"] |= item["valid"]
             pair["score"] = np.maximum(pair["score"], item["score"] * mask.astype("float32"))
             pair["product_ids"].add(item["product_id"])
+            pair["items"].append(item)
 
         support = np.zeros(sample["valid"].shape, dtype="uint16")
         observation_support = np.zeros(sample["valid"].shape, dtype="uint16")
@@ -556,6 +673,14 @@ def build_aoi_spatial_candidate_report(
             pixel_width, pixel_height = sample["resolution"]
             max_score = float(np.max(maximum_score[region_mask]))
             pair_keys = [pair_key for pair_key, _ in relevant_pairs]
+            local_floor_scored_rows = [
+                item for _, pair_data in relevant_pairs for item in pair_data["items"]
+            ]
+            local_floor_rows = _candidate_local_floor_rows(region_mask, local_floor_scored_rows)
+            local_floor_measured = sum(
+                row.get("status") == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+                for row in local_floor_rows
+            )
             product_ids = sorted({
                 product_id
                 for _, pair_data in relevant_pairs
@@ -568,6 +693,58 @@ def build_aoi_spatial_candidate_report(
                 if product_family == "GOFF"
                 else "GUNW_LOS_DISPLACEMENT_ANOMALY_UNCONFIRMED"
             )
+            season_months = []
+            for floor_row in local_floor_rows:
+                try:
+                    first_day = date.fromisoformat(str(floor_row["reference_date"])[:10])
+                    last_day = date.fromisoformat(str(floor_row["secondary_date"])[:10])
+                    midpoint = first_day + timedelta(days=max(0, (last_day - first_day).days // 2))
+                    season_months.append(midpoint.month)
+                except (KeyError, TypeError, ValueError):
+                    continue
+            monsoon_pairs = sum(6 <= month <= 9 for month in season_months)
+            dry_pairs = len(season_months) - monsoon_pairs
+            seasonality_inventory = {
+                "status": (
+                    "MULTI_SEASON_SUPPORT_PRESENT" if monsoon_pairs and dry_pairs
+                    else "INSUFFICIENT_SEASONAL_COVERAGE"
+                ),
+                "monsoon_pairs": monsoon_pairs,
+                "dry_season_pairs": dry_pairs,
+                "months_used": sorted(set(season_months)),
+                "interpretation": "Descriptive acquisition-season coverage only; not a causal monsoon test and not evidence for or against motion.",
+            }
+            phase_ceiling_mm = 0.25 * (299792458.0 / 1257500000.0) * 1000.0
+            phase_values_available = [
+                row for row in local_floor_rows
+                if row.get("candidate_median_aoi_relative_residual_mm") is not None
+            ] if sample["product_type"] == "GUNW" else []
+            phase_review_pairs = [
+                row for row in phase_values_available
+                if abs(float(row["candidate_median_aoi_relative_residual_mm"])) > phase_ceiling_mm
+            ]
+            phase_ceiling_review = {
+                "status": (
+                    "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+                    if phase_review_pairs else (
+                        "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD"
+                        if phase_values_available
+                        else "NOT_APPLICABLE_NON_GUNW_OFFSET_METRIC"
+                        if sample["product_type"] != "GUNW"
+                        else "NOT_TESTABLE_NO_CANDIDATE_PAIR_RESIDUAL"
+                    )
+                ),
+                "threshold_mm": round(phase_ceiling_mm, 3),
+                "pairs_tested": len(phase_values_available),
+                "pairs_exceeding_threshold": [
+                    {
+                        "reference_date": row["reference_date"],
+                        "secondary_date": row["secondary_date"],
+                        "candidate_median_aoi_relative_residual_mm": row["candidate_median_aoi_relative_residual_mm"],
+                    } for row in phase_review_pairs
+                ],
+                "interpretation": "A review trigger for pairwise GUNW LOS differential only; phase unwrapping may recover cycles, so exceedance is not automatic rejection or proof of error.",
+            }
             properties = {
                 "network": group_label,
                 "product_type": product_family,
@@ -586,6 +763,12 @@ def build_aoi_spatial_candidate_report(
                 "max_robust_score": round(max_score, 3),
                 "product_ids": product_ids,
                 "pair_intervals": [f"{a}/{b}" for a, b in pair_keys],
+                "candidate_local_floor_status": "MEASURED_FOR_ONE_OR_MORE_PAIRS" if local_floor_measured else "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND",
+                "candidate_local_floor_measured_pairs": local_floor_measured,
+                "candidate_local_floor_by_pair": local_floor_rows,
+                "candidate_seasonality_inventory": seasonality_inventory,
+                "candidate_phase_ceiling_review": phase_ceiling_review,
+                "candidate_cross_geometry_status": "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE",
                 "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
                 "interpretation": (
                     (
@@ -694,6 +877,14 @@ def build_aoi_spatial_candidate_report(
             "No spatial components met the configured robust-score and minimum-area screen. This is not evidence of zero movement."
         ),
         "candidate_features": len(all_features),
+        "candidate_local_floor_measurements": sum(
+            int(feature.get("properties", {}).get("candidate_local_floor_measured_pairs") or 0)
+            for feature in all_features
+        ),
+        "candidate_features_with_local_floor": sum(
+            int(feature.get("properties", {}).get("candidate_local_floor_measured_pairs") or 0) > 0
+            for feature in all_features
+        ),
         "products_examined": len({item["product_id"] for item in accepted}),
         "product_metrics_examined": len(accepted),
         "groups": group_reports,

@@ -100,6 +100,22 @@ class AOISpatialCandidateTests(unittest.TestCase):
             feature = report["features"][0]
             self.assertEqual(feature["properties"]["status"], "SINGLE_PAIR_CANDIDATE_UNCONFIRMED")
             self.assertEqual(feature["properties"]["support_pairs"], 1)
+            self.assertEqual(feature["properties"]["candidate_local_floor_status"], "MEASURED_FOR_ONE_OR_MORE_PAIRS")
+            self.assertGreaterEqual(feature["properties"]["candidate_local_floor_measured_pairs"], 1)
+            local_rows = feature["properties"]["candidate_local_floor_by_pair"]
+            self.assertTrue(any(row["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" for row in local_rows))
+            measured_floor = next(row for row in local_rows if row["status"] == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR")
+            self.assertGreater(measured_floor["local_detection_floor_3sigma_mm_day"], 0)
+            self.assertGreaterEqual(measured_floor["background_pixels"], 30)
+            self.assertEqual(report["candidate_local_floor_measurements"], feature["properties"]["candidate_local_floor_measured_pairs"])
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["monsoon_pairs"], 1)
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["dry_season_pairs"], 0)
+            self.assertEqual(feature["properties"]["candidate_seasonality_inventory"]["status"], "INSUFFICIENT_SEASONAL_COVERAGE")
+            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["threshold_mm"], 59.601)
+            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["pairs_tested"], 1)
+            self.assertEqual(feature["properties"]["candidate_phase_ceiling_review"]["status"], "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD")
+            self.assertEqual(feature["properties"]["candidate_cross_geometry_status"],
+                             "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE")
             saved = json.loads((root / "aoi-displacement-candidates.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["candidate_features"], report["candidate_features"])
             geojson = json.loads((root / "aoi-displacement-candidates.geojson").read_text(encoding="utf-8"))
@@ -248,6 +264,20 @@ class AOISpatialCandidateTests(unittest.TestCase):
             self.assertEqual(report["candidate_features"], 0)
             self.assertFalse(report["movement_confirmed"])
             self.assertTrue(any(r["status"] == "REJECTED_RASTER_CONTRACT" for r in report["rejected_products"]))
+
+
+    def test_candidate_local_floor_counts_duplicate_subswaths_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            a = _write_product(root, "GUNW-001", "GUNW", "2026-06-08", "2026-06-20", 71, subswath="023")
+            b = _write_product(root, "GUNW-002", "GUNW", "2026-06-08", "2026-06-20", 83, subswath="024")
+            report = build_aoi_spatial_candidate_report([a, b], root, "d" * 64)
+            self.assertTrue(report["features"])
+            for feature in report["features"]:
+                rows = feature["properties"]["candidate_local_floor_by_pair"]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["contributing_variants"], 2)
+                self.assertIn("one interval counts once", rows[0]["floor_selection_policy"])
 
 
 if __name__ == "__main__":
