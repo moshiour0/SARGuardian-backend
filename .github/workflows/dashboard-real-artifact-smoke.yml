@@ -287,13 +287,22 @@ jobs:
           assert int(extended.get("candidate_features", 0)) == 2208, extended
           assert int(extended.get("candidate_local_floor_measurements", -1)) >= 0, extended
           assert int(extended.get("candidate_features_with_local_floor", -1)) >= 0, extended
+          floor_policy = extended.get("candidate_local_floor_policy", {})
+          assert floor_policy.get("background_ring_pixels") == 5, floor_policy
+          assert floor_policy.get("minimum_background_pixels") == 30, floor_policy
+          assert "3 * robust_sigma / acquisition_span_days" in floor_policy.get("detection_floor", ""), floor_policy
           assert extended.get("movement_confirmed") is False
           assert extended.get("hazard_detected") is False
           features = extended.get("features", [])
           assert len(features) == 2208, len(features)
           for feature in features:
               properties = feature.get("properties", {})
-              assert isinstance(properties.get("candidate_local_floor_by_pair"), list), properties
+              floor_rows = properties.get("candidate_local_floor_by_pair")
+              assert isinstance(floor_rows, list), properties
+              for floor_row in floor_rows:
+                  assert floor_row.get("minimum_background_pixels") == 30, floor_row
+                  assert floor_row.get("background_ring_pixels") == 5, floor_row
+                  assert floor_row.get("floor_formula") == "3 * (1.4826 * MAD) / acquisition_span_days", floor_row
               assert isinstance(properties.get("candidate_seasonality_inventory"), dict), properties
               assert isinstance(properties.get("candidate_phase_ceiling_review"), dict), properties
               assert properties.get("candidate_cross_geometry_status") == "WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", properties
