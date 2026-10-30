@@ -342,13 +342,22 @@ def build_science_pipeline_report(
             "interpretation": "Target-free per-pixel GUNW LOS inversion; only eligible redundant networks produce maps. AOI-derived zero is not independent stable ground.",
         },
     ])
+    candidate_screen_completed = candidate_screen_status in {
+        "REPEATED_SPATIAL_CANDIDATES_NEED_GEOPHYSICAL_VALIDATION",
+        "SINGLE_PAIR_CANDIDATES_NEED_TEMPORAL_CONFIRMATION",
+        "NO_CANDIDATES_AT_CONFIGURED_THRESHOLD",
+    }
+    goff_screen_status = str(aoi_wide_screen.get("status") or "NOT_REPORTED")
+    goff_screen_completed = goff_screen_status in {
+        "COMPLETED_EXPLORATORY_RANKING",
+        "INSUFFICIENT_TEMPORAL_SUPPORT",
+    }
     report["overall_status"] = (
         "AOI_RELATIVE_PIXEL_DIAGNOSTICS_AVAILABLE_REFERENCE_UNVALIDATED"
         if aoi_relative_pixel_timeseries.get("status") == "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_AVAILABLE"
         else (
             "AOI_WIDE_CANDIDATE_DISCOVERY_AVAILABLE_WITH_GUNW_STACK_WITHHELD"
-            if str(aoi_displacement_candidates.get("status") or "NOT_REPORTED") not in {"UNAVAILABLE", "NOT_REPORTED"}
-               or str(aoi_wide_screen.get("status") or "NOT_REPORTED") not in {"SCREEN_FAILED", "NOT_REPORTED"}
+            if candidate_screen_completed or goff_screen_completed
             else (
                 "NETWORK_ASSESSED_WITH_DOWNSTREAM_STAGES_WITHHELD"
                 if report["network_assessment_status"] == "COMPLETED"
