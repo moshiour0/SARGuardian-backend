@@ -39,6 +39,13 @@ jobs:
       - name: Check out current dashboard builder
         uses: actions/checkout@v4
 
+      - name: Check out the tested sparse-support science revision
+        uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian
+          ref: 0a0b62f84efbc71dab5654211053afcc4c2ebcd0
+          path: science-source
+
       - name: Resolve the existing AOI source run
         id: source
         shell: bash
