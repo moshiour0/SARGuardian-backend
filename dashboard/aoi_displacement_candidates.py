@@ -93,6 +93,7 @@ def _empty_report(status: str, reason: str, aoi_wkt_sha256: str | None) -> dict[
             "GOFF marginal range/along-track variances are used separately when exported; crossOffsetVariance is preserved but is not assumed to be covariance.",
             "Variance-normalized component scores are exploratory marginal scores, not a joint-vector probability or a calibrated false-alarm rate.",
             "Candidate-raster NoData means insufficient observation support; it is not zero motion.",
+            "GOFF global-MAD outlier flags are surfaced as a candidate-quality diagnostic; flagged offsets remain in this exploratory screen and are not silently treated as confirmed movement.",
             "Pairwise candidate recurrence is screening evidence only; cumulative time series and velocity require a compatible, redundant, independently reference-checked temporal network.",
         ],
         "reason": reason,
@@ -244,6 +245,25 @@ def _read_metric_rasters(
                     # and provenance, but do not treat it as covariance until the exact product
                     # specification and convention are verified.
                     cross_offset_variance = optional_variance("cross_offset_variance_band", "cross offset variance")
+                    # Preserve the exported global-MAD decision as a quality diagnostic.
+                    # Outliers remain discoverable, but the candidate report shows how much
+                    # candidate support relies on flagged observations.
+                    robust_flag_valid = np.zeros(range_offset.shape, dtype=bool)
+                    robust_inlier_mask = np.zeros(range_offset.shape, dtype=bool)
+                    flag_index_raw = str(tags.get("outlier_flag_band") or "").strip()
+                    if flag_index_raw and flag_index_raw.lower() != "not_exported":
+                        try:
+                            flag_index = int(flag_index_raw)
+                        except (TypeError, ValueError, OverflowError):
+                            raise ValueError("INVALID_GOFF_OUTLIER_FLAG_BAND_INDEX")
+                        if flag_index < 1 or flag_index > ds.count:
+                            raise ValueError("GOFF_OUTLIER_FLAG_BAND_INDEX_OUT_OF_RANGE")
+                        flag_description = str(ds.descriptions[flag_index - 1] or "").lower()
+                        if "robust inlier flag" not in flag_description:
+                            raise ValueError("GOFF_OUTLIER_FLAG_BAND_DESCRIPTION_MISMATCH")
+                        flag_values = ds.read(flag_index, masked=True).filled(np.nan).astype("float32")
+                        robust_flag_valid = valid & np.isfinite(flag_values) & np.isin(flag_values, (0.0, 1.0))
+                        robust_inlier_mask = robust_flag_valid & (flag_values == 1.0)
                     corr_limit = max(0.3, _finite(tags.get("correlation_min")) or 0.3)
                     valid = np.isfinite(range_offset) & np.isfinite(azimuth_offset) & np.isfinite(correlation) & (correlation >= corr_limit)
                     metrics = [
@@ -264,6 +284,9 @@ def _read_metric_rasters(
                              "status": "REJECTED_RASTER_CONTRACT", "reason": reason})
             continue
 
+        if family == "GUNW":
+            robust_flag_valid = np.zeros(valid.shape, dtype=bool)
+            robust_inlier_mask = np.zeros(valid.shape, dtype=bool)
         ref_date = str(product.get("reference_date") or tags.get("reference") or "")[:10]
         sec_date = str(product.get("secondary_date") or tags.get("secondary") or "")[:10]
         if not ref_date or not sec_date or sec_date <= ref_date:
@@ -297,6 +320,8 @@ def _read_metric_rasters(
                 "raster_path": raster_path, "valid_pixels": int(np.count_nonzero(valid_metric)),
                 "quality_description": quality_description,
                 "variance_valid_pixels": int(np.count_nonzero(variance_valid)),
+                "robust_flag_valid": robust_flag_valid,
+                "robust_inlier_mask": robust_inlier_mask,
                 "variance_coverage": (
                     float(np.count_nonzero(variance_valid) / max(1, np.count_nonzero(valid_metric)))
                     if variance_values is not None else 0.0
@@ -476,6 +501,8 @@ def build_aoi_spatial_candidate_report(
                     "mask": np.zeros(sample["valid"].shape, dtype=bool),
                     "valid": np.zeros(sample["valid"].shape, dtype=bool),
                     "score": np.zeros(sample["valid"].shape, dtype="float32"),
+                    "flag_valid": np.zeros(sample["valid"].shape, dtype=bool),
+                    "inlier": np.zeros(sample["valid"].shape, dtype=bool),
                     "product_ids": set(),
                 }
             pair = pair_masks[pair_key]
@@ -483,6 +510,10 @@ def build_aoi_spatial_candidate_report(
             pair["mask"] |= mask
             pair["valid"] |= item["valid"]
             pair["score"] = np.maximum(pair["score"], item["score"] * mask.astype("float32"))
+            pair["flag_valid"] |= item["robust_flag_valid"]
+            # When overlapping sub-swaths disagree, any inlier vote prevents
+            # the acquisition-pair pixel from being described as outlier-only.
+            pair["inlier"] |= item["robust_inlier_mask"]
             pair["product_ids"].add(item["product_id"])
 
         support = np.zeros(sample["valid"].shape, dtype="uint16")
@@ -555,6 +586,17 @@ def build_aoi_spatial_candidate_report(
             geometry = transform_geom(sample["crs"], "EPSG:4326", geom_shapes[0][0], precision=7)
             pixel_width, pixel_height = sample["resolution"]
             max_score = float(np.max(maximum_score[region_mask]))
+            flagged_observations = 0
+            inlier_observations = 0
+            outlier_observations = 0
+            unknown_flag_observations = 0
+            for _, pair_data in relevant_pairs:
+                candidate_observations = region_mask & pair_data["mask"]
+                flagged = candidate_observations & pair_data["flag_valid"]
+                flagged_observations += int(np.count_nonzero(flagged))
+                inlier_observations += int(np.count_nonzero(flagged & pair_data["inlier"]))
+                outlier_observations += int(np.count_nonzero(flagged & ~pair_data["inlier"]))
+                unknown_flag_observations += int(np.count_nonzero(candidate_observations & ~pair_data["flag_valid"]))
             pair_keys = [pair_key for pair_key, _ in relevant_pairs]
             product_ids = sorted({
                 product_id
@@ -584,6 +626,18 @@ def build_aoi_spatial_candidate_report(
                 "pixel_count": pixel_count,
                 "approx_area_m2": round(pixel_count * pixel_width * pixel_height, 2),
                 "max_robust_score": round(max_score, 3),
+                "screen_flagged_observations": flagged_observations,
+                "screen_inlier_observations": inlier_observations,
+                "screen_outlier_observations": outlier_observations,
+                "screen_flag_unknown_observations": unknown_flag_observations,
+                "screen_outlier_fraction": (
+                    round(outlier_observations / flagged_observations, 4)
+                    if flagged_observations else None
+                ),
+                "screen_outlier_fraction_basis": (
+                    "outlier observations / candidate observations with a valid global-MAD inlier flag; flagged offsets remain included"
+                    if flagged_observations else "no valid global-MAD inlier flag available for this candidate"
+                ),
                 "product_ids": product_ids,
                 "pair_intervals": [f"{a}/{b}" for a, b in pair_keys],
                 "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
