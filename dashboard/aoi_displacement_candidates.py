@@ -701,23 +701,27 @@ def build_aoi_spatial_candidate_report(
                 "interpretation": "Descriptive acquisition-season coverage only; not a causal monsoon test and not evidence for or against motion.",
             }
             phase_ceiling_mm = 0.25 * (299792458.0 / 1257500000.0) * 1000.0
-            phase_review_pairs = [
+            phase_values_available = [
                 row for row in local_floor_rows
                 if row.get("candidate_median_aoi_relative_residual_mm") is not None
-                and abs(float(row["candidate_median_aoi_relative_residual_mm"])) > phase_ceiling_mm
             ] if sample["product_type"] == "GUNW" else []
+            phase_review_pairs = [
+                row for row in phase_values_available
+                if abs(float(row["candidate_median_aoi_relative_residual_mm"])) > phase_ceiling_mm
+            ]
             phase_ceiling_review = {
                 "status": (
                     "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
                     if phase_review_pairs else (
                         "WITHIN_SINGLE_FRINGE_REVIEW_THRESHOLD"
-                        if sample["product_type"] == "GUNW" and local_floor_rows
+                        if phase_values_available
                         else "NOT_APPLICABLE_NON_GUNW_OFFSET_METRIC"
                         if sample["product_type"] != "GUNW"
                         else "NOT_TESTABLE_NO_CANDIDATE_PAIR_RESIDUAL"
                     )
                 ),
                 "threshold_mm": round(phase_ceiling_mm, 3),
+                "pairs_tested": len(phase_values_available),
                 "pairs_exceeding_threshold": [
                     {
                         "reference_date": row["reference_date"],
