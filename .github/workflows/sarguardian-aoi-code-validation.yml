@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian
-          ref: 3b227f968b9a9ea068d06ef4424c6906302d3caa
+          ref: 006d4cd1485cf80e509eaf8717c12e9c6390ac09
           path: science-source
 
       - name: Set up Python
