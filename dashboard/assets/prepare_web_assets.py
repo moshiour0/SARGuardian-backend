@@ -352,7 +352,7 @@ function renderPixelStackDiagnostic(){
  const chains=report.chains;
  const countable=chains.filter(c=>Number(c.complete_pixels)>0);
  const noCluster=countable.filter(c=>c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN').length;
- summary.textContent=chains.length+' GUNW geometry chains were checked. Only '+countable.length+' chain(s) had any complete time-series pixels; '+noCluster+' chain(s) with a fit had no connected candidate cluster above the exploratory noise-only screen. This is a sparse-support result, not evidence that the ground was stationary.';
+ summary.textContent=String(report.interpretation||'The exploratory GUNW per-pixel screen has limited support.')+' It checked '+String(report.pairs_examined==null?'an unreported number of':report.pairs_examined)+' GUNW acquisition pairs across '+chains.length+' geometry chains; only '+countable.length+' chain(s) had any complete time-series pixels, and '+noCluster+' fitted chain(s) had no connected candidate cluster above the exploratory noise-only screen.';
  root.innerHTML=chains.map(c=>{
   const complete=Number(c.complete_pixels||0),total=Number(c.total_pixels||0),pct=Number(c.complete_support_pct||0);
   const support=total>0?complete.toLocaleString()+' / '+total.toLocaleString()+' complete pixels ('+pct.toFixed(4)+'%)':'Complete pixel support not reported';
