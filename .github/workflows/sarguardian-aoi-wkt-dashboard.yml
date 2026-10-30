@@ -429,27 +429,24 @@ jobs:
         with:
           ref: ${{ needs.manifest.outputs.orchestration_sha }}
 
-      # The pinned orchestration branch intentionally carries the AOI worker tooling,
-      # but it predates the web viewer. Use this immutable backend revision for
-      # the aggregator + web-dashboard builder, while retaining the existing
-      # manifest/worker/retry provenance pin above.
-      # The builder pin deliberately names a prior immutable commit from this fix branch.
-      # It contains the updated aggregator and web-asset builder, and avoids a moving
-      # self-reference to the current workflow commit.
-      - name: Checkout pinned interactive-dashboard builder
+      # Use the exact backend orchestration revision dispatched by this run
+      # for the aggregator and web dashboard too. This keeps discovery, workers,
+      # science assembly and viewer code on one immutable commit.
+      - name: Checkout AOI aggregator and interactive dashboard at the dispatched revision
         uses: actions/checkout@v4
         with:
           repository: moshiour0/SARGuardian-backend
-          ref: ecd125f68ed61c276406f73a1d77eb27979e204e
+          ref: ${{ needs.manifest.outputs.orchestration_sha }}
           path: dashboard-source
 
-      - name: Verify pinned interactive-dashboard builder revision
+      - name: Verify aggregator and viewer match the dispatched revision
         shell: bash
+        env:
+          EXPECTED_DASHBOARD_SHA: ${{ needs.manifest.outputs.orchestration_sha }}
         run: |
           set -euo pipefail
-          expected="ecd125f68ed61c276406f73a1d77eb27979e204e"
           actual="$(git -C dashboard-source rev-parse HEAD)"
-          test "$actual" = "$expected"
+          test "$actual" = "${EXPECTED_DASHBOARD_SHA:?}"
           echo "DASHBOARD_BUILDER_SHA=$actual"
 
       - name: Checkout the same pinned science engine for WKT/provenance checks
