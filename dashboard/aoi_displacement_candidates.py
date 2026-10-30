@@ -437,17 +437,19 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
                 sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
                 floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
                 status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
-            candidate_values = (
-                np.asarray(residual, dtype="float64")[row0:row1, col0:col1][cm]
-                if residual is not None else np.array([])
-            )
+            # Phase-ceiling review uses candidate LOS contrast against this
+            # pair's AOI median, not the locally detrended residual used by
+            # the local noise-floor estimator.
+            pair_values = np.asarray(item.get("values"), dtype="float64")[row0:row1, col0:col1]
+            pair_centre = _finite(item.get("background_median_mm"))
+            candidate_values = pair_values[cm] - float(pair_centre) if pair_centre is not None else np.array([])
             candidate_values = candidate_values[np.isfinite(candidate_values)]
             variant_rows.append({
                 "product_id": str(item.get("product_id") or ""),
                 "candidate_pixels": int(cm.sum()),
                 "background_pixels": int(bg.size),
                 "local_background_sigma_mm": sigma,
-                "candidate_median_residual_mm": (
+                "candidate_median_aoi_relative_residual_mm": (
                     float(np.median(candidate_values)) if candidate_values.size else None
                 ),
                 "local_detection_floor_3sigma_mm_day": floor,
@@ -484,7 +486,7 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
             "contributing_variants": len(variant_rows),
             "floor_selection_policy": "maximum measured floor among same-interval variants; one interval counts once",
             "local_background_sigma_mm": sigma,
-            "candidate_median_residual_mm": selected["candidate_median_residual_mm"],
+            "candidate_median_aoi_relative_residual_mm": selected["candidate_median_aoi_relative_residual_mm"],
             "local_detection_floor_3sigma_mm_day": floor,
             "span_days": span or None,
             "status": status,
@@ -701,8 +703,8 @@ def build_aoi_spatial_candidate_report(
             phase_ceiling_mm = 0.25 * (299792458.0 / 1257500000.0) * 1000.0
             phase_review_pairs = [
                 row for row in local_floor_rows
-                if row.get("candidate_median_residual_mm") is not None
-                and abs(float(row["candidate_median_residual_mm"])) > phase_ceiling_mm
+                if row.get("candidate_median_aoi_relative_residual_mm") is not None
+                and abs(float(row["candidate_median_aoi_relative_residual_mm"])) > phase_ceiling_mm
             ] if sample["product_type"] == "GUNW" else []
             phase_ceiling_review = {
                 "status": (
@@ -720,7 +722,7 @@ def build_aoi_spatial_candidate_report(
                     {
                         "reference_date": row["reference_date"],
                         "secondary_date": row["secondary_date"],
-                        "candidate_median_residual_mm": row["candidate_median_residual_mm"],
+                        "candidate_median_aoi_relative_residual_mm": row["candidate_median_aoi_relative_residual_mm"],
                     } for row in phase_review_pairs
                 ],
                 "interpretation": "A review trigger for pairwise GUNW LOS differential only; phase unwrapping may recover cycles, so exceedance is not automatic rejection or proof of error.",
