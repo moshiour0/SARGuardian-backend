@@ -9,16 +9,18 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "sarguardian-aoi-wkt-dashboard.yml"
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
 BUILDER = ROOT / "dashboard" / "assets" / "prepare_web_assets.py"
-EXPECTED_BUILDER_SHA = "ecd125f68ed61c276406f73a1d77eb27979e204e"
 EXPECTED_SCIENCE_SHA = "f038e4dfdb53c8d9793aaaefe173570a1032026c"
 
 
 class DashboardWorkflowPinTests(unittest.TestCase):
-    def test_workflow_pins_revision_with_interactive_builder(self) -> None:
+    def test_workflow_uses_the_dispatched_immutable_revision_for_aggregator_and_viewer(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        references = re.findall(r"(?m)^\s*ref:\s*([0-9a-f]{40})\s*$", workflow)
-        self.assertIn(EXPECTED_BUILDER_SHA, references)
-        self.assertIn(f'expected="{EXPECTED_BUILDER_SHA}"', workflow)
+        self.assertIn("repository: moshiour0/SARGuardian-backend", workflow)
+        self.assertIn("ref: ${{ needs.manifest.outputs.orchestration_sha }}", workflow)
+        self.assertIn("path: dashboard-source", workflow)
+        self.assertIn("EXPECTED_DASHBOARD_SHA: ${{ needs.manifest.outputs.orchestration_sha }}", workflow)
+        self.assertIn('test "$actual" = "${EXPECTED_DASHBOARD_SHA:?}"', workflow)
+        self.assertNotIn("ecd125f68ed61c276406f73a1d77eb27979e204e", workflow)
 
     def test_workflow_pins_exact_guarded_science_revision(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
