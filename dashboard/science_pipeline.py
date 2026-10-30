@@ -167,12 +167,22 @@ def build_science_pipeline_report(
             "reference frame; they do not provide a shared stable-ground datum or authorize cumulative inversion."
         )
     elif target_status == "NOT_PROVIDED":
-        local_floor_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
-        local_floor_reason = (
-            "Find Displacements is target-free. A point-local floor is not a prerequisite for AOI-wide discovery; "
-            "GOFF uses its per-pair reader floor where available and GUNW uses spatially screened per-pixel evidence. "
-            "No point coordinate or point-local measurement is invented. Candidate-specific local floors remain a separate diagnostic."
-        )
+        candidate_floor_measurements = int(aoi_displacement_candidates.get("candidate_local_floor_measurements") or 0)
+        if candidate_floor_measurements:
+            local_floor_status = "CANDIDATE_REGION_LOCAL_FLOORS_MEASURED"
+            local_floor_reason = (
+                f"Find Displacements automatically measured {candidate_floor_measurements} candidate/pair local residual floor(s) "
+                "from valid nearby background pixels; no user target was required. These are pair-specific detectability diagnostics, "
+                "not observed motion and not independently validated stable-ground noise."
+            )
+        else:
+            local_floor_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
+            local_floor_reason = (
+                "Find Displacements is target-free. A point-local floor is not a prerequisite for AOI-wide discovery; "
+                "GOFF uses its per-pair reader floor where available and GUNW uses spatially screened per-pixel evidence. "
+                "No point coordinate or point-local measurement is invented. Candidate-local floors are withheld when no candidate "
+                "has enough valid nearby background support."
+            )
     else:
         local_floor_status = "BLOCKED_INVALID_OR_OUTSIDE_TARGET"
         local_floor_reason = f"Target context was rejected or incomplete ({target_status}); no target-specific inference is allowed."
@@ -229,6 +239,7 @@ def build_science_pipeline_report(
             "reason": local_floor_reason,
             "products_with_measured_local_floor": measured_floors,
             "products_with_target_window_measurement": measured_targets,
+            "candidate_region_local_floor_measurements": int(aoi_displacement_candidates.get("candidate_local_floor_measurements") or 0),
             "available_related_metrics": "A local floor is a pair-specific detectability/noise estimate, not observed motion or a common-reference time series.",
         },
         {
