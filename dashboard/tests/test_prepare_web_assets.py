@@ -413,6 +413,11 @@ class PrepareWebAssetsTests(unittest.TestCase):
                 "hazard_detected": False,
                 "candidate_features": 1,
                 "candidate_local_floor_measurements": 1,
+                "candidate_local_floor_policy": {
+                    "background_ring_pixels": 5,
+                    "minimum_background_pixels": 30,
+                    "detection_floor": "3 * robust_sigma / acquisition_span_days",
+                },
                 "features": [{
                     "type": "Feature",
                     "geometry": {"type": "Point", "coordinates": [85.0, 27.0]},
@@ -475,6 +480,9 @@ class PrepareWebAssetsTests(unittest.TestCase):
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("Candidate-local 3σ floor", viewer)
             self.assertIn("toFixed(2)+' mm/day'", viewer)
+            self.assertIn("5-pixel background ring", viewer)
+            self.assertIn("30 valid nearby pixels", viewer)
+            self.assertIn("not a calibrated false-alarm probability", viewer)
             self.assertIn("Season coverage", viewer)
             self.assertIn("GUNW λ/4 review", viewer)
             self.assertIn("candidate_cross_geometry_status", viewer)
