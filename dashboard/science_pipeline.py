@@ -202,10 +202,18 @@ def build_science_pipeline_report(
         timeseries_reason = str(common_reference_report.get("reason") or "Common datum was computed but no component met cumulative-series publication gates.")
     else:
         timeseries_status = "NETWORK_TOPOLOGY_ONLY_INVERSION_WITHHELD" if pairs else report["network_assessment_status"]
-        timeseries_reason = (
-            "The pinned engine assessed pair/epoch connectivity, but the retained rasters did not satisfy the common-grid, >=200 common-reference-pixel, target-support and/or robust redundant-network gate. No cumulative values were inferred."
-            if pairs else "Pair topology could not be assessed from the supplied product identities and acquisition dates."
-        )
+        if target_status == "NOT_PROVIDED":
+            timeseries_reason = (
+                "The legacy timeseries.py region-mean path reports acquisition topology only and does not create a target-free per-pixel series. "
+                "Find Displacements uses aoi_relative_pixel_timeseries.py for that purpose; its result is recorded separately, and only eligible "
+                "connected/redundant GUNW networks with common valid spatial support produce a diagnostic series."
+            )
+        else:
+            timeseries_reason = (
+                "The point-aware series did not satisfy the common-grid, common-reference-pixel, target-support and/or robust redundant-network gate. "
+                "No cumulative values were inferred."
+                if pairs else "Pair topology could not be assessed from the supplied product identities and acquisition dates."
+            )
     common_status = str(common_reference_report.get("status") or "NOT_REPORTED")
     if target_status == "NOT_PROVIDED" and common_status == "NOT_RUN_TARGET_FREE_FIND_DISPLACEMENTS":
         common_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
@@ -216,11 +224,13 @@ def build_science_pipeline_report(
     candidate_properties = [feature["properties"] for feature in candidate_features]
     candidate_screen_status = str(aoi_displacement_candidates.get("status") or "NOT_REPORTED")
     phase_review_count = sum(
-        row.get("candidate_phase_ceiling_review", {}).get("status") == "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
+        isinstance(row.get("candidate_phase_ceiling_review"), dict)
+        and row["candidate_phase_ceiling_review"].get("status") == "EXCEEDS_SINGLE_FRINGE_REVIEW_THRESHOLD"
         for row in candidate_properties
     )
     multi_season_count = sum(
-        row.get("candidate_seasonality_inventory", {}).get("status") == "MULTI_SEASON_SUPPORT_PRESENT"
+        isinstance(row.get("candidate_seasonality_inventory"), dict)
+        and row["candidate_seasonality_inventory"].get("status") == "MULTI_SEASON_SUPPORT_PRESENT"
         for row in candidate_properties
     )
     if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI":
