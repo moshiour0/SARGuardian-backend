@@ -477,7 +477,7 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("toFixed(2)+' mm/day'", viewer)
             self.assertIn("Season coverage", viewer)
             self.assertIn("GUNW λ/4 review", viewer)
-            self.assertIn("WITHHELD_NO_PIXELWISE_LOOK_VECTOR_AND_RATE_COVARIANCE", viewer)
+            self.assertIn("candidate_cross_geometry_status", viewer)
             self.assertEqual(hashlib.sha256(raster_path.read_bytes()).hexdigest(), raster_sha)
             self.assertEqual(hashlib.sha256(product_tif.read_bytes()).hexdigest(), product_before_hash)
 
