@@ -74,7 +74,7 @@ class SciencePipelineReportTests(unittest.TestCase):
         self.assertEqual(stages["gunw_reader.py"], "NO_GUNW_PRODUCTS")
         self.assertEqual(stages["goff_reader.py"], "NO_GOFF_PRODUCTS")
         self.assertEqual(stages["local_floor.py"], "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS")
-        self.assertEqual(stages["bound.py"], "NOT_APPLICABLE_GENERIC_AOI")
+        self.assertEqual(stages["bound.py"], "NOT_APPLICABLE_GENERIC_AOI_BY_DESIGN")
 
 
     def test_find_displacements_reports_target_free_stages_and_keeps_known_place_gates_separate(self) -> None:
