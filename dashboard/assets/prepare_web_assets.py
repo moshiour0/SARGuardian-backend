@@ -373,12 +373,14 @@ function renderPixelStackDiagnostic(){
  }
  const chains=report.chains;
  const countable=chains.filter(c=>Number(c.complete_pixels)>0);
+ const notTestable=countable.filter(c=>c.finding==='NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT').length;
+ const noComplete=chains.filter(c=>c.finding==='NO_COMPLETE_SERIES').length;
  const noCluster=countable.filter(c=>c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN').length;
- summary.textContent=String(report.interpretation||'The exploratory GUNW per-pixel screen has limited support.')+' It checked '+String(report.pairs_examined==null?'an unreported number of':report.pairs_examined)+' GUNW acquisition pairs across '+chains.length+' geometry chains; only '+countable.length+' chain(s) had any complete time-series pixels, and '+noCluster+' fitted chain(s) had no connected candidate cluster above the exploratory noise-only screen.';
+ summary.textContent=String(report.interpretation||'The exploratory GUNW per-pixel screen has limited support.')+' It checked '+String(report.pairs_examined==null?'an unreported number of':report.pairs_examined)+' GUNW acquisition pairs across '+chains.length+' geometry chains. '+notTestable+' chain(s) could not estimate spatial background noise because too few nearby pixels were valid; '+noComplete+' chain(s) had no complete pixel series. The noise comparison was withheld where it could not be tested.';
  root.innerHTML=chains.map(c=>{
   const complete=Number(c.complete_pixels||0),total=Number(c.total_pixels||0),pct=Number(c.complete_support_pct||0);
   const support=total>0?complete.toLocaleString()+' / '+total.toLocaleString()+' complete pixels ('+pct.toFixed(4)+'%)':'Complete pixel support not reported';
-  const verdict=c.finding==='NO_COMPLETE_SERIES'?'No complete series — nothing to fit':c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN'?'No connected cluster passed this screen’s noise check':'Review required — see saved log';
+  const verdict=c.finding==='NO_COMPLETE_SERIES'?'No complete series — nothing to fit':c.finding==='NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT'?'Not testable — too few nearby valid pixels to measure background noise':c.finding==='NO_CLUSTER_ABOVE_NOISE_SCREEN'?'No connected cluster passed this screen’s noise check':'Review required — see saved log';
   const noise=c.noise_cluster_p95_pixels==null?'': ' · noise-only 95th-percentile cluster '+Number(c.noise_cluster_p95_pixels).toLocaleString()+' px';
   return '<div class="metricitem"><div class="label">'+esc(c.geometry)+' · '+esc(c.pair_count)+' pairs · '+esc(c.duration_days)+' days</div><strong>'+esc(support)+'</strong><small style="display:block;margin-top:4px">'+esc(verdict)+' · largest cluster '+esc(c.largest_cluster_pixels==null?'not reported':Number(c.largest_cluster_pixels).toLocaleString()+' px')+esc(noise)+'</small></div>';
  }).join('');
