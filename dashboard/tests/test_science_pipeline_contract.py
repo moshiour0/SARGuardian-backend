@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILDER = ROOT / "dashboard" / "assets" / "prepare_web_assets.py"
 AGGREGATOR = ROOT / "tools" / "aggregate_aoi_run.py"
 PIPELINE = ROOT / "dashboard" / "science_pipeline.py"
+RETAINED_REFRESH = ROOT / ".github" / "workflows" / "dashboard-real-artifact-smoke.yml"
 
 
 class SciencePipelineContractTests(unittest.TestCase):
@@ -60,6 +61,19 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn('"science_pipeline":science_pipeline', aggregator)
         self.assertIn('science-pipeline-report.json', aggregator)
         self.assertIn('"science_pipeline": summary.get("science_pipeline") or {}', builder)
+
+
+    def test_retained_artifact_refresh_recomputes_target_free_candidates_without_raw_replay(self) -> None:
+        workflow = RETAINED_REFRESH.read_text(encoding="utf-8")
+        self.assertIn("Download the existing verified AOI dashboard artifact", workflow)
+        self.assertIn("build_aoi_spatial_candidate_report", workflow)
+        self.assertIn("build_science_pipeline_report", workflow)
+        self.assertIn("CANDIDATE_LOCAL_FLOOR_MEASUREMENTS=", workflow)
+        self.assertIn("CANDIDATE_FEATURES_WITH_LOCAL_FLOOR=", workflow)
+        self.assertIn("RAW_HDF5_REPLAYED=false", workflow)
+        self.assertIn("SOURCE_TIFFS_UNCHANGED=PASS", workflow)
+        self.assertIn("WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE", workflow)
+        self.assertIn("WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE", workflow)
 
 
 if __name__ == "__main__":
