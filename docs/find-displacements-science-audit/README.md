@@ -55,6 +55,7 @@ Use independent known displacement, event-footprint, glacier feature tracking or
 - [Stage gate report](science_pipeline.md)
 - [Common-reference adapter](common_reference.md)
 - [Map/PNG publisher](prepare_web_assets.md)
+- [Review of pending science implementation PRs](pending-pr-review.md)
 
 ## External references
 
