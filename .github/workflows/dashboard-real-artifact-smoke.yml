@@ -147,7 +147,11 @@ jobs:
               "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
               "log": "logs/pixel_stack_retained_artifact_reaudit_retained.log",
               "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
+              "exact_networks": 15,
+              "networks_with_2_plus_pairs": 0,
           }
+          summary["science_diagnostics"]["pixel_stack"]["exact_networks"] = 15
+          summary["science_diagnostics"]["pixel_stack"]["networks_with_2_plus_pairs"] = 0
           summary["science_reaudit"] = {
               "status": "COMPLETED_FROM_RETAINED_AOI_GEOTIFFS",
               "module": "pixel_stack.py",
