@@ -56,7 +56,7 @@ class SciencePipelineReportTests(unittest.TestCase):
         stages = {row["name"]: row["status"] for row in report["modules"]}
         self.assertEqual(stages["timeseries.py"], "NETWORK_TOPOLOGY_ONLY_INVERSION_WITHHELD")
         self.assertEqual(stages["local_floor.py"], "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS")
-        self.assertEqual(stages["inverse_velocity.py"], "WITHHELD_NO_INDEPENDENT_REFERENCE_AND_MATCHED_LOCAL_FLOOR")
+        self.assertEqual(stages["inverse_velocity.py"], "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE")
         self.assertEqual(stages["geometry_merge.py"], "WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE")
         self.assertEqual(stages["bound.py"], "NOT_APPLICABLE_GENERIC_AOI_BY_DESIGN")
         self.assertFalse(report["structural_validation_is_geophysical_validation"])
@@ -142,11 +142,11 @@ class SciencePipelineReportTests(unittest.TestCase):
         )
         self.assertEqual(
             stages["candidate_check.py"]["status"],
-            "NOT_APPLICABLE_CUSTOM_AOI_TARGET_FREE_REPLACEMENT_AVAILABLE",
+            "SPATIAL_SCREEN_AVAILABLE_CANDIDATE_STRESS_TESTS_NOT_RUN",
         )
         self.assertEqual(
             stages["inverse_velocity.py"]["status"],
-            "WITHHELD_NO_INDEPENDENT_REFERENCE_AND_MATCHED_LOCAL_FLOOR",
+            "WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE",
         )
         self.assertEqual(
             stages["geometry_merge.py"]["status"],
