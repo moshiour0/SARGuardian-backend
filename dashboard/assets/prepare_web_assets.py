@@ -137,7 +137,12 @@ def _parse_pixel_stack_log(root: Path, diagnostics: dict[str, Any], key: str) ->
         })
     result.update({
         "available": bool(chains),
-        "log_status": "PARSED" if chains else "NO_CHAIN_BLOCKS_FOUND",
+        "log_status": (
+            "PARSED" if chains else
+            "PARSED_NO_COMPATIBLE_REPEATED_NETWORK"
+            if result.get("status") == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK" else
+            "NO_CHAIN_BLOCKS_FOUND"
+        ),
         "chains": chains,
     })
     return result
