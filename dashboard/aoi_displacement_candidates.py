@@ -344,26 +344,29 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
                        "score": np.zeros(valid.shape, dtype="float32"), "robust_background_sigma": global_sigma,
                        "robust_local_sigma": None, "valid_pixels": valid_count}
 
-    z_global = np.abs(centered) / global_sigma
-    z_local = np.abs(local_residual) / local_sigma
-    score = np.maximum(z_global, z_local).astype("float32")
-
-    # GOFF marginal offset variances are carried in mm^2 by goff_reader.py.
-    # Normalize each component separately; do not form a 2-D Mahalanobis score
-    # because crossOffsetVariance is retained but not assumed to be covariance.
+    # GOFF marginal offset variances are in mm^2. Use their square root as
+    # a conservative per-pixel noise floor, never as a stand-alone score that
+    # could turn tiny reported variance into an artificially large z-score.
+    # The larger of product variance and spatially empirical robust scatter wins.
     variance_values = item.get("variance_values")
     variance_valid = np.asarray(item.get("variance_valid", np.zeros(valid.shape, dtype=bool)), dtype=bool)
     variance_score = np.full(valid.shape, np.nan, dtype="float32")
-    variance_score_used = False
+    effective_global_sigma = np.full(valid.shape, global_sigma, dtype="float32")
+    effective_local_sigma = np.full(valid.shape, local_sigma, dtype="float32")
     if variance_values is not None:
         variance_values = np.asarray(variance_values, dtype="float32")
         use_variance = valid & variance_valid & np.isfinite(variance_values) & (variance_values > 0)
         if np.any(use_variance):
+            marginal_sigma = np.sqrt(variance_values[use_variance])
+            effective_global_sigma[use_variance] = np.maximum(global_sigma, marginal_sigma)
+            effective_local_sigma[use_variance] = np.maximum(local_sigma, marginal_sigma)
             variance_score[use_variance] = (
-                np.abs(local_residual[use_variance]) / np.sqrt(variance_values[use_variance])
+                np.abs(local_residual[use_variance]) / effective_local_sigma[use_variance]
             ).astype("float32")
-            score[use_variance] = np.maximum(score[use_variance], variance_score[use_variance])
 
+    z_global = np.abs(centered) / effective_global_sigma
+    z_local = np.abs(local_residual) / effective_local_sigma
+    score = np.maximum(z_global, z_local).astype("float32")
     score[~valid] = 0.0
     candidate_mask = valid & np.isfinite(score) & (score >= threshold_z)
     return item | {
