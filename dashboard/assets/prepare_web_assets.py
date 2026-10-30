@@ -730,7 +730,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "aoi_wkt_sha256": summary.get("aoi_wkt_sha256"), "science_commit": summary.get("science_commit"),
             "orchestration_commit": summary.get("orchestration_sha"), "workflow_commit": summary.get("dispatcher_workflow_sha"),
         },
-        "validation": {"processing_status": summary.get("status", "UNKNOWN"), "visual_assets_status": "PASS" if public_layers else "NO_RENDERABLE_LAYERS",
+        "validation": {"processing_status": summary.get("status", "UNKNOWN"), "visual_assets_status": "PASS" if (public_layers or derived_layers) else "NO_RENDERABLE_LAYERS",
                        "independent_geophysical_validation": "NOT_PERFORMED", "products_expected": summary.get("products_expected"),
                        "products_validated": summary.get("products_validated")},
         "aoi": feature, "aoi_bbox": bbox,
@@ -876,12 +876,14 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             content = re.sub(r"(<main(?:\s[^>]*)?>)", lambda m: m.group(1) + link, content, count=1, flags=re.I)
             report_html.write_text(content, encoding="utf-8")
 
-    receipt = {"schema_version": SCHEMA, "status": "PASS" if public_layers else "PARTIAL", "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    renderable_layer_count = len(public_layers) + len(derived_layers)
+    receipt = {"schema_version": SCHEMA, "status": ("PASS" if renderable_layer_count and not derived_layer_errors else "PARTIAL"), "generated_at_utc": datetime.now(timezone.utc).isoformat(),
                "manifest": "web-dashboard/manifest.json", "viewer": "web-dashboard/index.html",
                "viewer_data": "web-dashboard/dashboard-data.js", "aoi_geojson": "web-dashboard/aoi.geojson",
                "timeline": "web-dashboard/timeline.json", "metrics": "web-dashboard/metrics.json",
                "stac_catalog": "web-dashboard/stac/catalog.json", "observations": len(observations),
                "layers": len(public_layers), "derived_layers": len(derived_layers),
+                "renderable_layers": renderable_layer_count,
                "aoi_relative_pixel_timeseries_status": pixel_report.get("status", "NOT_REPORTED"),
                 "aoi_candidate_features": int((summary.get("aoi_displacement_candidates") or {}).get("candidate_features") or 0),
                 "legacy_goff_candidate_features": int((summary.get("aoi_wide_displacement_screen") or {}).get("candidate_count") or 0),
