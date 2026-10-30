@@ -649,6 +649,8 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
             "look_direction": product.get("look_direction") or stats.get("look_direction"),
             "maturity": product.get("maturity"), "crid": product.get("crid") or stats.get("crid"),
             "status": product.get("status"), "valid_pixels": product.get("valid_pixels"),
+            "screen_valid_pixels": product.get("screen_valid_pixels"),
+            "screen_outlier_pixels": product.get("screen_outlier_pixels"),
             "grid_pixels_inside_aoi": product.get("grid_pixels_inside_aoi"), "source_sha256": product.get("source_sha256"),
             "warnings": product.get("warnings") or [], "validation_scope": product.get("validation_scope") or "structural_and_provenance_not_independent_geophysical_validation",
             "native_assets": [item.get("relative_path") for item in product.get("exports", []) if item.get("relative_path")],
