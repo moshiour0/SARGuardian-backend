@@ -258,5 +258,19 @@ class AOISpatialCandidateTests(unittest.TestCase):
             self.assertTrue(any(r["status"] == "REJECTED_RASTER_CONTRACT" for r in report["rejected_products"]))
 
 
+    def test_candidate_local_floor_counts_duplicate_subswaths_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            a = _write_product(root, "GUNW-001", "GUNW", "2026-06-08", "2026-06-20", 71, subswath="023")
+            b = _write_product(root, "GUNW-002", "GUNW", "2026-06-08", "2026-06-20", 83, subswath="024")
+            report = build_aoi_spatial_candidate_report([a, b], root, "d" * 64)
+            self.assertTrue(report["features"])
+            for feature in report["features"]:
+                rows = feature["properties"]["candidate_local_floor_by_pair"]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["contributing_variants"], 2)
+                self.assertIn("one interval counts once", rows[0]["floor_selection_policy"])
+
+
 if __name__ == "__main__":
     unittest.main()
