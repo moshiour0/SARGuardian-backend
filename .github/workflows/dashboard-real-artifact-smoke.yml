@@ -203,11 +203,20 @@ jobs:
           pixel = manifest.get("pixel_stack_diagnostic", {})
           assert pixel.get("available") is True, pixel
           assert pixel.get("pairs_examined") == 15, pixel
+          assert pixel.get("status") == "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", pixel
           chain_map = {row.get("geometry"): row for row in pixel.get("chains", [])}
           assert set(chain_map) == {"A098", "D048", "D149"}, chain_map
           assert chain_map["A098"].get("complete_pixels") == 9, chain_map["A098"]
           assert chain_map["D048"].get("complete_pixels") == 12, chain_map["D048"]
           assert chain_map["D149"].get("complete_pixels") == 0, chain_map["D149"]
+          assert chain_map["A098"].get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", chain_map["A098"]
+          assert chain_map["D048"].get("finding") == "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT", chain_map["D048"]
+          assert chain_map["D149"].get("finding") == "NO_COMPLETE_SERIES", chain_map["D149"]
+          assert all(chain.get("noise_cluster_p95_pixels") is None for chain in chain_map.values()), chain_map
+          reaudit = summary.get("science_reaudit", {})
+          assert reaudit.get("status") == "COMPLETED_FROM_RETAINED_AOI_GEOTIFFS", reaudit
+          assert reaudit.get("raw_hdf5_replayed") is False, reaudit
+          assert reaudit.get("science_commit") == "0a0b62f84efbc71dab5654211053afcc4c2ebcd0", reaudit
 
           legacy = manifest.get("aoi_wide_displacement_screen", {})
           extended = manifest.get("aoi_displacement_candidates", {})
