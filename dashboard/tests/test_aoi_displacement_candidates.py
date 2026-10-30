@@ -16,7 +16,7 @@ def _write_product(
     root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int,
     *, subswath: str = "023", crid: str = "X05026", product_flag: str = "N",
     hotspot_box: tuple[int, int, int, int] = (28, 40, 32, 44),
-    with_variance: bool = False,
+    with_variance: bool = False, with_outlier_flag: bool = False,
 ) -> dict:
     granule = (
         f"NISAR_L2_PR_{family}_022_098_A_016_{subswath}_4000_SH_"
@@ -70,6 +70,10 @@ def _write_product(
                 "along_track_variance_band": "5",
                 "cross_offset_variance_band": "6",
             })
+        if with_outlier_flag:
+            data = np.concatenate([data, np.zeros((1, 80, 80), dtype="float32")], axis=0)
+            descriptions += ("robust inlier flag (1=inlier, 0=global-MAD outlier retained for review)",)
+            tags["outlier_flag_band"] = str(data.shape[0])
     with rasterio.open(
         path, "w", driver="GTiff", height=80, width=80, count=data.shape[0],
         dtype="float32", crs="EPSG:32645", transform=transform, nodata=-9999.0,
@@ -234,6 +238,32 @@ class AOISpatialCandidateTests(unittest.TestCase):
             with_variance["score"][hotspot].max(),
             without_variance["score"][hotspot].max() + 1e-6,
         )
+
+    def test_goff_candidate_reports_global_mad_outlier_burden_without_dropping_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            product = _write_product(
+                root, "GOFF-001", "GOFF", "2026-06-08", "2026-06-20", 42,
+                with_outlier_flag=True,
+            )
+            report = build_aoi_spatial_candidate_report([product], root, "9" * 64)
+            self.assertTrue(report["features"])
+            feature = next(
+                row for row in report["features"]
+                if row["properties"]["metric"] == "GOFF_ALONG_TRACK_OFFSET_MM"
+            )
+            properties = feature["properties"]
+            self.assertGreater(properties["screen_flagged_observations"], 0)
+            self.assertEqual(properties["screen_outlier_fraction"], 1.0)
+            self.assertEqual(
+                properties["screen_outlier_fraction_basis"],
+                "outlier observations / candidate observations with a valid global-MAD inlier flag; flagged offsets remain included",
+            )
+            # Flagged observations remain visible in the candidate screen; this
+            # is a quality caveat, not an automatic rejection or motion verdict.
+            self.assertEqual(properties["status"], "SINGLE_PAIR_CANDIDATE_UNCONFIRMED")
+            self.assertFalse(report["movement_confirmed"])
+            self.assertFalse(report["hazard_detected"])
 
     def test_bad_export_contract_is_withheld_instead_of_inventing_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
