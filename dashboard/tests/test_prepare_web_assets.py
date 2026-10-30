@@ -604,6 +604,11 @@ class PrepareWebAssetsTests(unittest.TestCase):
             self.assertIn("aoi-wide-candidate-fill", viewer)
             self.assertIn("candidate_feature_collection", viewer)
             self.assertIn("not a hazard detection", viewer.lower())
+            self.assertIn("GOFF offset-anomaly records", viewer)
+            self.assertIn("GUNW pairwise LOS anomaly records", viewer)
+            self.assertIn("extended-goff", viewer)
+            self.assertIn("extended-gunw", viewer)
+            self.assertIn("not probability", viewer.lower())
     def test_candidate_mask_quicklook_keeps_zero_and_nodata_transparent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "candidate-mask.png"
@@ -783,6 +788,131 @@ D149  chain 3   2026-07-06 .. 2026-09-04  (4 pairs, 60 d)
             self.assertIn("renderPixelStackDiagnostic()", viewer)
             self.assertNotIn("29 mm/yr", viewer)
             self.assertNotIn("246 mm/yr", viewer)
+
+
+    def test_sparse_spatial_null_is_reported_as_not_testable_not_no_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            logs = root / "science-diagnostics" / "logs"
+            logs.mkdir(parents=True)
+            primary_log = """[INFO] 15 all pair(s)
+A098  chain 1   2026-06-08 .. 2026-08-31  (6 pairs, 84 d)
+  pixels with a complete series : 9 of 216,270 (0.0%)
+  largest connected cluster     : 0 px
+  measured correlation length   : NOT ESTIMABLE
+  valid complete pixels          : 9 (requires at least 30 pixels and neighbouring pairs)
+  noise-only cluster test        : WITHHELD
+  VERDICT: NOT TESTABLE. Too few valid neighbouring pixels to estimate spatial noise.
+D048  chain 2   2026-06-29 .. 2026-09-09  (5 pairs, 72 d)
+  pixels with a complete series : 12 of 216,270 (0.0%)
+  largest connected cluster     : 0 px
+  measured correlation length   : NOT ESTIMABLE
+  valid complete pixels          : 12 (requires at least 30 pixels and neighbouring pairs)
+  noise-only cluster test        : WITHHELD
+  VERDICT: NOT TESTABLE. Too few valid neighbouring pixels to estimate spatial noise.
+D149  chain 3   2026-07-06 .. 2026-09-04  (4 pairs, 60 d)
+  pixels with a complete series : 0 of 222,656 (0.0%)
+  nothing to fit
+  VERDICT: NOT TESTABLE. No complete pixel time series is available.
+"""
+            retained_log = "[WARNING] Common mode kept - atmosphere will dominate every pixel.\n" + primary_log
+            (logs / "pixel_stack_retained_artifact_reaudit_removed.log").write_text(primary_log, encoding="utf-8")
+            (logs / "pixel_stack_retained_artifact_reaudit_retained.log").write_text(retained_log, encoding="utf-8")
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["science_diagnostics"] = {
+                "pixel_stack": {
+                    "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+                    "log": "logs/pixel_stack_retained_artifact_reaudit_removed.log",
+                },
+                "common_mode_sensitivity": {
+                    "status": "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT",
+                    "log": "logs/pixel_stack_retained_artifact_reaudit_retained.log",
+                },
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            diagnostic = manifest["pixel_stack_diagnostic"]
+            self.assertEqual(diagnostic["status"], "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+            self.assertEqual(diagnostic["chains"][0]["finding"], "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+            self.assertEqual(diagnostic["chains"][1]["finding"], "NOT_TESTABLE_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT")
+            self.assertEqual(diagnostic["chains"][2]["finding"], "NO_COMPLETE_SERIES")
+            self.assertIn("This result is NOT TESTABLE, not a no-detection result", diagnostic["interpretation"])
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Not testable — too few nearby valid pixels to measure background noise", viewer)
+            self.assertIn("noise comparison was withheld", viewer)
+
+
+    def test_no_compatible_repeated_gunw_network_is_not_testable_not_no_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._fixture(root)
+            logs = root / "science-diagnostics" / "logs"
+            logs.mkdir(parents=True)
+            primary = """[INFO] 15 all pair(s)
+PIXEL_STACK_PAIRS_EXAMINED=15
+PIXEL_STACK_EXACT_NETWORKS=15
+PIXEL_STACK_CONTIGUOUS_RUNS=15
+PIXEL_STACK_NETWORKS_WITH_2_PLUS_PAIRS=0
+PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK
+VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete GUNW network identity (look/path, frame, subswath, bandwidth, polarization, CRID). Joining the pairs would mix unlike LOS networks.
+"""
+            retained = """[INFO] 15 all pair(s)
+[WARNING] Common mode kept - atmosphere will dominate every pixel.
+PIXEL_STACK_PAIRS_EXAMINED=15
+PIXEL_STACK_EXACT_NETWORKS=15
+PIXEL_STACK_CONTIGUOUS_RUNS=15
+PIXEL_STACK_NETWORKS_WITH_2_PLUS_PAIRS=0
+PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK
+VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete GUNW network identity (look/path, frame, subswath, bandwidth, polarization, CRID). Joining the pairs would mix unlike LOS networks.
+"""
+            (logs / "pixel_stack_retained_artifact_reaudit_removed.log").write_text(primary, encoding="utf-8")
+            (logs / "pixel_stack_retained_artifact_reaudit_retained.log").write_text(retained, encoding="utf-8")
+
+            summary_path = root / "aoi-run-summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["science_diagnostics"] = {
+                "pixel_stack": {
+                    "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
+                    "log": "logs/pixel_stack_retained_artifact_reaudit_removed.log",
+                    "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
+                },
+                "common_mode_sensitivity": {
+                    "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
+                    "log": "logs/pixel_stack_retained_artifact_reaudit_retained.log",
+                    "science_commit": "006d4cd1485cf80e509eaf8717c12e9c6390ac09",
+                },
+            }
+            summary_path.write_text(json.dumps(summary), encoding="utf-8")
+            report_path = root / "aoi-processing-report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["summary"] = summary
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            receipt = prepare_web_dashboard(root)
+            self.assertEqual(receipt["status"], "PASS")
+            manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+            diagnostic = manifest["pixel_stack_diagnostic"]
+            self.assertFalse(diagnostic["available"])
+            self.assertEqual(diagnostic["status"], "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK")
+            self.assertEqual(diagnostic["pairs_examined"], 15)
+            self.assertEqual(diagnostic["exact_networks"], 15)
+            self.assertEqual(diagnostic["networks_with_2_plus_pairs"], 0)
+            self.assertEqual(diagnostic["chains"], [])
+            self.assertIn("NOT TESTABLE, not NO DETECTION", diagnostic["interpretation"])
+            self.assertIn("different measurement networks", diagnostic["interpretation"])
+            viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("No compatible multi-date GUNW network", viewer)
+            self.assertIn("NOT TESTABLE, not NO DETECTION", viewer)
 
 
 if __name__ == "__main__":
