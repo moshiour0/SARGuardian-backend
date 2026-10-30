@@ -1,7 +1,7 @@
 # Backend adapter audit: `dashboard/common_reference.py`
 
 **Backend dashboard source pin:** `ecd125f68ed61c276406f73a1d77eb27979e204e`  
-**Blob:** `79a014... ` (see exact checkout source in the pinned repository)
+**Blob:** `79a014939afff4899bb597dcadf9ff67a3f3d5a5 ` (see exact checkout source in the pinned repository)
 
 ## Current behaviour
 
