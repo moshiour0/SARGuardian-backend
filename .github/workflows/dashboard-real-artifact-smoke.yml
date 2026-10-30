@@ -1,42 +1,49 @@
-name: Dashboard real-run artifact smoke test
+name: Rebuild SARGuardian Dashboard from Retained AOI Artifacts
+run-name: Rebuild dashboard for AOI run 40998521651 (no raw replay)
 
 on:
   push:
     branches:
+      - main
       - feat/interactive-geospatial-dashboard-main-integration
     paths:
-      - "dashboard/**"
+      - "dashboard/assets/prepare_web_assets.py"
       - ".github/workflows/dashboard-real-artifact-smoke.yml"
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: "Existing successful AOI workflow run ID to use as a derived-artifact fixture (no processing replay)"
+        description: "Successful AOI workflow run whose verified derived artifacts should be reassembled (no ASF/HDF5 replay)"
         required: true
         type: string
-        default: "40308665800"
+        default: "40998521651"
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: dashboard-real-artifact-smoke-${{ github.ref }}
+  group: sarguardian-dashboard-rebuild-40998521651
   cancel-in-progress: false
 
 jobs:
-  real-artifact-smoke:
-    name: Build dashboard from existing AOI output (no raw replay)
+  rebuild:
+    name: Rebuild dashboard from retained AOI artifacts only
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      GOOGLE_DRIVE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_DRIVE_OAUTH_CLIENT_JSON }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
+      RUN_ID_SAFE: SARGuardian-AOI-40998521651-1-dashboard-refresh-${{ github.run_id }}
     steps:
-      - name: Check out reviewed dashboard builder
+      - name: Check out current dashboard builder
         uses: actions/checkout@v4
 
-      - name: Resolve the existing successful derived-output artifact
+      - name: Resolve the existing AOI source run
         id: source
         shell: bash
         env:
-          SOURCE_RUN_ID: ${{ inputs.source_run_id || '40308665800' }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id || '40998521651' }}
         run: |
           set -euo pipefail
           if [[ ! "$SOURCE_RUN_ID" =~ ^[0-9]{5,15}$ ]]; then
@@ -45,8 +52,9 @@ jobs:
           fi
           echo "run_id=$SOURCE_RUN_ID" >> "$GITHUB_OUTPUT"
           echo "SOURCE_RUN_ID=$SOURCE_RUN_ID"
+          echo "NO_RAW_REPLAY=true"
 
-      - name: Download existing derived-output artifact only
+      - name: Download the existing verified AOI dashboard artifact
         uses: actions/download-artifact@v4
         with:
           name: sarguardian-aoi-dashboard-${{ steps.source.outputs.run_id }}-1
@@ -54,57 +62,89 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/sarguardian-dashboard-fixture
 
-      - name: Install dashboard renderer dependencies
-        run: python -m pip install --disable-pip-version-check --no-cache-dir numpy rasterio matplotlib pillow
+      - name: Install dashboard and Drive upload dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir numpy rasterio matplotlib pillow
+          python -m pip install --disable-pip-version-check --no-cache-dir -r tools/requirements-retention.txt
 
-      - name: Compile builder and validate real fixture schema
+      - name: Compile the dashboard builder
+        env:
+          PYTHONPATH: .
         run: python -m py_compile dashboard/assets/prepare_web_assets.py
-        env:
-          PYTHONPATH: .
 
-      - name: Build map, timeline, metrics and STAC metadata from real TIFFs
+      - name: Rebuild viewer and prove scientific rasters were not modified
+        id: build
+        shell: bash
         env:
           PYTHONPATH: .
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/sarguardian-dashboard-fixture/dashboard"
           test -s "$root/aoi-run-summary.json"
           test -s "$root/aoi-processing-report.json"
+          test -s "$root/science-diagnostics/logs/pixel_stack_common_mode_removed.log"
+          test -s "$root/science-diagnostics/logs/pixel_stack_common_mode_retained.log"
+
           before="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
           python dashboard/assets/prepare_web_assets.py --dashboard-root "$root"
           after="$(find "$root/product-data" -name '*.tif' -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
           test "$before" = "$after"
+
           python - <<'PY'
           import json, os, zipfile
           from pathlib import Path
           from shutil import move
-          root = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-dashboard-fixture" / "dashboard"
-          receipt = json.loads((root / "web-dashboard-build-receipt.json").read_text())
-          manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text())
-          assert receipt["status"] == "PASS", receipt
-          assert receipt["observations"] == 10, receipt
-          assert receipt["layers"] >= 20, receipt
-          assert manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED"
 
-          # This reference run predates the feature, so its ZIP is intentionally
-          # old. Reassemble the fixture bundle in the same order as the updated
-          # aggregator: record visual status first, then package all current
-          # output files plus any legacy members (e.g. per-product provenance)
-          # that exist only inside the original ZIP.
+          root = Path(os.environ["RUNNER_TEMP"]) / "sarguardian-dashboard-fixture" / "dashboard"
           summary_path = root / "aoi-run-summary.json"
           report_path = root / "aoi-processing-report.json"
-          summary = json.loads(summary_path.read_text())
+          receipt_path = root / "web-dashboard-build-receipt.json"
+          receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          manifest = json.loads((root / "web-dashboard" / "manifest.json").read_text(encoding="utf-8"))
+          summary = json.loads(summary_path.read_text(encoding="utf-8"))
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+
+          expected_products = int(summary["products_expected"])
+          assert receipt["status"] == "PASS", receipt
+          assert receipt["observations"] == expected_products == 31, receipt
+          assert receipt["layers"] >= 20, receipt
+          assert receipt["derived_layer_errors"] == 0, receipt
+          assert manifest["validation"]["independent_geophysical_validation"] == "NOT_PERFORMED"
+          assert len(manifest.get("observations", [])) == 31
+          assert manifest.get("target_free_analysis") is True
+
+          pixel = manifest.get("pixel_stack_diagnostic", {})
+          assert pixel.get("available") is True, pixel
+          assert pixel.get("pairs_examined") == 15, pixel
+          chain_map = {row.get("geometry"): row for row in pixel.get("chains", [])}
+          assert set(chain_map) == {"A098", "D048", "D149"}, chain_map
+          assert chain_map["A098"].get("complete_pixels") == 9, chain_map["A098"]
+          assert chain_map["D048"].get("complete_pixels") == 12, chain_map["D048"]
+          assert chain_map["D149"].get("complete_pixels") == 0, chain_map["D149"]
+
+          legacy = manifest.get("aoi_wide_displacement_screen", {})
+          extended = manifest.get("aoi_displacement_candidates", {})
+          assert int(legacy.get("candidate_count", 0)) == 120, legacy
+          assert int(extended.get("candidate_features", 0)) == 2208, extended
+          assert extended.get("movement_confirmed") is False
+          assert extended.get("hazard_detected") is False
+
+          # Record the rebuilt viewer receipt without changing the source science.
           summary["web_dashboard"] = receipt
-          report = json.loads(report_path.read_text())
           report["summary"] = summary
           report["web_dashboard"] = receipt
           summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
           report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + chr(10), encoding="utf-8")
 
+          # Repackage all files in the refreshed artifact and preserve any
+          # legacy provenance members that exist only in the previous ZIP.
           zip_path = root / "aoi-derived-results.zip"
           with zipfile.ZipFile(zip_path, "r") as original:
               legacy_members = [(info.filename, original.read(info)) for info in original.infolist() if not info.is_dir()]
-          rebuilt = root / "aoi-derived-results-smoke.zip"
+          rebuilt = root / "aoi-derived-results-refreshed.zip"
           added = set()
           with zipfile.ZipFile(rebuilt, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
               for path in sorted(root.rglob("*")):
@@ -131,20 +171,55 @@ jobs:
               ]
               missing = [name for name in required if names.count(name) != 1]
               assert not missing, {"missing": missing}
-          print("REAL_ARTIFACT_DASHBOARD_SMOKE=PASS")
-          print("REAL_ARTIFACT_OBSERVATIONS=" + str(receipt["observations"]))
-          print("REAL_ARTIFACT_RASTER_LAYERS=" + str(receipt["layers"]))
-          print("REAL_ARTIFACT_SOURCE_TIFFS_UNCHANGED=PASS")
-          print("REAL_ARTIFACT_RESULT_ZIP_CONTRACT=PASS")
+
+          viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
+          assert "What did NISAR observe in this area?" in viewer
+          assert "pixelStackSummary" in viewer
+          assert "Candidate overlay" in viewer
+          print("RETAINED_ARTIFACT_DASHBOARD_REBUILD=PASS")
+          print("SOURCE_RUN_ID=" + os.environ["SOURCE_RUN_ID"])
+          print("PRODUCTS=" + str(receipt["observations"]))
+          print("RASTER_LAYERS=" + str(receipt["layers"]))
+          print("DERIVED_LAYERS=" + str(receipt["derived_layers"]))
+          print("PIXEL_STACK_LOG_CHAINS=3")
+          print("LEGACY_GOFF_CANDIDATES=120")
+          print("EXTENDED_SCREEN_FEATURES=2208")
+          print("SOURCE_TIFFS_UNCHANGED=PASS")
+          print("RESULT_ZIP_CONTRACT=PASS")
           PY
 
-      - name: Upload generated viewer and build receipts for inspection
+      - name: Upload refreshed dashboard bundle and audit receipts to private Drive
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/sarguardian-dashboard-fixture/dashboard"
+          if [[ -z "$GOOGLE_DRIVE_OAUTH_CLIENT_JSON" || -z "$GOOGLE_DRIVE_REFRESH_TOKEN" || -z "$GOOGLE_DRIVE_PARENT_FOLDER_ID" ]]; then
+            echo "ERROR=PRIVATE_DRIVE_SECRETS_MISSING"
+            exit 1
+          fi
+          python tools/drive_resumable_upload.py \
+            --root "$root" --run-name "$RUN_ID_SAFE" \
+            --files "$root/aoi-derived-results.zip" "$root/aoi-run-summary.json" "$root/products.csv" "$root/web-dashboard-build-receipt.json" \
+            --out "$root/drive-dashboard-refresh-upload-receipt.json"
+          python tools/drive_resumable_upload.py \
+            --root "$root" --run-name "$RUN_ID_SAFE" \
+            --files "$root/drive-dashboard-refresh-upload-receipt.json" \
+            --out "$root/drive-dashboard-refresh-receipt-upload.json"
+          echo "PRIVATE_DRIVE_DASHBOARD_REFRESH=PASS"
+
+      - name: Publish rebuilt viewer, bundle and receipts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sarguardian-dashboard-real-artifact-smoke-${{ github.run_id }}
+          name: sarguardian-dashboard-refresh-40998521651-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/web-dashboard/
             ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/web-dashboard-build-receipt.json
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/drive-dashboard-refresh-upload-receipt.json
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/drive-dashboard-refresh-receipt-upload.json
             ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/aoi-derived-results.zip
-          if-no-files-found: error
-          retention-days: 14
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/aoi-run-summary.json
+            ${{ runner.temp }}/sarguardian-dashboard-fixture/dashboard/products.csv
+          if-no-files-found: warn
+          retention-days: 30
