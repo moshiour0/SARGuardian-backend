@@ -355,7 +355,7 @@ main{max-width:1420px;margin:auto;padding:25px}header{display:flex;justify-conte
 <section class="layout"><div class="panel"><h2>Run identity &amp; source policy</h2><div id="runmeta" class="meta"></div><div class="wkt" id="wkt"></div><div class="tools"><a class="btn" href="products.csv">Product table CSV</a><a class="btn" href="aoi-run-summary.json">Summary JSON</a><a class="btn" href="aoi-derived-results.zip">Derived bundle ZIP</a></div></div>
 <div class="panel"><h2>Submitted AOI geometry</h2>__POLYGON_SVG__<p class="fine">Schematic polygon outline only; not a basemap and not a product footprint overlay.</p><h2 style="margin-top:16px">Processing caveats</h2><div id="caveats" class="fine"></div></div></section>
 <section class="section panel"><h2>Reader metrics (one series at a time; not a common-datum time series)</h2><div class="notice">Pairwise medians may use different valid pixels, atmospheric conditions and reference support. GUNW and GOFF metrics can be different quantities or units, so this chart never mixes product families or metric columns. Do not interpret these values as a displacement time series without an independently verified common-reference/network inversion. Quicklook scales are per image.</div><div class="tools"><label for="metricSeries">Metric series:</label><select id="metricSeries" aria-label="Metric series to chart"></select></div><div class="chart" id="metricChart"></div><p class="fine">The selected series is grouped by product family and exact scientific-reader output column.</p></section>
-<section class="section panel"><h2>Discovered and processed products</h2><div class="tools"><input id="search" placeholder="Filter granule or ID"><select id="family"><option value="">All families</option><option>GUNW</option><option>GOFF</option></select><select id="state"><option value="">All statuses</option><option>PASS</option><option>WARNING</option><option>FAIL</option></select></div><div class="wrap"><table><thead><tr><th>Product / pair</th><th>Family</th><th>Maturity (ASF / reader)</th><th>Reader median</th><th>Measurement-valid pixels</th><th>Screen-valid pixels</th><th>Outliers retained for review</th><th>Grid support</th><th>Quicklook</th><th>Structural status</th><th>Source SHA-256</th></tr></thead><tbody id="rows"></tbody></table></div><p id="empty" class="fine"></p></section>
+<section class="section panel"><h2>Discovered and processed products</h2><div class="tools"><input id="search" placeholder="Filter granule or ID"><select id="family"><option value="">All families</option><option>GUNW</option><option>GOFF</option></select><select id="state"><option value="">All statuses</option><option>PASS</option><option>WARNING</option><option>FAIL</option></select></div><div class="wrap"><table><thead><tr><th>Product / pair</th><th>Family</th><th>Maturity (ASF / reader)</th><th>Reader median</th><th>Valid pixels</th><th>Grid support</th><th>Quicklook</th><th>Structural status</th><th>Source SHA-256</th></tr></thead><tbody id="rows"></tbody></table></div><p id="empty" class="fine"></p></section>
 <footer>SARGuardian automated output · generated __GENERATED_AT__. Structural success means acquisition, requested-AOI masking, provenance and raster checks passed; it is not independent geophysical validation. Raw HDF5 is excluded from this dashboard bundle.</footer>
 </main><script id="data" type="application/json">__DATASET__</script>
 <script>
@@ -365,7 +365,7 @@ function byId(id){return document.getElementById(id)}
 function fmt(v){return v===null||v===undefined||v===''?'—':(typeof v==='number'?v.toLocaleString(undefined,{maximumFractionDigits:3}):String(v))}
 function node(tag,cls,txt){var n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n}
 byId('status').textContent=S.status==='PASS'?'RUN COMPLETE · STRUCTURAL CHECKS PASS':(S.status==='PARTIAL'?'PARTIAL · INSPECT WARNINGS':'PROCESSING FAILED');
-var cards=[['Products selected',S.products_expected,S.gunw_count+' GUNW · '+S.goff_count+' GOFF'],['Artifacts validated',S.products_validated,S.products_missing+' missing or invalid'],['Products with screen pixels',S.products_with_science_pixels,'At least one finite band-1 pixel'],['Products with measurement pixels',S.products_with_measurement_pixels,'Strict reader-valid pixels after measurement gates'],['GOFF outliers retained',S.screen_outlier_pixels_total,'Review candidates; not automatically motion'],['AOI WKT SHA-256',S.aoi_wkt_sha256.slice(0,12),S.date_start+' → '+S.date_end]];var D=S.science_diagnostics||{};cards.push(['Per-pixel stack',(D.pixel_stack||{}).status||'NOT RUN',((D.pixel_stack||{}).interpretation||'Inspect science-diagnostics.json and the pixel-stack log.')]);cards.push(['Candidate screening',(D.candidate_checks||{}).status||'NOT RUN',((D.candidate_checks||{}).detail||'Candidate screening is not a general detector or an alert.')]);
+var cards=[['Products selected',S.products_expected,S.gunw_count+' GUNW · '+S.goff_count+' GOFF'],['Artifacts validated',S.products_validated,S.products_missing+' missing or invalid'],['Products with valid pixels',S.products_with_science_pixels,'At least one finite band-1 pixel'],['AOI WKT SHA-256',S.aoi_wkt_sha256.slice(0,12),S.date_start+' → '+S.date_end]];var D=S.science_diagnostics||{};cards.push(['Per-pixel stack',(D.pixel_stack||{}).status||'NOT RUN',((D.pixel_stack||{}).interpretation||'Inspect science-diagnostics.json and the pixel-stack log.')]);cards.push(['Candidate screening',(D.candidate_checks||{}).status||'NOT RUN',((D.candidate_checks||{}).detail||'Candidate screening is not a general detector or an alert.')]);
 cards.forEach(function(c){var d=node('div','card');d.append(node('div','label',c[0]),node('div','metric',fmt(c[1])),node('div','sub',c[2]));byId('metrics').append(d)});
 [['Run ID',S.run_id],['Science commit',S.science_commit],['Backend tools commit',S.orchestration_sha],['Dispatcher commit',S.dispatcher_workflow_sha],['AOI CRS',S.aoi_crs],['WKT SHA-256',S.aoi_wkt_sha256],['Run profile',S.run_profile],['Retention',S.retention_profile],['Catalog window','2024-01-01 → '+S.date_end],['Baseline comparison','Disabled for custom AOI']].forEach(function(pair){byId('runmeta').append(node('div','key',pair[0]),node('div','mono',fmt(pair[1])))});
 byId('wkt').textContent=S.aoi_wkt;
@@ -373,14 +373,14 @@ byId('wkt').textContent=S.aoi_wkt;
 'Each selected product has a separate grid-intersection report; pixels outside the polygon are excluded.',
 'Product maturity, known release limitations, atmosphere and reference support still matter.',
 'Quicklook colour limits are calculated separately for each image.',
-'No-valid-pixel products are warnings, not a measured zero.','GOFF keeps a broad quality-valid screen mask alongside the stricter MAD-inlier measurement mask; these counts are not interchangeable.'].forEach(function(t){var p=node('p','',t);byId('caveats').append(p)});
+'No-valid-pixel products are warnings, not a measured zero.'].forEach(function(t){var p=node('p','',t);byId('caveats').append(p)});
 function statusOf(p){if(p.status==='FAIL')return'FAIL';if((p.warnings||[]).length||!p.science_pixel_support)return'WARNING';return'PASS'}
 function medianOf(p){return p.metric_value===null||p.metric_value===undefined?'—':fmt(p.metric_value)+' '+(p.metric_name||'')}
 function seriesKey(p){return String(p.product_type||'UNKNOWN')+'::'+String(p.metric_name||'UNKNOWN_METRIC')}
 function seriesLabel(p){return String(p.product_type||'UNKNOWN')+' — '+String(p.metric_name||'UNKNOWN_METRIC')}
 function updateMetricSeries(products){var select=byId('metricSeries'),previous=select.value,seen={},series=[];products.forEach(function(p){if(p.metric_value===null||p.metric_value===undefined||!Number.isFinite(Number(p.metric_value))||!p.metric_name)return;var key=seriesKey(p);if(!seen[key]){seen[key]=true;series.push({key:key,label:seriesLabel(p)})}});select.replaceChildren();series.forEach(function(s){var option=node('option','',s.label);option.value=s.key;select.append(option)});if(series.some(function(s){return s.key===previous}))select.value=previous;else if(series.length)select.value=series[0].key;return select.value}
 function drawChart(products){var box=byId('metricChart');box.replaceChildren();var width=Math.max(580,box.clientWidth||880),height=210,svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 '+width+' '+height);var all=products.filter(function(p){return p.metric_value!==null&&p.metric_value!==undefined&&Number.isFinite(Number(p.metric_value))&&p.metric_name}),key=byId('metricSeries').value,vals=all.filter(function(p){return seriesKey(p)===key});if(!vals.length){var t=document.createElementNS('http://www.w3.org/2000/svg','text');t.setAttribute('x',width/2);t.setAttribute('y',105);t.setAttribute('text-anchor','middle');t.setAttribute('fill','#9aa9bd');t.textContent='No numeric values for this metric series';svg.append(t);box.append(svg);return}var low=Math.min.apply(null,vals.map(function(p){return Number(p.metric_value)})),high=Math.max.apply(null,vals.map(function(p){return Number(p.metric_value)})),span=(high-low)||1,pad=35,base=height-35,top=18;for(var i=0;i<5;i++){var y=top+i*(base-top)/4,l=document.createElementNS('http://www.w3.org/2000/svg','line');l.setAttribute('x1',pad);l.setAttribute('x2',width-15);l.setAttribute('y1',y);l.setAttribute('y2',y);l.setAttribute('stroke','#29384e');svg.append(l)}var step=(width-pad-20)/vals.length;vals.forEach(function(p,i){var value=Number(p.metric_value),x=pad+i*step+step*.16,bw=Math.max(2,step*.68),h=(value-low)/span*(base-top-10)+2,y=base-h,rect=document.createElementNS('http://www.w3.org/2000/svg','rect');rect.setAttribute('x',x);rect.setAttribute('y',y);rect.setAttribute('width',bw);rect.setAttribute('height',h);rect.setAttribute('rx',2);rect.setAttribute('fill',p.product_type==='GUNW'?'#7dd3fc':'#fbbf24');var title=document.createElementNS('http://www.w3.org/2000/svg','title');title.textContent=p.id+' · '+p.metric_name+': '+value;rect.append(title);svg.append(rect);if(vals.length<25){var tx=document.createElementNS('http://www.w3.org/2000/svg','text');tx.setAttribute('x',x+bw/2);tx.setAttribute('y',base+14);tx.setAttribute('text-anchor','middle');tx.setAttribute('font-size','8');tx.setAttribute('fill','#9aa9bd');tx.textContent=p.id;svg.append(tx)}});box.append(svg)}
-function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var pairNote=p.boundary_pair_included_by_secondary_date_policy?' · REFERENCE PRE-DATES WINDOW':(p.reference_date_outside_window?' · REFERENCE OUTSIDE WINDOW':'');var maturity=(p.maturity||'—')+' / '+(p.science_maturity||'—')+(p.maturity_validation&&p.maturity_validation!=='MATCH'?' · '+p.maturity_validation:'');var cells=[p.id+' | '+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+pairNote+' | '+p.granule_name,p.product_type,maturity,medianOf(p),fmt(p.valid_pixels),fmt(p.screen_valid_pixels),fmt(p.screen_outlier_pixels),fmt(p.grid_pixels_inside_aoi)+' grid px · '+fmt(p.export_count)+' raster(s)'];cells.forEach(function(v,i){tr.append(node('td',i===0||i===2?'mono':'',v))});var qd=node('td');if(p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';qd.append(img)}tr.append(qd);tr.append(node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p)));tr.append(node('td','mono',p.source_sha256||'—'));byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';updateMetricSeries(list);drawChart(list)}
+function render(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});byId('rows').replaceChildren();list.forEach(function(p){var tr=node('tr');var pairNote=p.boundary_pair_included_by_secondary_date_policy?' · REFERENCE PRE-DATES WINDOW':(p.reference_date_outside_window?' · REFERENCE OUTSIDE WINDOW':'');var maturity=(p.maturity||'—')+' / '+(p.science_maturity||'—')+(p.maturity_validation&&p.maturity_validation!=='MATCH'?' · '+p.maturity_validation:'');var cells=[p.id+' | '+(p.reference_date||'—')+' → '+(p.secondary_date||'—')+pairNote+' | '+p.granule_name,p.product_type,maturity,medianOf(p),fmt(p.valid_pixels),fmt(p.grid_pixels_inside_aoi)+' grid px · '+fmt(p.export_count)+' raster(s)'];cells.forEach(function(v,i){tr.append(node('td',i===0||i===2?'mono':'',v))});var qd=node('td');if(p.quicklook){var img=node('img','preview');img.src=p.quicklook;img.alt='Per-product quicklook';img.loading='lazy';qd.append(img)}tr.append(qd);tr.append(node('td',statusOf(p)==='WARNING'?'warn':(statusOf(p)==='FAIL'?'bad':''),statusOf(p)));tr.append(node('td','mono',p.source_sha256||'—'));byId('rows').append(tr)});byId('empty').textContent=list.length?list.length+' product(s) shown.':'No products match this filter.';updateMetricSeries(list);drawChart(list)}
 ['search','family','state'].forEach(function(id){byId(id).addEventListener('input',render)});byId('metricSeries').addEventListener('change',function(){var q=byId('search').value.toLowerCase(),family=byId('family').value,state=byId('state').value,list=P.filter(function(p){return(!q||(p.granule_name+' '+p.id).toLowerCase().indexOf(q)>=0)&&(!family||p.product_type===family)&&(!state||statusOf(p)===state)});drawChart(list)});window.addEventListener('resize',render);render();
 })();
 </script></body></html>"""
@@ -420,10 +420,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "boundary_pair_included_by_secondary_date_policy": product.get("boundary_pair_included_by_secondary_date_policy"),
             "status": "FAIL", "warnings": [],
             "science_maturity": None, "maturity_validation": None,
-            "science_pixel_support": False, "screen_pixel_support": False,
-            "measurement_pixel_support": False,
-            "valid_pixels": None, "screen_valid_pixels": None, "screen_outlier_pixels": None,
-            "metric_name": None, "metric_value": None,
+            "science_pixel_support": False, "valid_pixels": None, "metric_name": None, "metric_value": None,
             "quicklook": None, "source_sha256": None, "export_count": 0, "grid_pixels_inside_aoi": None,
             "stats": {}, "exports": [],
         }
@@ -468,30 +465,10 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             metric_key, metric_val = numeric(stats, ("median","median_mm","range_median_mm","median_range_mm"))
             exports = []; valid_pixels = None
             validation_exports = validation.get("exports", [])
-            screen_valid_counts = [
-                int(x.get("screen_valid_pixels", x.get("valid_band1_pixels", 0)))
-                for x in validation_exports
-                if isinstance(x, dict) and str(x.get("screen_valid_pixels", x.get("valid_band1_pixels", ""))).lstrip("-").isdigit()
-            ]
-            measurement_counts = [
-                int(x.get("robust_inlier_pixels", x.get("valid_band1_pixels", 0)))
-                for x in validation_exports
-                if isinstance(x, dict) and str(x.get("robust_inlier_pixels", x.get("valid_band1_pixels", ""))).lstrip("-").isdigit()
-            ]
-            outlier_counts = [
-                int(x.get("screen_outlier_pixels", 0))
-                for x in validation_exports
-                if isinstance(x, dict) and str(x.get("screen_outlier_pixels", "0")).lstrip("-").isdigit()
-            ]
-            valid_pixels = max(measurement_counts) if measurement_counts else 0
-            screen_valid_pixels = max(screen_valid_counts) if screen_valid_counts else 0
-            screen_outlier_pixels = max(outlier_counts) if outlier_counts else 0
-            # Preserve legacy meaning: science_pixel_support reflects strict
-            # measurement-valid pixels. The broader mask is explicitly a
-            # separate screen support used by Find Displacements.
-            record["science_pixel_support"] = valid_pixels > 0
-            record["measurement_pixel_support"] = valid_pixels > 0
-            record["screen_pixel_support"] = screen_valid_pixels > 0
+            raw_valid_counts = [int(x.get("valid_band1_pixels", 0)) for x in validation_exports
+                                if isinstance(x, dict) and str(x.get("valid_band1_pixels", "")).lstrip("-").isdigit()]
+            valid_pixels = max(raw_valid_counts) if raw_valid_counts else 0
+            record["science_pixel_support"] = any(n > 0 for n in raw_valid_counts)
             for item in validation_exports:
                 if not isinstance(item, dict): continue
                 source = safe_child(artifact, str(meta.get("export_dir", "derived")) + "/" + str(item.get("name","")))
@@ -513,12 +490,11 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             record["local_floor"] = local_floor
             record["target_measurement"] = target_measurement
             record.update({
-                "status":"PASS" if record["science_pixel_support"] and record["screen_pixel_support"] and not maturity_warnings and not (validation.get("warnings") or []) else "WARNING",
+                "status":"PASS" if record["science_pixel_support"] and not maturity_warnings and not (validation.get("warnings") or []) else "WARNING",
                 "warnings":record["warnings"] + list(validation.get("warnings") or []) + maturity_warnings,
                 "science_maturity":science_maturity or None,"maturity_validation":maturity_validation,
                 "source_sha256":download["source_sha256"],"source_bytes":download.get("source_bytes"),
                 "metric_name":metric_key,"metric_value":metric_val,"valid_pixels":valid_pixels,
-                "screen_valid_pixels":screen_valid_pixels,"screen_outlier_pixels":screen_outlier_pixels,
                 "grid_pixels_inside_aoi":min(grid_counts) if grid_counts else None,
                 "export_count":len(exports),"exports":exports,"quicklook":next((x["quicklook"] for x in exports if x["quicklook"]),None),
                 "stats":json_safe(stats),"preflight_report":json_safe(preflight),
@@ -564,45 +540,6 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "detail": type(exc).__name__ + ":" + str(exc)[:400],
         })
 
-    # Find Displacements performs a separate target-free scan across the entire
-    # submitted AOI. It consumes already-retained GOFF exports only, keeps each
-    # track/direction/frame/CRID series separate, and never uses target coordinates.
-    # A failure here is reported as a diagnostic blocker, not silently changed to
-    # "no displacement" and not misreported as a product download failure.
-    try:
-        repo_root = str(Path(__file__).resolve().parents[1])
-        if repo_root not in sys.path:
-            sys.path.insert(0, repo_root)
-        from tools.aoi_wide_displacement_screen import run_aoi_wide_screen
-        aoi_wide_screen = run_aoi_wide_screen(
-            result_rows, out, out / "aoi-wide-displacement-screen",
-            str(manifest.get("aoi_wkt") or ""),
-        )
-    except Exception as exc:
-        aoi_wide_screen = {
-            "schema_version": "sarguardian-find-displacements-aoi-screen/1.0",
-            "status": "SCREEN_FAILED",
-            "purpose": "FIND_DISPLACEMENTS_AOI_WIDE",
-            "target_required": False,
-            "target_coordinates_used": False,
-            "candidate_count": 0,
-            "candidate_features": [],
-            "error": type(exc).__name__ + ":" + str(exc)[:350],
-            "warnings": [
-                "The AOI-wide candidate scan failed; this must not be interpreted as no displacement.",
-                "No target point or crown polygon was substituted.",
-            ],
-        }
-    # The existing GUNW per-pixel stack is another target-free analysis, but it
-    # measures LOS phase and remains separate from GOFF range/along-track offsets.
-    _gunw_stack = science_diagnostics.get("pixel_stack") if isinstance(science_diagnostics, dict) else {}
-    aoi_wide_screen["gunw_per_pixel_stack"] = {
-        "status": (_gunw_stack or {}).get("status", "NOT_REPORTED"),
-        "interpretation": "Separate GUNW LOS stack result; never merged numerically with GOFF offset candidates.",
-    }
-    print("FIND_DISPLACEMENTS_AOI_WIDE_STATUS=" + str(aoi_wide_screen.get("status", "UNKNOWN")))
-    print("FIND_DISPLACEMENTS_AOI_WIDE_CANDIDATES=" + str(aoi_wide_screen.get("candidate_count", 0)))
-
     # Build a common-reference diagnostic only from retained GUNW exports.
     # No raw HDF5 files are needed. This stage may still be withheld if grids,
     # common pixels, target support or the temporal network do not meet gates.
@@ -626,6 +563,107 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         }
         (out / "common-reference-timeseries.json").write_text(
             json.dumps(common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
+    # Build a guarded common-reference diagnostic from retained GOFF range/
+    # azimuth exports as well. This is independent of the GUNW phase diagnostic:
+    # it never mixes range and azimuth, PR/UR, or different NISAR geometries.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.goff_common_reference import build_goff_common_reference_report
+        goff_common_reference_report = build_goff_common_reference_report(
+            result_rows, out, args.science_root, str(manifest["aoi_wkt"]),
+            str(manifest.get("aoi_wkt_sha256") or ""), site_context,
+        )
+    except Exception as exc:
+        goff_common_reference_report = {
+            "schema_version": "sarguardian-goff-common-reference-timeseries/1.0",
+            "status": "UNAVAILABLE_GOFF_COMMON_REFERENCE_DIAGNOSTIC",
+            "series_are_independent_geophysical_validation": False,
+            "common_reference_is_independently_validated_stable_ground": False,
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [], "pairwise_measurements": [], "components": [],
+            "warnings": ["GOFF common-reference diagnostics were unavailable; no cumulative values were inferred."],
+        }
+        (out / "goff-common-reference-timeseries.json").write_text(
+            json.dumps(goff_common_reference_report, indent=2, ensure_ascii=False, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+
+    # Target-free AOI-wide candidate discovery is separate from the target-aware
+    # point time-series diagnostics above. It scans retained, quality-masked rasters
+    # across the polygon and emits unconfirmed spatial candidates without fabricating
+    # a target coordinate, stable datum, movement result, or hazard alert.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.aoi_displacement_candidates import build_aoi_spatial_candidate_report
+        aoi_displacement_candidates = build_aoi_spatial_candidate_report(
+            result_rows, out, str(manifest.get("aoi_wkt_sha256") or ""),
+        )
+    except Exception as exc:
+        aoi_displacement_candidates = {
+            "schema_version": "sarguardian-aoi-spatial-candidates/1.0",
+            "status": "UNAVAILABLE",
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "analysis_scope": "target-free spatial anomaly screening of retained AOI-clipped raster exports",
+            "target_required": False, "candidate_features": 0,
+            "movement_confirmed": False, "hazard_detected": False,
+            "groups": [], "features": [],
+            "reason": type(exc).__name__ + ":" + str(exc)[:250],
+            "warnings": ["Candidate screening failed; no movement or hazard result was inferred."],
+        }
+        (out / "aoi-displacement-candidates.json").write_text(
+            json.dumps(aoi_displacement_candidates, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+            encoding="utf-8",
+        )
+        (out / "aoi-displacement-candidates.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": [], "properties": {
+                "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+                "movement_confirmed": False, "hazard_detected": False,
+            }}, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
+            encoding="utf-8",
+        )
+        (out / "aoi-displacement-candidates.csv").write_text(
+            "network,product_type,metric,status,support_pairs,pixel_count,approx_area_m2,max_robust_score,product_ids,pair_intervals" + chr(10),
+            encoding="utf-8",
+        )
+
+    # Target-free AOI-wide per-pixel GUNW inversion. Unlike the point-based
+    # common-reference diagnostics above, this scans every common-valid pixel
+    # and does not require a user-selected measurement target. Outputs are
+    # explicitly relative to an AOI-derived background and never labelled as
+    # independently validated ground motion or a hazard declaration.
+    try:
+        repo_root = str(Path(__file__).resolve().parents[1])
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from dashboard.aoi_relative_pixel_timeseries import build_aoi_relative_pixel_timeseries_report
+        aoi_relative_pixel_timeseries = build_aoi_relative_pixel_timeseries_report(
+            result_rows, out, str(manifest.get("aoi_wkt_sha256") or ""),
+        )
+    except Exception as exc:
+        aoi_relative_pixel_timeseries = {
+            "schema_version": "sarguardian-aoi-relative-pixel-timeseries/1.0",
+            "status": "UNAVAILABLE",
+            "aoi_wkt_sha256": str(manifest.get("aoi_wkt_sha256") or ""),
+            "analysis_scope": "target-free per-pixel GUNW LOS temporal inversion",
+            "target_required": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+            "reference_independently_validated": False,
+            "reason": type(exc).__name__ + ":" + str(exc)[:300],
+            "networks": [],
+            "artifacts": [],
+            "warnings": ["AOI-wide pixel inversion failed; no movement or hazard result was inferred."],
+        }
+        (out / "aoi-relative-pixel-timeseries.json").write_text(
+            json.dumps(aoi_relative_pixel_timeseries, indent=2, ensure_ascii=False, allow_nan=False) + chr(10),
             encoding="utf-8",
         )
 
@@ -656,6 +694,40 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
             "error": type(exc).__name__ + ":" + str(exc)[:250],
         }
     science_pipeline["science_commit_expected"] = str(manifest.get("science_commit") or "")
+    science_pipeline["goff_common_reference_timeseries"] = goff_common_reference_report
+    science_pipeline["aoi_displacement_candidates"] = aoi_displacement_candidates
+    science_pipeline["aoi_relative_pixel_timeseries"] = aoi_relative_pixel_timeseries
+    modules = science_pipeline.get("modules")
+    if isinstance(modules, list):
+        modules.append({
+            "name": "goff_common_reference.py",
+            "status": str(goff_common_reference_report.get("status") or "NOT_REPORTED"),
+            "reason": str(goff_common_reference_report.get("reason") or ""),
+            "interpretation": "GOFF range and along-track offset diagnostics; not a validated full 3-D ground-motion solution.",
+            "series_are_independent_geophysical_validation": False,
+            "common_reference_is_independently_validated_stable_ground": False,
+        })
+        modules.append({
+            "name": "aoi_displacement_candidates.py",
+            "status": str(aoi_displacement_candidates.get("status") or "NOT_REPORTED"),
+            "reason": str(aoi_displacement_candidates.get("reason") or ""),
+            "candidate_features": int(aoi_displacement_candidates.get("candidate_features") or 0),
+            "interpretation": "Target-free spatial anomaly screening; candidate regions are not confirmed movement or hazard detections.",
+            "target_required": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+        })
+        modules.append({
+            "name": "aoi_relative_pixel_timeseries.py",
+            "status": str(aoi_relative_pixel_timeseries.get("status") or "NOT_REPORTED"),
+            "reason": str(aoi_relative_pixel_timeseries.get("reason") or ""),
+            "networks_calculated": int(aoi_relative_pixel_timeseries.get("networks_calculated") or 0),
+            "interpretation": "Target-free per-pixel GUNW LOS displacement/velocity diagnostic relative to an AOI-derived background; not independently validated stable-ground motion.",
+            "target_required": False,
+            "reference_independently_validated": False,
+            "movement_confirmed": False,
+            "hazard_detected": False,
+        })
 
     expected = len(products); validated = sum(x["status"] in {"PASS","WARNING"} for x in result_rows); missing = expected-validated
     summary = {
@@ -685,15 +757,13 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "catalog_result_truncated":manifest.get("catalog_query",{}).get("results_truncated"),
         "products_expected":expected,"products_validated":validated,"products_missing":missing,
         "products_with_science_pixels":sum(bool(x.get("science_pixel_support")) for x in result_rows),
-        "products_with_measurement_pixels":sum(bool(x.get("measurement_pixel_support")) for x in result_rows),
-        "products_with_screen_pixels":sum(bool(x.get("screen_pixel_support")) for x in result_rows),
-        "screen_valid_pixels_total":sum(int(x.get("screen_valid_pixels") or 0) for x in result_rows),
-        "screen_outlier_pixels_total":sum(int(x.get("screen_outlier_pixels") or 0) for x in result_rows),
         "science_diagnostics":science_diagnostics,
-        "aoi_wide_displacement_screen":aoi_wide_screen,
         "science_pipeline":science_pipeline,
         "site_context":site_context,
         "common_reference_timeseries":common_reference_report,
+        "goff_common_reference_timeseries":goff_common_reference_report,
+        "aoi_displacement_candidates":aoi_displacement_candidates,
+        "aoi_relative_pixel_timeseries":aoi_relative_pixel_timeseries,
         "target_measurement_count":sum((x.get("target_measurement") or {}).get("status") == "MEASURED" for x in result_rows),
         "local_floor_count":sum((x.get("local_floor") or {}).get("status") == "MEASURED" for x in result_rows),
         "gunw_count":sum(x.get("product_type")=="GUNW" for x in result_rows),
@@ -706,7 +776,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         encoding="utf-8",
     )
     (out/"aoi-run-summary.json").write_text(json.dumps(json_safe(summary),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
-    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","screen_valid_pixels","screen_outlier_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
+    fields=["id","product_type","processing_type","crid","reference_date","secondary_date","date_filter_mode","reference_date_in_window","secondary_date_in_window","reference_date_outside_window","boundary_pair_included_by_secondary_date_policy","maturity","maturity_source","science_maturity","maturity_validation","granule_name","status","valid_pixels","metric_name","metric_value","source_sha256","source_bytes","export_count","grid_pixels_inside_aoi"]
     with (out/"products.csv").open("w",newline="",encoding="utf-8") as fh:
         writer=csv.DictWriter(fh,fieldnames=fields,extrasaction="ignore");writer.writeheader()
         writer.writerows([{k:x.get(k) for k in fields} for x in result_rows])
@@ -715,6 +785,7 @@ def aggregate(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version":"sarguardian-aoi-processing-report/1.0","aoi_wkt_sha256":manifest.get("aoi_wkt_sha256"),
         "science_commit":manifest.get("science_commit"),"manifest_sha256":sha256_file(args.manifest),
         "status":summary["status"],"errors":errors,
+        "aoi_displacement_candidates":aoi_displacement_candidates,
         "warning_note":"PASS indicates requested-AOI processing and structural checks passed; it is not independent geophysical validation."}}
     (out/"aoi-processing-report.json").write_text(json.dumps(json_safe(report),indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
     # Build georeferenced web-display assets from already validated AOI-clipped
