@@ -16,6 +16,8 @@ def _write_product(
     root: Path, product_id: str, family: str, reference: str, secondary: str, seed: int,
     *, subswath: str = "023", crid: str = "X05026", product_flag: str = "N",
     hotspot_box: tuple[int, int, int, int] = (28, 40, 32, 44),
+    hotspot_amplitude_mm: float = 18.0,
+    along_track_hotspot_amplitude_mm: float = 14.0,
     with_variance: bool = False, with_outlier_flag: bool = False,
 ) -> dict:
     granule = (
