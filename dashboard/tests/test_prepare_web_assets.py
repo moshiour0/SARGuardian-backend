@@ -743,7 +743,7 @@ D149  chain 3   2026-07-06 .. 2026-09-04  (4 pairs, 60 d)
   nothing to fit
 """
             retained_log = primary_log.replace("[INFO]", "[INFO]", 1)
-            retained_log = "[INFO] 15 all pair(s)\\n[WARNING] Common mode kept - atmosphere will dominate every pixel.\\n" + primary_log.split("\\n", 1)[1]
+            retained_log = "[INFO] 15 all pair(s)\n[WARNING] Common mode kept - atmosphere will dominate every pixel.\n" + primary_log.split("\n", 1)[1]
             (logs / "pixel_stack_common_mode_removed.log").write_text(primary_log, encoding="utf-8")
             (logs / "pixel_stack_common_mode_retained.log").write_text(retained_log, encoding="utf-8")
 
@@ -779,7 +779,7 @@ D149  chain 3   2026-07-06 .. 2026-09-04  (4 pairs, 60 d)
             self.assertTrue(diagnostic["common_mode_sensitivity"]["same_complete_pixel_support"])
             self.assertTrue(diagnostic["common_mode_sensitivity"]["atmospheric_common_mode_warning"])
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
-            self.assertIn("extremely sparse complete time-series support", viewer)
+            self.assertIn("extremely sparse complete time-series support", diagnostic["interpretation"])
             self.assertIn("renderPixelStackDiagnostic()", viewer)
             self.assertNotIn("29 mm/yr", viewer)
             self.assertNotIn("246 mm/yr", viewer)
