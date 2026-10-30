@@ -395,6 +395,40 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
     }
 
 
+def _candidate_local_floor_rows(region_mask, scored_rows):
+    rows = []
+    for item in scored_rows:
+        cm = region_mask & np.asarray(item.get("candidate_mask"), dtype=bool)
+        if not np.any(cm):
+            continue
+        ref, sec = str(item.get("reference_date") or ""), str(item.get("secondary_date") or "")
+        try:
+            span = (date.fromisoformat(sec[:10]) - date.fromisoformat(ref[:10])).days
+        except ValueError:
+            span = 0
+        residual = item.get("local_residual")
+        valid = np.asarray(item.get("valid"), dtype=bool)
+        other = np.asarray(item.get("candidate_mask"), dtype=bool)
+        ring = binary_dilation(cm, iterations=5) & ~region_mask & valid & ~other
+        bg = np.asarray(residual, dtype="float64")[ring] if residual is not None else np.array([])
+        bg = bg[np.isfinite(bg)]
+        if span <= 0 or bg.size < 30:
+            status, floor, sigma = "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND", None, None
+        else:
+            sigma = 1.4826 * float(np.median(np.abs(bg - np.median(bg))))
+            floor = 3.0 * sigma / span if math.isfinite(sigma) and sigma > 0 else None
+            status = "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR" if floor is not None else "WITHHELD_DEGENERATE_LOCAL_BACKGROUND_MAD"
+        rows.append({
+            "product_id": str(item.get("product_id") or ""), "reference_date": ref,
+            "secondary_date": sec, "candidate_pixels": int(cm.sum()),
+            "background_pixels": int(bg.size), "span_days": span or None,
+            "local_background_sigma_mm": sigma, "local_detection_floor_3sigma_mm_day": floor,
+            "status": status,
+            "interpretation": "Pair-specific local residual floor; nearby pixels are not independently validated stable ground.",
+        })
+    return rows
+
+
 def build_aoi_spatial_candidate_report(
     products: list[dict[str, Any]],
     output_root: Path,
