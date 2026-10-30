@@ -396,9 +396,20 @@ def _score_pair(item: dict[str, Any], *, threshold_z: float, background_window_p
 
 
 def _candidate_local_floor_rows(region_mask, scored_rows):
+    """Estimate local floors only for relevant pairs, using a cropped neighbourhood."""
     rows = []
+    row_ids, col_ids = np.nonzero(region_mask)
+    if row_ids.size == 0:
+        return rows
+    pad = 5
+    row0 = max(0, int(row_ids.min()) - pad)
+    row1 = min(region_mask.shape[0], int(row_ids.max()) + pad + 1)
+    col0 = max(0, int(col_ids.min()) - pad)
+    col1 = min(region_mask.shape[1], int(col_ids.max()) + pad + 1)
+    region_crop = region_mask[row0:row1, col0:col1]
     for item in scored_rows:
-        cm = region_mask & np.asarray(item.get("candidate_mask"), dtype=bool)
+        candidate = np.asarray(item.get("candidate_mask"), dtype=bool)[row0:row1, col0:col1]
+        cm = region_crop & candidate
         if not np.any(cm):
             continue
         ref, sec = str(item.get("reference_date") or ""), str(item.get("secondary_date") or "")
@@ -407,10 +418,9 @@ def _candidate_local_floor_rows(region_mask, scored_rows):
         except ValueError:
             span = 0
         residual = item.get("local_residual")
-        valid = np.asarray(item.get("valid"), dtype=bool)
-        other = np.asarray(item.get("candidate_mask"), dtype=bool)
-        ring = binary_dilation(cm, iterations=5) & ~region_mask & valid & ~other
-        bg = np.asarray(residual, dtype="float64")[ring] if residual is not None else np.array([])
+        valid = np.asarray(item.get("valid"), dtype=bool)[row0:row1, col0:col1]
+        ring = binary_dilation(cm, iterations=pad) & ~region_crop & valid & ~candidate
+        bg = np.asarray(residual, dtype="float64")[row0:row1, col0:col1][ring] if residual is not None else np.array([])
         bg = bg[np.isfinite(bg)]
         if span <= 0 or bg.size < 30:
             status, floor, sigma = "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND", None, None
@@ -513,6 +523,7 @@ def build_aoi_spatial_candidate_report(
                     "valid": np.zeros(sample["valid"].shape, dtype=bool),
                     "score": np.zeros(sample["valid"].shape, dtype="float32"),
                     "product_ids": set(),
+                    "items": [],
                 }
             pair = pair_masks[pair_key]
             mask = item["candidate_mask"]
@@ -520,6 +531,7 @@ def build_aoi_spatial_candidate_report(
             pair["valid"] |= item["valid"]
             pair["score"] = np.maximum(pair["score"], item["score"] * mask.astype("float32"))
             pair["product_ids"].add(item["product_id"])
+            pair["items"].append(item)
 
         support = np.zeros(sample["valid"].shape, dtype="uint16")
         observation_support = np.zeros(sample["valid"].shape, dtype="uint16")
@@ -592,7 +604,10 @@ def build_aoi_spatial_candidate_report(
             pixel_width, pixel_height = sample["resolution"]
             max_score = float(np.max(maximum_score[region_mask]))
             pair_keys = [pair_key for pair_key, _ in relevant_pairs]
-            local_floor_rows = _candidate_local_floor_rows(region_mask, scored)
+            local_floor_scored_rows = [
+                item for _, pair_data in relevant_pairs for item in pair_data["items"]
+            ]
+            local_floor_rows = _candidate_local_floor_rows(region_mask, local_floor_scored_rows)
             local_floor_measured = sum(
                 row.get("status") == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
                 for row in local_floor_rows
