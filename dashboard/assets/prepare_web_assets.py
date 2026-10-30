@@ -417,6 +417,75 @@ def metric_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _add_derived_raster_layer(
+    *,
+    root: Path,
+    webroot: Path,
+    geometry: dict[str, Any],
+    artifact: dict[str, Any],
+    network: str,
+    status: str,
+    derived_layers: list[dict[str, Any]],
+    derived_layer_errors: list[dict[str, str]],
+) -> None:
+    role = str(artifact.get("role") or "")
+    relative = str(artifact.get("relative_path") or "")
+    try:
+        source_path = safe_path(root, relative)
+        if not source_path.is_file() or source_path.suffix.lower() not in {".tif", ".tiff"}:
+            raise ValueError("DERIVED_RASTER_MISSING")
+        expected_hash = str(artifact.get("sha256") or "")
+        if not re.fullmatch(r"[a-f0-9]{64}", expected_hash) or sha256(source_path) != expected_hash:
+            raise ValueError("DERIVED_RASTER_SHA256_MISMATCH")
+        values, bounds, meta = reproject_band(source_path, 1, geometry)
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            raise ValueError("DERIVED_RASTER_HAS_NO_DISPLAYABLE_PIXELS")
+
+        if "velocity" in role.lower() and "sigma" not in role.lower():
+            limit = float(np.percentile(np.abs(finite), 98))
+            if not math.isfinite(limit) or limit <= 0:
+                limit = max(float(np.max(np.abs(finite))), 1.0)
+            lo, hi, method, kind = -limit, limit, "symmetric_abs_98th_percentile", "continuous"
+        elif "mask" in role.lower():
+            lo, hi, method, kind = 0.0, 1.0, "fixed_binary_mask_0_to_1", "coherence"
+        else:
+            lo, hi, method, kind = 0.0, float(np.percentile(finite, 98)), "positive_98th_percentile", "coherence"
+            if not math.isfinite(hi) or hi <= 0:
+                hi = max(float(np.max(finite)), 1.0)
+        slug = re.sub(r"[^A-Za-z0-9_-]+", "-", network or "network").strip("-").lower()[:55]
+        role_slug = re.sub(r"[^A-Za-z0-9_-]+", "-", role).strip("-").lower()[:38]
+        layer_id = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{role_slug}-{slug}").strip("-")[:110]
+        preview_relative = f"layers/derived-{layer_id}.png"
+        image_path = webroot / preview_relative
+        count, value_min, value_max = write_rgba(values, lo, hi, kind, image_path)
+        if count <= 0 or image_path.stat().st_size <= 0:
+            raise ValueError("DERIVED_PREVIEW_HAS_NO_VALID_PIXELS")
+        derived_layers.append({
+            "id": layer_id, "observation_id": None, "product_type": "AOI_DERIVED",
+            "description": role, "units": str(artifact.get("units") or meta.get("units") or "source units not declared"),
+            "kind": kind, "analysis_role": role, "network": network or "AOI network", "status": status,
+            "source_asset": relative, "source_sha256": expected_hash,
+            "native_valid_pixels": int(artifact.get("valid_pixels") or 0),
+            "preview_asset": preview_relative, "preview_sha256": sha256(image_path),
+            "preview_bytes": image_path.stat().st_size, "source_crs": meta["source_crs"],
+            "source_transform": meta["source_transform"], "source_width": meta["source_width"],
+            "source_height": meta["source_height"], "preview_crs": WEB_CRS,
+            "preview_transform": meta["preview_transform"], "preview_width": meta["preview_width"],
+            "preview_height": meta["preview_height"], "bounds_wgs84": list(bounds),
+            "corners": [[bounds[0], bounds[3]], [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]],
+            "valid_pixels": count, "value_min": value_min, "value_max": value_max,
+            "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98},
+            "reference_policy": "AOI-derived/relative as declared by source artifact; not independently validated stable ground",
+            "movement_confirmed": False, "hazard_detected": False,
+        })
+    except (OSError, ValueError, rasterio.errors.RasterioError) as exc:
+        derived_layer_errors.append({
+            "network": network, "role": role, "source_asset": relative,
+            "reason": f"{type(exc).__name__}:{str(exc)[:180]}",
+        })
+
+
 def prepare_web_dashboard(root: Path) -> dict[str, Any]:
     root = root.resolve()
     summary_path = root / "aoi-run-summary.json"
@@ -495,95 +564,30 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                 raise ValueError(f"Product valid-pixel summary mismatch for {pid}: record={expected_valid}, max_export={max(band1_source_counts)}")
 
     webroot = root / "web-dashboard"
-    # Build compact previews for target-free pixelwise inversion outputs. The
-    # native diagnostic GeoTIFFs remain the authoritative, downloadable assets.
+    # Publish all AOI-wide scientific derivatives as selectable map layers and
+    # PNG quicklooks. Native GeoTIFFs remain authoritative.
     derived_layers: list[dict[str, Any]] = []
     derived_layer_errors: list[dict[str, str]] = []
-    derived_layer_roles = {
-        "AOI-relative GUNW LOS velocity",
-        "GUNW LOS velocity fit sigma",
-        "GUNW LOS inversion closure RMSE",
-    }
     pixel_report = summary.get("aoi_relative_pixel_timeseries") or {}
     for network in pixel_report.get("networks", []) if isinstance(pixel_report.get("networks"), list) else []:
         if network.get("status") != "AOI_RELATIVE_GUNW_PIXEL_TIMESERIES_DIAGNOSTIC_REFERENCE_UNVALIDATED":
             continue
         for artifact in network.get("artifacts", []) if isinstance(network.get("artifacts"), list) else []:
-            role = str(artifact.get("role") or "")
-            if role not in derived_layer_roles:
-                continue
-            relative = str(artifact.get("relative_path") or "")
-            try:
-                source_path = safe_path(root, relative)
-                if not source_path.is_file() or source_path.suffix.lower() not in {".tif", ".tiff"}:
-                    raise ValueError("DIAGNOSTIC_RASTER_MISSING")
-                expected_hash = str(artifact.get("sha256") or "")
-                if not re.fullmatch(r"[a-f0-9]{64}", expected_hash) or sha256(source_path) != expected_hash:
-                    raise ValueError("DIAGNOSTIC_RASTER_SHA256_MISMATCH")
-                values, bounds, meta = reproject_band(source_path, 1, geometry)
-                finite = values[np.isfinite(values)]
-                if finite.size == 0:
-                    raise ValueError("DIAGNOSTIC_RASTER_HAS_NO_DISPLAYABLE_PIXELS")
-                if role == "AOI-relative GUNW LOS velocity":
-                    limit = float(np.percentile(np.abs(finite), 98))
-                    if not math.isfinite(limit) or limit <= 0:
-                        limit = max(float(np.max(np.abs(finite))), 1.0)
-                    lo, hi, method = -limit, limit, "symmetric_abs_98th_percentile"
-                else:
-                    limit = float(np.percentile(finite, 98))
-                    if not math.isfinite(limit) or limit <= 0:
-                        limit = max(float(np.max(finite)), 1.0)
-                    lo, hi, method = 0.0, limit, "positive_98th_percentile"
-                slug = re.sub(r"[^A-Za-z0-9_-]+", "-", str(network.get("network") or "network")).strip("-").lower()[:60]
-                role_slug = {"AOI-relative GUNW LOS velocity": "velocity-mm-year",
-                             "GUNW LOS velocity fit sigma": "velocity-fit-sigma-mm-year",
-                             "GUNW LOS inversion closure RMSE": "closure-rmse-mm"}[role]
-                layer_id = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{role_slug}-{slug}").strip("-")[:110]
-                preview_relative = f"layers/derived-{layer_id}.png"
-                image_path = webroot / preview_relative
-                count, value_min, value_max = write_rgba(values, lo, hi, "continuous", image_path)
-                if count <= 0 or image_path.stat().st_size <= 0:
-                    raise ValueError("DIAGNOSTIC_PREVIEW_HAS_NO_VALID_PIXELS")
-                derived_layers.append({
-                    "id": layer_id,
-                    "observation_id": None,
-                    "product_type": "GUNW_DERIVED",
-                    "description": role,
-                    "units": str(artifact.get("units") or meta.get("units") or "source units not declared"),
-                    "kind": "continuous",
-                    "analysis_role": role,
-                    "network": str(network.get("network") or "GUNW network"),
-                    "status": str(network.get("status")),
-                    "source_asset": relative,
-                    "source_sha256": expected_hash,
-                    "native_valid_pixels": int(artifact.get("valid_pixels") or 0),
-                    "preview_asset": preview_relative,
-                    "preview_sha256": sha256(image_path),
-                    "preview_bytes": image_path.stat().st_size,
-                    "source_crs": meta["source_crs"],
-                    "source_transform": meta["source_transform"],
-                    "source_width": meta["source_width"],
-                    "source_height": meta["source_height"],
-                    "preview_crs": WEB_CRS,
-                    "preview_transform": meta["preview_transform"],
-                    "preview_width": meta["preview_width"],
-                    "preview_height": meta["preview_height"],
-                    "bounds_wgs84": list(bounds),
-                    "corners": [[bounds[0], bounds[3]], [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]],
-                    "valid_pixels": count,
-                    "value_min": value_min,
-                    "value_max": value_max,
-                    "display_scale": {"min": lo, "max": hi, "method": method, "clipping_percentile": 98},
-                    "reference_policy": "AOI-derived background; not independently validated stable ground",
-                    "movement_confirmed": False,
-                    "hazard_detected": False,
-                })
-            except (OSError, ValueError, rasterio.errors.RasterioError) as exc:
-                derived_layer_errors.append({
-                    "network": str(network.get("network") or ""),
-                    "role": role,
-                    "reason": f"{type(exc).__name__}:{str(exc)[:180]}",
-                })
+            _add_derived_raster_layer(
+                root=root, webroot=webroot, geometry=geometry, artifact=artifact,
+                network=str(network.get("network") or "GUNW network"),
+                status=str(network.get("status") or "NOT_REPORTED"),
+                derived_layers=derived_layers, derived_layer_errors=derived_layer_errors,
+            )
+
+    candidate_report = summary.get("aoi_displacement_candidates") or {}
+    for artifact in candidate_report.get("raster_artifacts", []) if isinstance(candidate_report.get("raster_artifacts"), list) else []:
+        _add_derived_raster_layer(
+            root=root, webroot=webroot, geometry=geometry, artifact=artifact,
+            network=str(artifact.get("network") or "AOI candidate screen"),
+            status=str(candidate_report.get("status") or "NOT_REPORTED"),
+            derived_layers=derived_layers, derived_layer_errors=derived_layer_errors,
+        )
     public_layers = []
     for layer in pending:
         values = layer.pop("values")
@@ -691,7 +695,8 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
         "common_reference_timeseries": summary.get("common_reference_timeseries") or {},
         "goff_common_reference_timeseries": summary.get("goff_common_reference_timeseries") or {},
         "aoi_displacement_candidates": summary.get("aoi_displacement_candidates") or {},
-        "display_policy": "Actual pair selection only. The common-reference graph is explicitly diagnostic when shown; no extrapolation or hazard inference is added by the visualization layer.",
+        "display_policy": "Find Displacements is target-free. Actual pair playback and AOI-wide derived layers are separate; GOFF offset anomalies are not ground velocity, GUNW velocity is relative LOS, and no extrapolation or hazard inference is added.",
+         "target_free_analysis": True,
     }
     webroot.mkdir(parents=True, exist_ok=True)
     (webroot / "aoi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feature]}, indent=2) + "\n", encoding="utf-8")
@@ -827,6 +832,7 @@ def prepare_web_dashboard(root: Path) -> dict[str, Any]:
                "stac_catalog": "web-dashboard/stac/catalog.json", "observations": len(observations),
                "layers": len(public_layers), "derived_layers": len(derived_layers),
                "aoi_relative_pixel_timeseries_status": pixel_report.get("status", "NOT_REPORTED"),
+                "aoi_candidate_features": int((summary.get("aoi_displacement_candidates") or {}).get("candidate_features") or 0),
                "derived_layer_errors": len(derived_layer_errors), "source_geotiffs_unchanged": True}
     (root / "web-dashboard-build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     return receipt
