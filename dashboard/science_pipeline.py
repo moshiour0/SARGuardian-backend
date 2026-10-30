@@ -168,20 +168,28 @@ def build_science_pipeline_report(
         )
     elif target_status == "NOT_PROVIDED":
         candidate_floor_measurements = int(aoi_displacement_candidates.get("candidate_local_floor_measurements") or 0)
+        candidate_rows = aoi_displacement_candidates.get("features")
+        has_candidate_features = isinstance(candidate_rows, list) and bool(candidate_rows)
         if candidate_floor_measurements:
             local_floor_status = "CANDIDATE_REGION_LOCAL_FLOORS_MEASURED"
             local_floor_reason = (
-                f"Find Displacements automatically measured {candidate_floor_measurements} candidate/pair local residual floor(s) "
+                f"Find Displacements automatically measured {candidate_floor_measurements} candidate/interval local residual floor(s) "
                 "from valid nearby background pixels; no user target was required. These are pair-specific detectability diagnostics, "
                 "not observed motion and not independently validated stable-ground noise."
+            )
+        elif has_candidate_features:
+            local_floor_status = "WITHHELD_INSUFFICIENT_CANDIDATE_LOCAL_BACKGROUND"
+            local_floor_reason = (
+                f"{len(candidate_rows)} target-free candidate feature(s) were found, but none had the minimum 30 valid nearby "
+                "background pixels needed for a candidate-local 3-sigma floor. The candidates remain review leads; their local "
+                "detectability is not measured and must not be interpreted as zero noise or zero movement."
             )
         else:
             local_floor_status = "NOT_REQUIRED_FOR_TARGET_FREE_FIND_DISPLACEMENTS"
             local_floor_reason = (
                 "Find Displacements is target-free. A point-local floor is not a prerequisite for AOI-wide discovery; "
                 "GOFF uses its per-pair reader floor where available and GUNW uses spatially screened per-pixel evidence. "
-                "No point coordinate or point-local measurement is invented. Candidate-local floors are withheld when no candidate "
-                "has enough valid nearby background support."
+                "No point coordinate or point-local measurement is invented. No candidate region was available for a candidate-local floor."
             )
     else:
         local_floor_status = "BLOCKED_INVALID_OR_OUTSIDE_TARGET"
