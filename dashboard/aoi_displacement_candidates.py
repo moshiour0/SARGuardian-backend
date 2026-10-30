@@ -592,6 +592,11 @@ def build_aoi_spatial_candidate_report(
             pixel_width, pixel_height = sample["resolution"]
             max_score = float(np.max(maximum_score[region_mask]))
             pair_keys = [pair_key for pair_key, _ in relevant_pairs]
+            local_floor_rows = _candidate_local_floor_rows(region_mask, scored)
+            local_floor_measured = sum(
+                row.get("status") == "MEASURED_CANDIDATE_REGION_LOCAL_FLOOR"
+                for row in local_floor_rows
+            )
             product_ids = sorted({
                 product_id
                 for _, pair_data in relevant_pairs
@@ -622,6 +627,9 @@ def build_aoi_spatial_candidate_report(
                 "max_robust_score": round(max_score, 3),
                 "product_ids": product_ids,
                 "pair_intervals": [f"{a}/{b}" for a, b in pair_keys],
+                "candidate_local_floor_status": "MEASURED_FOR_ONE_OR_MORE_PAIRS" if local_floor_measured else "WITHHELD_INSUFFICIENT_LOCAL_BACKGROUND",
+                "candidate_local_floor_measured_pairs": local_floor_measured,
+                "candidate_local_floor_by_pair": local_floor_rows,
                 "status": "REPEATED_SPATIAL_CANDIDATE" if repeated else "SINGLE_PAIR_CANDIDATE_UNCONFIRMED",
                 "interpretation": (
                     (
@@ -730,6 +738,14 @@ def build_aoi_spatial_candidate_report(
             "No spatial components met the configured robust-score and minimum-area screen. This is not evidence of zero movement."
         ),
         "candidate_features": len(all_features),
+        "candidate_local_floor_measurements": sum(
+            int(feature.get("properties", {}).get("candidate_local_floor_measured_pairs") or 0)
+            for feature in all_features
+        ),
+        "candidate_features_with_local_floor": sum(
+            int(feature.get("properties", {}).get("candidate_local_floor_measured_pairs") or 0) > 0
+            for feature in all_features
+        ),
         "products_examined": len({item["product_id"] for item in accepted}),
         "product_metrics_examined": len(accepted),
         "groups": group_reports,
