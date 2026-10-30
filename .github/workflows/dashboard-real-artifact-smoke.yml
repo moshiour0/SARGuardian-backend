@@ -103,7 +103,7 @@ jobs:
 
           # Re-run only the target-free GUNW per-pixel diagnostic from retained
           # AOI-clipped GeoTIFFs. This does not access ASF or download HDF5.
-          audit="$root/science-diagnostics/retained-artifact-reaudit"
+          audit="$RUNNER_TEMP/sarguardian-pixel-stack-reaudit"
           mkdir -p "$audit/export" "$root/science-diagnostics/logs"
           mapfile -t gunw_tiffs < <(find "$root/product-data" -mindepth 2 -maxdepth 2 -type f -name '*.tif' -path '*/GUNW-*/*' | sort)
           test "${#gunw_tiffs[@]}" -eq 15
@@ -153,6 +153,13 @@ jobs:
               "raw_hdf5_replayed": False,
               "source_geotiffs_modified": False,
           }
+          summary["science_limitations"] = [
+              (
+                  "Pixel-stack status: WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT. "
+                  "Too few nearby valid pixels to estimate spatial noise; NOT TESTABLE is not NO DETECTION."
+              ) if str(item).startswith("Pixel-stack status:") else item
+              for item in summary.get("science_limitations", [])
+          ]
           for module in summary.get("science_pipeline", {}).get("modules", []):
               if module.get("name") == "pixel_stack.py":
                   module["status"] = "WITHHELD_INSUFFICIENT_SPATIAL_NEIGHBOR_SUPPORT"
