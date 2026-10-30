@@ -8,6 +8,7 @@ range offset, and GOFF along-track offset, with product quality masks applied fi
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import re
@@ -88,7 +89,9 @@ def _empty_report(status: str, reason: str, aoi_wkt_sha256: str | None) -> dict[
             "The screen measures relative spatial contrast within each pair; it cannot detect uniform AOI-wide motion from its own background.",
             "The robust AOI/background scale is not an independently validated stable-ground reference.",
             "GUNW LOS, GOFF range offset and GOFF along-track offset are separate metrics and must never be combined as if they shared one measurement axis.",
-            "Pairwise candidate recurrence is screening evidence only; cumulative time series and velocity require a compatible, redundant, validated temporal network and reference.",
+            "Robust-score thresholds are exploratory screening parameters, not calibrated false-alarm probabilities.",
+            "Candidate-raster NoData means insufficient observation support; it is not zero motion.",
+            "Pairwise candidate recurrence is screening evidence only; cumulative time series and velocity require a compatible, redundant, independently reference-checked temporal network.",
         ],
         "reason": reason,
     }
@@ -101,6 +104,66 @@ def _grid_key(dataset: rasterio.io.DatasetReader) -> tuple[Any, ...]:
         int(dataset.height),
         tuple(round(float(value), 9) for value in dataset.transform),
     )
+
+
+def _write_analysis_raster(
+    path: Path,
+    source_item: dict[str, Any],
+    values: np.ndarray,
+    valid: np.ndarray,
+    *,
+    aoi_hash: str | None,
+    metric: str,
+    units: str,
+    network: str,
+) -> dict[str, Any]:
+    """Write a derived AOI-grid raster without converting NoData to zero."""
+    source_path = Path(source_item["raster_path"])
+    with rasterio.open(source_path) as src:
+        profile = src.profile.copy()
+        source_tags = src.tags()
+    profile.update(
+        count=1,
+        dtype="float32",
+        nodata=-9999.0,
+        compress="deflate",
+        predictor=3,
+    )
+    out = np.full(values.shape, -9999.0, dtype="float32")
+    mask = valid & np.isfinite(values)
+    out[mask] = values[mask].astype("float32", copy=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(out, 1)
+        dst.set_band_description(1, metric)
+        dst.update_tags(
+            schema_version="sarguardian-aoi-spatial-candidates-raster/1.0",
+            aoi_wkt_sha256=str(aoi_hash or ""),
+            target_required="false",
+            metric=metric,
+            units=units,
+            network=network,
+            source_product=str(source_tags.get("source") or ""),
+            reference_policy="pair-local robust spatial background; not stable-ground reference",
+            movement_confirmed="false",
+            hazard_detected="false",
+            nodata_policy="-9999 means unobserved/invalid; zero means observed with no candidate",
+        )
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return {
+        "role": metric,
+        "relative_path": path.relative_to(path.parents[2]).as_posix(),
+        "bytes": path.stat().st_size,
+        "valid_pixels": int(np.count_nonzero(mask)),
+        "units": units,
+        "sha256": digest.hexdigest(),
+        "crs": profile.get("crs").to_string() if profile.get("crs") else None,
+        "width": int(profile["width"]),
+        "height": int(profile["height"]),
+    }
 
 
 def _read_metric_rasters(
@@ -342,20 +405,57 @@ def build_aoi_spatial_candidate_report(
             if pair_key not in pair_masks:
                 pair_masks[pair_key] = {
                     "mask": np.zeros(sample["valid"].shape, dtype=bool),
+                    "valid": np.zeros(sample["valid"].shape, dtype=bool),
                     "score": np.zeros(sample["valid"].shape, dtype="float32"),
                     "product_ids": set(),
                 }
             pair = pair_masks[pair_key]
             mask = item["candidate_mask"]
             pair["mask"] |= mask
+            pair["valid"] |= item["valid"]
             pair["score"] = np.maximum(pair["score"], item["score"] * mask.astype("float32"))
             pair["product_ids"].add(item["product_id"])
 
         support = np.zeros(sample["valid"].shape, dtype="uint16")
+        observation_support = np.zeros(sample["valid"].shape, dtype="uint16")
         maximum_score = np.zeros(sample["valid"].shape, dtype="float32")
         for pair in pair_masks.values():
             support += pair["mask"].astype("uint16")
+            observation_support += pair["valid"].astype("uint16")
             maximum_score = np.maximum(maximum_score, pair["score"])
+
+        # Publish the raster evidence as well as polygons. A zero candidate count
+        # is meaningful only where observation_support is positive; outside that
+        # support remains NoData, never silently rendered as zero motion.
+        slug = hashlib.sha256(group_label.encode("utf-8")).hexdigest()[:12]
+        raster_dir = output_root / "aoi-spatial-candidates"
+        raster_valid = observation_support > 0
+        raster_artifacts = [
+            _write_analysis_raster(
+                raster_dir / f"candidate-mask-{slug}.tif", sample,
+                (support > 0).astype("float32"), raster_valid,
+                aoi_hash=aoi_wkt_sha256, metric="AOI spatial candidate mask",
+                units="binary candidate flag", network=group_label,
+            ),
+            _write_analysis_raster(
+                raster_dir / f"candidate-pair-count-{slug}.tif", sample,
+                support.astype("float32"), raster_valid,
+                aoi_hash=aoi_wkt_sha256, metric="Candidate pair support count",
+                units="pair count", network=group_label,
+            ),
+            _write_analysis_raster(
+                raster_dir / f"valid-observation-count-{slug}.tif", sample,
+                observation_support.astype("float32"), raster_valid,
+                aoi_hash=aoi_wkt_sha256, metric="Valid observation pair count",
+                units="pair count", network=group_label,
+            ),
+            _write_analysis_raster(
+                raster_dir / f"candidate-robust-score-{slug}.tif", sample,
+                maximum_score, raster_valid,
+                aoi_hash=aoi_wkt_sha256, metric="Maximum exploratory robust anomaly score",
+                units="robust z-like score (not probability)", network=group_label,
+            ),
+        ]
         labels, component_count = label(support > 0, structure=np.ones((3, 3), dtype=np.uint8))
         group_features: list[dict[str, Any]] = []
 
@@ -482,6 +582,9 @@ def build_aoi_spatial_candidate_report(
             "minimum_valid_pixels": minimum_valid_pixels,
             "minimum_component_pixels": minimum_component_pixels,
             "robust_scale_source": "per-pair AOI-valid pixels; median/MAD; not an independently stable-ground measurement",
+            "reference_policy": "pair-local spatial median/MAD; common translation across the AOI is not observable",
+            "valid_observation_pixels": int(np.count_nonzero(raster_valid)),
+            "raster_artifacts": raster_artifacts,
             "pair_results": [{
                 "product_id": item["product_id"],
                 "granule_name": item["granule_name"],
@@ -502,6 +605,7 @@ def build_aoi_spatial_candidate_report(
         feature["properties"]["status"] == "REPEATED_SPATIAL_CANDIDATE" for feature in all_features
     )
     report.update({
+        "raster_artifacts": [artifact for group in group_reports for artifact in group.get("raster_artifacts", [])],
         "status": (
             "REPEATED_SPATIAL_CANDIDATES_NEED_GEOPHYSICAL_VALIDATION" if repeated_count
             else "SINGLE_PAIR_CANDIDATES_NEED_TEMPORAL_CONFIRMATION" if all_features
