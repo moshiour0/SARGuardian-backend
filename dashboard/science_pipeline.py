@@ -270,12 +270,12 @@ def build_science_pipeline_report(
             "name": "candidate_check.py",
             "scope": "KNOWN_PLACE_TARGET_STRESS_TEST",
             "status": (
-                "SPATIAL_SCREEN_AVAILABLE_CANDIDATE_STRESS_TESTS_NOT_RUN"
+                "PARTIAL_TARGET_FREE_CANDIDATE_STRESS_TESTS_WITH_CROSS_GEOMETRY_WITHHELD"
                 if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
                 else str(candidate.get("status") or "NOT_REPORTED")
             ),
             "reason": (
-                "The target-free spatial screen discovers custom-AOI candidates, but it is not equivalent to candidate_check.py's seasonality, cross-geometry and phase-ceiling stress tests. Those candidate-level stress tests remain unavailable for arbitrary WKT; the spatial candidates are not treated as validated movement."
+                "The target-free path now reports pairwise spatial differential, candidate-local 3-sigma floors, acquisition-season coverage and a GUNW single-fringe review flag. These are screening/triage checks only, not a statistically conclusive seasonal test. Cross-geometry motion-vs-delay validation remains withheld without pixelwise look vectors and rate covariance; no candidate is treated as validated movement."
                 if candidate.get("status") == "SKIPPED_UNSUPPORTED_CUSTOM_AOI"
                 else str(candidate.get("detail") or "Inspect saved candidate diagnostics.")
             ),
