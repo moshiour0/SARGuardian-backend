@@ -214,7 +214,14 @@ jobs:
               summary.get("aoi_relative_pixel_timeseries") or {},
               summary.get("aoi_wide_displacement_screen") or {},
           )
-          science_pipeline["science_commit_expected"] = str(summary.get("science_commit") or "")
+          # Keep the original product-processing revision distinct from the
+          # pinned source revision used for this retained-data science audit.
+          source_processing_commit = str(summary.get("science_commit") or "")
+          retained_audit_commit = str((summary.get("science_reaudit") or {}).get("science_commit") or "")
+          assert retained_audit_commit == "006d4cd1485cf80e509eaf8717c12e9c6390ac09", retained_audit_commit
+          science_pipeline["science_commit_expected"] = retained_audit_commit
+          science_pipeline["source_processing_science_commit"] = source_processing_commit
+          science_pipeline["science_reaudit_commit"] = retained_audit_commit
           summary["science_pipeline"] = science_pipeline
           report["summary"] = summary
           report["science_pipeline"] = science_pipeline

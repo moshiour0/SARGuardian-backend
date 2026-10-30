@@ -74,6 +74,10 @@ class SciencePipelineContractTests(unittest.TestCase):
         self.assertIn("SOURCE_TIFFS_UNCHANGED=PASS", workflow)
         self.assertIn("WITHHELD_NO_CANDIDATE_SERIES_ON_INDEPENDENT_REFERENCE", workflow)
         self.assertIn("WITHHELD_NO_PIXELWISE_LOOK_VECTORS_AND_TERRAIN_REFERENCE", workflow)
+        self.assertIn('science_pipeline["science_commit_expected"] = retained_audit_commit', workflow)
+        self.assertIn('science_pipeline["source_processing_science_commit"] = source_processing_commit', workflow)
+        self.assertIn('science_pipeline["science_reaudit_commit"] = retained_audit_commit', workflow)
+        self.assertIn('assert retained_audit_commit == "006d4cd1485cf80e509eaf8717c12e9c6390ac09"', workflow)
 
 
 if __name__ == "__main__":
