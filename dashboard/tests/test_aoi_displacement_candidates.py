@@ -45,7 +45,7 @@ def _write_product(
         }
     else:
         second = rng.normal(0, 1.25, size=(80, 80)).astype("float32")
-        second[row_start:row_end, col_start:col_end] += 14.0
+        second[row_start:row_end, col_start:col_end] += along_track_hotspot_amplitude_mm
         correlation = np.ones_like(first, dtype="float32")
         data = np.stack([first, second, correlation])
         descriptions = ("slant-range offset (mm)", "along-track offset (mm)", "correlation")
