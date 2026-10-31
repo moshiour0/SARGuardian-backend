@@ -973,6 +973,7 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
         self.assertIn("body[data-dashboard-mode=public] .science-only", viewer)
         self.assertIn("body[data-dashboard-mode=evidence] .science-only", viewer)
         self.assertIn("presentation-active", viewer)
+        self.assertIn("if(!document.fullscreenElement)document.body.classList.remove('presentation-active')", viewer)
         self.assertIn('id="map"', viewer)
         self.assertIn('id="timeline"', viewer)
         self.assertIn('id="aoiCandidateList"', viewer)
