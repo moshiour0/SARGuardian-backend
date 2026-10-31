@@ -49,7 +49,7 @@ def test_pixel_stack_result_is_not_misreported_as_hazard_confirmation():
     assert classify_pixel_stack(0, "VERDICT: NO DETECTION. Cluster is within noise null.") == "COMPLETED_NO_DETECTION"
     assert classify_pixel_stack(
         0,
-        "PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK\\n"
+        "PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK\n"
         "VERDICT: NO DETECTION. Legacy text must not override the strict gate.",
     ) == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK"
     assert classify_pixel_stack(0, "cluster exceeds the noise-only 95th percentile") == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
