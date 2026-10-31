@@ -366,27 +366,268 @@ def write_viewer(path: Path) -> None:
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
 <style>
 :root{color-scheme:dark;--bg:#07121c;--panel:#0e1e2a;--edge:#254050;--ink:#edf7fb;--muted:#a5bec8;--aqua:#66e2d3;--amber:#f7c76b}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#123444,#07121c 55%);color:var(--ink);font:14px/1.45 system-ui,sans-serif}main{max-width:1500px;margin:auto;padding:22px}header{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;border-bottom:1px solid var(--edge);padding-bottom:16px}h1{font-size:clamp(25px,3vw,38px);line-height:1.05;letter-spacing:-.035em;margin:7px 0}.kicker{color:var(--aqua);font-size:10px;font-weight:800;letter-spacing:.17em;text-transform:uppercase}.muted{color:var(--muted)}button,select,input{font:inherit;color:inherit;background:#102a39;border:1px solid #396071;border-radius:7px;padding:8px}button{cursor:pointer}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--aqua);outline-offset:2px}.warn{margin:14px 0;padding:12px 14px;border:1px solid #8e6b35;background:#322816;color:#ffe7b6;border-radius:10px}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.card,.panel{background:linear-gradient(145deg,#112b39,#0c1a25);border:1px solid var(--edge);border-radius:12px;padding:13px;min-width:0}.label{color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}.big{font-size:26px;font-weight:750;margin-top:3px;overflow-wrap:anywhere}.layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(290px,.8fr);gap:12px}.maphead{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.mapbox{position:relative;height:min(65vh,640px);min-height:340px;border:1px solid var(--edge);border-radius:10px;overflow:hidden;background:#0a1720}.mapbox #map{position:absolute;inset:0}.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.timeline{margin-top:12px;display:grid;grid-template-columns:auto minmax(100px,1fr) auto;gap:9px;align-items:center}.timeline input{width:100%;padding:0;accent-color:var(--aqua)}.timeline small{font-variant-numeric:tabular-nums;color:var(--muted)}.metriclist{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.metricitem{padding:10px;background:#091721;border:1px solid var(--edge);border-radius:8px;min-width:0}.metricitem strong{display:block;margin-top:4px;overflow-wrap:anywhere}.chart{width:100%;height:170px;display:block}.chart text{fill:var(--muted);font-size:10px}.product-list{display:grid;gap:6px;max-height:250px;overflow:auto}.product-row{width:100%;display:flex;justify-content:space-between;align-items:center;text-align:left;gap:9px;background:#091721}.product-row[aria-current=true]{border-color:var(--aqua);background:#153746}.product-row span{display:block}.product-row small{display:block;color:var(--muted)}details{margin-top:10px;border-top:1px solid var(--edge);padding-top:10px}summary{cursor:pointer}.foot{margin-top:15px;font-size:11px;color:var(--muted)}.legend{font-size:11px;color:var(--muted);margin:7px 0}.legendbar{height:8px;border-radius:4px;background:linear-gradient(90deg,#053061,#f7f7f7,#67001f);margin-top:5px}.hidden{display:none!important}.compare-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}.compare-mapbox{height:300px;min-height:250px;border:1px solid var(--edge);border-radius:10px;overflow:hidden}.compare-mapbox>div{height:100%;width:100%}.compare-controls{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.compare-controls label{display:grid;gap:5px;flex:1;min-width:160px}.compare-map-title{font-size:12px;overflow-wrap:anywhere;margin:8px 0}.scenario-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.scenario-grid label{display:grid;gap:5px}.scenario-result{padding:10px;border:1px solid var(--edge);border-radius:8px;margin-top:10px}.scenario-result strong{color:var(--aqua)}@media(max-width:850px){main{padding:12px}.layout{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.mapbox{height:48vh;min-height:300px}.compare-grid{grid-template-columns:1fr}.compare-mapbox{height:280px}.scenario-grid{grid-template-columns:1fr}}@media(max-width:450px){.cards{grid-template-columns:1fr 1fr}.big{font-size:21px}.timeline{grid-template-columns:1fr}.timeline input{grid-row:2}}
-.quick-panel{margin:14px 0;padding:16px;background:linear-gradient(145deg,#102a38,#0b1923);border:1px solid var(--edge);border-radius:12px}.quick-panel h2{font-size:20px;margin:4px 0 12px}.story-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.story-card{padding:12px;background:#091721;border:1px solid var(--edge);border-radius:9px}.story-card strong{display:block;font-size:22px;margin-bottom:3px}.story-card span{display:block;color:var(--muted);font-size:12px}.plain-note{padding:11px 13px;margin:9px 0;background:#102331;border-left:3px solid var(--aqua);border-radius:6px;color:var(--ink);font-size:13px}.candidate-section{margin-top:16px;padding-top:12px;border-top:1px solid var(--edge)}.candidate-section h3{font-size:16px;margin:5px 0}.candidate-section details{margin-top:8px}@media(max-width:850px){.story-grid{grid-template-columns:1fr}}@media(max-width:450px){.quick-panel{padding:11px}.story-card strong{font-size:19px}}</style></head><body><main>
-<header><div><div class="kicker">SARGuardian · Earth in sight</div><h1>What did NISAR observe in this area?</h1><p class="muted">SARGuardian research results · real acquisition pairs · evidence before interpretation</p></div><div class="controls"><button id="presentation">Presentation mode</button><a href="../index.html" style="color:var(--aqua);padding:9px">Processing report ↗</a></div></header>
+.quick-panel{margin:14px 0;padding:16px;background:linear-gradient(145deg,#102a38,#0b1923);border:1px solid var(--edge);border-radius:12px}.quick-panel h2{font-size:20px;margin:4px 0 12px}.story-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.story-card{padding:12px;background:#091721;border:1px solid var(--edge);border-radius:9px}.story-card strong{display:block;font-size:22px;margin-bottom:3px}.story-card span{display:block;color:var(--muted);font-size:12px}.plain-note{padding:11px 13px;margin:9px 0;background:#102331;border-left:3px solid var(--aqua);border-radius:6px;color:var(--ink);font-size:13px}.candidate-section{margin-top:16px;padding-top:12px;border-top:1px solid var(--edge)}.candidate-section h3{font-size:16px;margin:5px 0}.candidate-section details{margin-top:8px}@media(max-width:850px){.story-grid{grid-template-columns:1fr}}@media(max-width:450px){.quick-panel{padding:11px}.story-card strong{font-size:19px}}
+:root{
+  color-scheme:dark;
+  --bg:#07141b;--surface:#0d2029;--surface-2:#112b36;--surface-3:#173642;
+  --line:#294752;--line-soft:rgba(156,190,191,.16);
+  --ink:#edf5f2;--muted:#9bb2b5;--teal:#83dfcc;--teal-deep:#286f69;
+  --amber:#e9bb75;--coral:#e98c7c;--radius:18px;
+  --shadow:0 22px 58px rgba(0,0,0,.24);
+}
+html{scroll-behavior:smooth}
+body{
+  min-width:320px;margin:0;color:var(--ink);
+  background:
+    radial-gradient(ellipse at 14% -8%,rgba(41,105,111,.25),transparent 36rem),
+    radial-gradient(ellipse at 92% 8%,rgba(60,91,79,.14),transparent 34rem),
+    var(--bg);
+  font:15px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:.005em;
+}
+main{width:min(100% - 56px,1680px);max-width:1680px;margin:0 auto;padding:34px 0 48px}
+button,select,input{font:inherit}
+button,select{
+  color:var(--ink);background:#102630;border:1px solid #385762;border-radius:10px;
+  min-height:40px;padding:8px 12px;transition:border-color .18s,background .18s,transform .18s;
+}
+button{cursor:pointer}
+button:hover,select:hover{border-color:var(--teal);background:#183742}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible,a:focus-visible{
+  outline:2px solid var(--teal);outline-offset:3px
+}
+a{color:var(--teal)}
+label{display:grid;gap:6px;color:#bdd0cf;font-size:12px;font-weight:650}
+input[type=range]{accent-color:var(--teal);width:100%;min-width:100px}
+.site-header{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:end;
+  border-bottom:1px solid var(--line);padding:0 0 24px;margin-bottom:18px
+}
+.brand-rail{grid-column:1/-1;display:flex;align-items:center;gap:11px;min-height:28px}
+.brand-mark{width:22px;height:22px;border:1px solid var(--teal);border-radius:7px;position:relative;display:inline-block;transform:rotate(45deg)}
+.brand-mark:before,.brand-mark:after{content:"";position:absolute;background:var(--teal);border-radius:2px}
+.brand-mark:before{width:6px;height:6px;left:7px;top:7px}
+.brand-mark:after{width:1px;height:13px;left:10px;top:4px;opacity:.6}
+.brand-name{font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:850}
+.brand-note{color:var(--muted);font-size:11px;margin-left:4px}
+.dataset-tag{margin-left:auto;border:1px solid var(--line);padding:5px 9px;border-radius:999px;color:#b6cbca;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.hero-copy{max-width:920px}
+.hero-copy .kicker{margin-bottom:8px}
+.site-header h1{font-size:clamp(32px,4.4vw,58px);line-height:1.02;letter-spacing:-.052em;margin:0 0 12px;max-width:900px}
+.hero-subtitle{max-width:760px;margin:0;color:#aec2c2;font-size:clamp(14px,1.35vw,17px)}
+.header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+#presentation{background:var(--teal);border-color:var(--teal);color:#06211f;font-weight:800;padding:10px 16px}
+#presentation:hover{background:#a4ebd9}
+.header-link{font-size:13px;text-decoration:none;padding:9px 10px;border:1px solid var(--line);border-radius:10px;color:#c6d7d5}
+.view-switcher-wrap{
+  display:grid;grid-template-columns:minmax(190px,.65fr) minmax(0,2.35fr);
+  gap:12px 24px;align-items:center;padding:13px 0 17px;margin-bottom:14px;
+  border-bottom:1px solid var(--line-soft)
+}
+.view-switcher-label strong{display:block;font-size:15px;margin-top:3px}
+.view-switcher{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.view-option{
+  display:flex;gap:11px;align-items:center;text-align:left;padding:11px 13px;
+  min-height:68px;background:rgba(14,34,43,.72);border:1px solid var(--line);
+  border-radius:12px;color:var(--ink)
+}
+.view-option .view-number{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.view-option strong{display:block;font-size:13px;letter-spacing:.005em}
+.view-option small{display:block;margin-top:2px;color:var(--muted);font-size:11px;font-weight:500}
+.view-option[aria-selected=true]{border-color:var(--teal);background:linear-gradient(125deg,rgba(48,117,109,.3),rgba(17,44,54,.92));box-shadow:inset 0 0 0 1px rgba(131,223,204,.12)}
+.view-option[aria-selected=true] .view-number{color:var(--teal)}
+#modeCaption{grid-column:2;margin:0;color:var(--muted);font-size:12px}
+.kicker{color:var(--teal);font-size:10px;font-weight:850;letter-spacing:.17em;text-transform:uppercase}
+.muted{color:var(--muted)}
+.warn{
+  display:flex;gap:10px;align-items:flex-start;padding:13px 16px;margin:17px 0 14px;
+  background:rgba(113,80,40,.14);border:1px solid rgba(233,187,117,.3);
+  border-left:3px solid var(--amber);border-radius:11px;color:#e6d9c6;font-size:13px
+}
+.warn strong{color:#f5cc91;white-space:nowrap}
+.quick-panel{
+  margin:14px 0;padding:21px 23px;background:linear-gradient(120deg,rgba(19,49,60,.96),rgba(12,31,40,.96));
+  border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)
+}
+.quick-panel h2{font-size:clamp(20px,2.4vw,27px);line-height:1.15;letter-spacing:-.025em;margin:5px 0 16px}
+.story-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.story-card{
+  padding:15px 16px;min-height:93px;background:rgba(5,20,27,.42);
+  border:1px solid var(--line-soft);border-radius:13px
+}
+.story-card strong{display:block;font-size:clamp(22px,2vw,29px);font-weight:760;line-height:1.12;letter-spacing:-.035em;margin-bottom:5px;font-variant-numeric:tabular-nums}
+.story-card span{display:block;color:var(--muted);font-size:12px;line-height:1.45}
+.plain-note{padding:12px 15px;margin:11px 0 0;background:rgba(16,45,53,.82);border-left:3px solid var(--teal);border-radius:8px;color:#dcebe7;font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:15px 0 18px}
+.card{
+  padding:15px 17px;min-height:106px;background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;box-shadow:0 8px 22px rgba(0,0,0,.12)
+}
+.card .label,.metricitem .label{color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.035em}
+.card .big{display:block;font-size:clamp(25px,2.2vw,34px);font-weight:780;line-height:1.1;margin:8px 0 4px;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.card small{color:var(--muted);font-size:11px}
+.layout{display:grid;grid-template-columns:minmax(0,1.72fr) minmax(330px,.78fr);gap:15px;align-items:start}
+.panel{
+  min-width:0;background:linear-gradient(165deg,rgba(16,39,49,.98),rgba(10,27,35,.98));
+  border:1px solid var(--line);border-radius:var(--radius);padding:17px;box-shadow:var(--shadow)
+}
+.maphead{display:grid;grid-template-columns:minmax(170px,.8fr) minmax(0,1.6fr);gap:14px;align-items:start;margin-bottom:13px}
+.maphead strong{display:block;font-size:17px;margin-top:4px;line-height:1.25}
+.controls{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.maphead .controls{display:grid;grid-template-columns:repeat(2,minmax(130px,1fr));gap:9px}
+.maphead .controls label{min-width:0}
+.maphead .controls select{width:100%;max-width:100%;font-size:12px}
+.mapbox{height:clamp(430px,55vh,720px);position:relative;overflow:hidden;border:1px solid #355461;border-radius:14px;background:#081820}
+#map{position:absolute;inset:0;width:100%;height:100%;min-height:0}
+.maplibregl-ctrl-group{border:1px solid #6b848a!important;box-shadow:0 3px 12px rgba(0,0,0,.3)!important}
+.maplibregl-ctrl-group button{background:#f4f6f3!important}
+.maplibregl-ctrl-attrib{font-size:10px!important}
+.legend{min-height:28px;margin:9px 0;color:#bfd0cd;font-size:11px}
+.timeline{display:grid;grid-template-columns:auto minmax(90px,1fr) minmax(110px,auto);gap:12px;align-items:center;margin-top:7px;padding:12px;background:#091c24;border:1px solid var(--line-soft);border-radius:12px}
+.timeline .controls{flex-wrap:nowrap}
+.timeline button{min-width:43px;padding:7px 10px;font-weight:750}
+.timeline input{width:100%;accent-color:var(--teal)}
+.timeline small{color:#c3d6d3;font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+#timelineNote{font-size:11px;margin:9px 2px 13px}
+details{margin:10px 0;border:1px solid var(--line-soft);border-radius:11px;background:rgba(4,19,26,.28);overflow:hidden}
+details>summary{cursor:pointer;padding:12px 14px;color:#d8e7e3;font-size:12px;font-weight:720;list-style-position:inside}
+details>summary:hover{background:rgba(131,223,204,.06)}
+details[open]>summary{border-bottom:1px solid var(--line-soft);color:var(--teal)}
+details>*:not(summary){margin-left:13px;margin-right:13px}
+details>p{line-height:1.5}
+.compare-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:13px}
+.compare-controls select{width:100%}
+.compare-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px}
+.compare-map-title{font-size:14px;margin:3px 0 8px}
+.compare-mapbox{height:260px;position:relative;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#081820}
+.compare-mapbox>div{position:absolute;inset:0}
+.scenario-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:13px}
+.scenario-grid input{width:100%;padding:9px;background:#0b2029;border:1px solid #385762;border-radius:9px;color:var(--ink)}
+.scenario-result{padding:10px 0}
+.chart{display:block;width:100%;min-height:170px;height:auto;max-height:290px;margin:10px 0}
+.evidence-panel h2{font-size:clamp(21px,2vw,26px);letter-spacing:-.025em;margin:5px 0 8px}
+#productDescription{font-size:12px}
+.metriclist{display:grid;gap:8px;margin:10px 0}
+.metricitem{
+  padding:11px 12px;background:rgba(6,22,29,.55);border:1px solid var(--line-soft);
+  border-radius:10px;overflow-wrap:anywhere
+}
+.metricitem strong{display:block;font-size:15px;margin:4px 0 2px;font-weight:760}
+.metricitem small{display:block;font-size:11px;color:var(--muted);line-height:1.45}
+.metricitem .label{display:block}
+.evidence-panel>label{margin:14px 0}
+.evidence-panel select{width:100%;max-width:100%}
+.product-list{display:grid;gap:6px;padding:10px 0}
+.product-list>*{padding:9px 10px;background:rgba(7,24,31,.65);border:1px solid var(--line-soft);border-radius:8px}
+.candidate-section{margin:17px 0 0;padding:16px 0 0;border-top:1px solid var(--line)}
+.candidate-section h3{font-size:17px;line-height:1.25;letter-spacing:-.02em;margin:5px 0 7px}
+.candidate-section>p{font-size:12px;line-height:1.5}
+.candidate-section .metricitem{background:rgba(7,24,31,.7)}
+.candidate-section details{margin:8px 0}
+.foot{margin-top:20px;padding:15px 2px;border-top:1px solid var(--line);color:#8da6aa;font-size:11px;line-height:1.6}
+.hidden{display:none!important}
+body[data-dashboard-mode=public] .evidence-only,
+body[data-dashboard-mode=public] .science-only{display:none!important}
+body[data-dashboard-mode=evidence] .science-only{display:none!important}
+body[data-dashboard-mode=science] .public-only{display:none!important}
+body[data-dashboard-mode=public] .layout{grid-template-columns:minmax(0,1fr)}
+body[data-dashboard-mode=public] .map-panel{padding:20px}
+body[data-dashboard-mode=public] .mapbox{height:clamp(460px,62vh,760px)}
+body[data-dashboard-mode=evidence] .layout{grid-template-columns:minmax(0,1.55fr) minmax(320px,.75fr)}
+body[data-dashboard-mode=science] .layout{grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr)}
+body[data-dashboard-mode=science] .mapbox{height:clamp(350px,42vh,540px)}
+body.presentation-active main{width:min(100% - 36px,1800px);padding-top:18px}
+body.presentation-active .site-header{padding-bottom:15px;margin-bottom:10px}
+body.presentation-active .view-switcher-wrap{padding:9px 0 12px}
+body.presentation-active .mapbox{height:min(66vh,760px)}
+body.presentation-active[data-dashboard-mode=science] .mapbox{height:min(48vh,550px)}
+body.presentation-active .quick-panel{padding:15px 18px;margin:10px 0}
+body.presentation-active .story-card{min-height:76px;padding:10px 13px}
+body.presentation-active .story-card strong{font-size:22px}
+@media(max-width:1120px){
+  main{width:min(100% - 36px,1680px)}
+  .layout,body[data-dashboard-mode=evidence] .layout,body[data-dashboard-mode=science] .layout{grid-template-columns:minmax(0,1fr)}
+  .evidence-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
+  .evidence-panel>.kicker,.evidence-panel>h2,.evidence-panel>#productDescription,.evidence-panel>#productMetrics,.evidence-panel>label,.evidence-panel>.candidate-section,.evidence-panel>.science-only,.evidence-panel>.evidence-only{grid-column:1/-1}
+  .maphead{grid-template-columns:1fr}
+  .maphead .controls{grid-template-columns:repeat(3,minmax(120px,1fr))}
+  body[data-dashboard-mode=public] .evidence-panel{display:none}
+}
+@media(max-width:760px){
+  main{width:min(100% - 24px,1680px);padding-top:18px}
+  .site-header{grid-template-columns:1fr;gap:14px}
+  .brand-rail{grid-column:1}
+  .site-header h1{font-size:clamp(31px,9vw,44px)}
+  .header-actions{justify-content:flex-start}
+  .view-switcher-wrap{grid-template-columns:1fr;gap:10px}
+  .view-switcher{grid-template-columns:1fr;gap:6px}
+  .view-option{min-height:54px;padding:8px 11px}
+  #modeCaption{grid-column:1}
+  .warn{display:block}
+  .warn strong{display:block;margin-bottom:4px}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card{min-height:92px;padding:12px}
+  .quick-panel{padding:16px}
+  .story-grid{grid-template-columns:1fr 1fr}
+  .maphead .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mapbox{height:clamp(370px,58vh,620px)}
+  .timeline{grid-template-columns:1fr;gap:9px}
+  .timeline .controls{justify-content:space-between}
+  .timeline small{text-align:left}
+  .evidence-panel{display:block}
+  .compare-controls,.compare-grid{grid-template-columns:1fr}
+  .compare-mapbox{height:235px}
+  .scenario-grid{grid-template-columns:1fr}
+}
+@media(max-width:430px){
+  .dataset-tag{font-size:9px}
+  .brand-note{display:none}
+  .cards{gap:7px}
+  .card .big{font-size:23px}
+  .story-grid{grid-template-columns:1fr}
+  .story-card{min-height:0}
+  .maphead .controls{grid-template-columns:1fr 1fr}
+  .panel{padding:12px}
+  .mapbox{height:390px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
+}
+
+</style></head><body><main>
+<header class="site-header">
+<div class="brand-rail"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">SARGuardian</span><span class="brand-note">Earth in sight · NISAR research results</span><span class="dataset-tag">AOI observation report</span></div>
+<div class="hero-copy"><div class="kicker">Evidence before interpretation</div><h1>What did NISAR observe in this area?</h1><p class="hero-subtitle">A spatial record of the satellite observations, candidate patterns and measurements that this run can—and cannot—support.</p></div>
+<div class="header-actions"><button id="presentation" type="button" aria-pressed="false">Enter presentation</button><a class="header-link" href="../index.html">Processing report <span aria-hidden="true">↗</span></a></div>
+</header>
+<section class="view-switcher-wrap" aria-label="Choose dashboard audience view">
+<div class="view-switcher-label"><div class="kicker">Choose your view</div><strong>One evidence set. Three levels of detail.</strong></div>
+<div class="view-switcher" role="group" aria-label="Dashboard audience view">
+<button type="button" class="view-option" data-sg-mode="public" aria-selected="true" aria-pressed="true"><span class="view-number">01</span><span><strong>Public Discovery</strong><small>What was observed in this area</small></span></button>
+<button type="button" class="view-option" data-sg-mode="evidence" aria-selected="false" aria-pressed="false"><span class="view-number">02</span><span><strong>Explore the Evidence</strong><small>Maps, pairs and candidate patterns</small></span></button>
+<button type="button" class="view-option" data-sg-mode="science" aria-selected="false" aria-pressed="false"><span class="view-number">03</span><span><strong>Scientific Evidence</strong><small>Measurements, gates and provenance</small></span></button>
+</div>
+<p id="modeCaption">A plain-language overview of the AOI, observation coverage and candidate evidence.</p>
+</section>
 <div class="warn"><strong>Read this first:</strong> this page shows what the satellite data supports, what could not be measured, and why. A processing PASS means files and processing checks passed; it does not prove ground movement. A GOFF offset anomaly is not a measured landslide or glacier motion.</div>
 <section class="quick-panel" aria-labelledby="runStoryTitle"><div class="kicker">Start here</div><h2 id="runStoryTitle">What happened in this run?</h2><div id="runStory" class="story-grid"></div><p id="runWindowNote" class="muted"></p><p id="targetFreeNote" class="plain-note"></p></section>
 <div class="cards" id="summaryCards"></div>
-<div class="layout"><section class="panel"><div class="maphead"><div><div class="kicker">Geospatial workspace</div><strong id="mapTitle">Loading map layers…</strong></div><div class="controls"><label>Observed pair band <select id="bandSelect" aria-label="Select raster band"></select></label><label>Scientific layer <select id="derivedLayerSelect" aria-label="Select a derived scientific raster layer"><option value="">Observed pair playback</option></select></label><label>Candidate overlay <select id="candidateOverlaySelect" aria-label="Choose which candidate regions to show on the map"><option value="none">Hide candidate regions</option><option value="legacy">GOFF repeated-region screen</option><option value="extended-goff">GOFF offset-anomaly patterns</option><option value="extended-gunw">GUNW pairwise LOS anomalies</option><option value="extended">All extended anomaly records</option></select></label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="80" aria-label="Raster opacity"></label><label>Speed <select id="speed"><option value="2500">0.5×</option><option value="1500" selected>1×</option><option value="750">2×</option></select></label></div></div><div class="mapbox"><div id="map"></div><div id="mapFallback" class="hidden" style="padding:20px"><strong>Interactive map unavailable.</strong><p>The processing report and georeferenced assets remain in this bundle; the basemap/MapLibre library requires an internet connection.</p></div></div><div id="legend" class="legend"></div><div class="timeline"><div class="controls"><button id="previous" aria-label="Previous observation">◀</button><button id="play">Play</button><button id="next" aria-label="Next observation">▶</button></div><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Observation pair timeline"><small id="dateLabel">—</small></div><p class="muted" id="timelineNote">Each point is a real acquisition pair. No synthetic intermediate observations are created.</p>
-<details id="pairCompare"><summary>Side-by-side observed pair comparison</summary><p class="muted" style="font-size:11px">Compares two actual pairwise raster previews only when both source products have the same product family, track/look and exact source grid. This is not optical before/after imagery, not a computed difference, and not a cumulative trajectory.</p><div class="compare-controls"><label>Observed pair A<select id="compareA"></select></label><label>Observed pair B<select id="compareB"></select></label><label>Shared raster band<select id="compareBand"></select></label></div><p class="muted" id="compareStatus" role="status">Select two compatible observations to compare.</p><div class="compare-grid"><div><h3 id="compareTitleA" class="compare-map-title">Pair A</h3><div class="compare-mapbox"><div id="compareMapA"></div></div><p id="compareLegendA" class="legend"></p></div><div><h3 id="compareTitleB" class="compare-map-title">Pair B</h3><div class="compare-mapbox"><div id="compareMapB"></div></div><p id="compareLegendB" class="legend"></p></div></div></details>
-<details id="scenarioSandbox"><summary>Hypothetical motion sensitivity sandbox (not a forecast)</summary><p class="muted" style="font-size:11px">Enter a hypothetical constant rate and duration to draw a scenario curve. It is generated by the calculator, not NISAR observations, not a landslide/glacier-collapse prediction, and must never be read as an alert. Any displayed noise floor comes only from a measured pair-local floor in this run.</p><div class="scenario-grid"><label>Hypothetical rate (mm/day)<input id="scenarioRate" type="number" min="-500" max="500" step="0.1" placeholder="Enter rate"></label><label>Duration (days)<input id="scenarioDays" type="number" min="1" max="90" step="1" placeholder="Enter duration"></label><div style="display:flex;align-items:end"><button id="simulateScenario" type="button">Simulate scenario</button></div></div><svg id="scenarioChart" class="chart" role="img" aria-label="Explicitly hypothetical cumulative displacement scenario" viewBox="0 0 560 180"></svg><div id="scenarioResult" class="scenario-result muted" role="status">No scenario generated.</div></details>
+<div class="layout" id="dashboardLayout"><section class="panel map-panel"><div class="maphead"><div><div class="kicker">Geospatial workspace</div><strong id="mapTitle">Loading map layers…</strong></div><div class="controls"><label>Observed pair band <select id="bandSelect" aria-label="Select raster band"></select></label><label>Scientific layer <select id="derivedLayerSelect" aria-label="Select a derived scientific raster layer"><option value="">Observed pair playback</option></select></label><label>Candidate overlay <select id="candidateOverlaySelect" aria-label="Choose which candidate regions to show on the map"><option value="none">Hide candidate regions</option><option value="legacy">GOFF repeated-region screen</option><option value="extended-goff">GOFF offset-anomaly patterns</option><option value="extended-gunw">GUNW pairwise LOS anomalies</option><option value="extended">All extended anomaly records</option></select></label><label>Opacity <input id="opacity" type="range" min="0" max="100" value="80" aria-label="Raster opacity"></label><label>Speed <select id="speed"><option value="2500">0.5×</option><option value="1500" selected>1×</option><option value="750">2×</option></select></label></div></div><div class="mapbox"><div id="map"></div><div id="mapFallback" class="hidden" style="padding:20px"><strong>Interactive map unavailable.</strong><p>The processing report and georeferenced assets remain in this bundle; the basemap/MapLibre library requires an internet connection.</p></div></div><div id="legend" class="legend"></div><div class="timeline"><div class="controls"><button id="previous" aria-label="Previous observation">◀</button><button id="play">Play</button><button id="next" aria-label="Next observation">▶</button></div><input id="timeline" type="range" min="0" max="0" value="0" step="1" aria-label="Observation pair timeline"><small id="dateLabel">—</small></div><p class="muted" id="timelineNote">Each point is a real acquisition pair. No synthetic intermediate observations are created.</p>
+<details id="pairCompare" class="evidence-only"><summary>Side-by-side observed pair comparison</summary><p class="muted" style="font-size:11px">Compares two actual pairwise raster previews only when both source products have the same product family, track/look and exact source grid. This is not optical before/after imagery, not a computed difference, and not a cumulative trajectory.</p><div class="compare-controls"><label>Observed pair A<select id="compareA"></select></label><label>Observed pair B<select id="compareB"></select></label><label>Shared raster band<select id="compareBand"></select></label></div><p class="muted" id="compareStatus" role="status">Select two compatible observations to compare.</p><div class="compare-grid"><div><h3 id="compareTitleA" class="compare-map-title">Pair A</h3><div class="compare-mapbox"><div id="compareMapA"></div></div><p id="compareLegendA" class="legend"></p></div><div><h3 id="compareTitleB" class="compare-map-title">Pair B</h3><div class="compare-mapbox"><div id="compareMapB"></div></div><p id="compareLegendB" class="legend"></p></div></div></details>
+<details id="scenarioSandbox" class="science-only"><summary>Hypothetical motion sensitivity sandbox (not a forecast)</summary><p class="muted" style="font-size:11px">Enter a hypothetical constant rate and duration to draw a scenario curve. It is generated by the calculator, not NISAR observations, not a landslide/glacier-collapse prediction, and must never be read as an alert. Any displayed noise floor comes only from a measured pair-local floor in this run.</p><div class="scenario-grid"><label>Hypothetical rate (mm/day)<input id="scenarioRate" type="number" min="-500" max="500" step="0.1" placeholder="Enter rate"></label><label>Duration (days)<input id="scenarioDays" type="number" min="1" max="90" step="1" placeholder="Enter duration"></label><div style="display:flex;align-items:end"><button id="simulateScenario" type="button">Simulate scenario</button></div></div><svg id="scenarioChart" class="chart" role="img" aria-label="Explicitly hypothetical cumulative displacement scenario" viewBox="0 0 560 180"></svg><div id="scenarioResult" class="scenario-result muted" role="status">No scenario generated.</div></details>
 </section>
-<aside class="panel">
+<aside class="panel evidence-panel">
 <div class="kicker">Selected image pair</div><h2 id="productTitle">—</h2><p class="muted" id="productDescription">Choose a real acquisition pair from the list or timeline.</p><div class="metriclist" id="productMetrics"></div>
-<details><summary>Technical measurements and source metadata</summary><div class="metriclist" id="productTechnicalMetrics"></div></details>
+<details class="science-only"><summary>Technical measurements and source metadata</summary><div class="metriclist" id="productTechnicalMetrics"></div></details>
 <label>Jump to an image pair <select id="productSelect"></select></label>
-<details><summary>How much usable data each pair contains</summary><svg id="supportChart" class="chart" role="img" aria-label="Usable pixel support by acquisition pair"></svg><p class="muted" style="font-size:11px">Pixel counts are per product. One map cell may appear in several pairs, so these bars are not unique ground area or a movement trend.</p></details>
-<details><summary>Pair measurements (technical view)</summary><label>Measurement <select id="measurementMetric" aria-label="Select one measurement and its units"></select></label><label>Satellite track <select id="measurementTrack" aria-label="Choose a satellite track"></select></label><svg id="measurementChart" class="chart" role="img" aria-label="Pairwise measurement statistics, not a cumulative time series"></svg><p class="muted" style="font-size:11px">GUNW LOS and GOFF offsets are different measurement families. Bars are separate acquisition pairs, not a connected cumulative trajectory. bars are not connected into a cumulative trend. detection floors are noise bounds, not observed motion.</p></details>
-<details><summary>Why no cumulative network result was produced</summary><div class="kicker">GUNW common-reference diagnostic</div><label>Network <select id="cumulativeNetwork" aria-label="Select eligible common-reference network"></select></label><div id="cumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="cumulativeChart" class="chart" role="img" aria-label="Cumulative LOS diagnostic using actual acquisition epochs"></svg><div class="kicker" style="margin-top:14px">GOFF common-reference diagnostic</div><label>Network / component <select id="goffCumulativeNetwork" aria-label="Select GOFF common-reference network and offset component"></select></label><div id="goffCumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="goffCumulativeChart" class="chart" role="img" aria-label="Cumulative GOFF offset diagnostic using actual acquisition epochs"></svg><p class="muted" style="font-size:11px">A withheld chart means the observations did not meet the network and reference checks. It does not mean zero movement. Any shown series is an AOI-relative research diagnostic, not an independently surveyed stable-ground measurement.</p></details>
-<section class="candidate-section"><div class="kicker">Find Displacements · whole-area scan</div><h3>Where did the screen find unusual SAR patterns?</h3><p class="muted" style="font-size:12px">The two screens below use different methods. Their counts are not added together, and neither is confirmation of ground movement.</p><div id="aoiCandidateStatus" class="muted" role="status"></div><div id="aoiCandidateList" class="metriclist"></div><details><summary id="legacyCandidateSummary">Inspect GOFF repeated-region candidates</summary><div id="aoiLegacyCandidateList" class="metriclist"></div></details><details><summary id="extendedCandidateSummary">Inspect extended candidate records</summary><div id="aoiExtendedCandidateList" class="metriclist"></div></details></section>
-<section class="candidate-section"><div class="kicker">GUNW · target-free LOS analysis</div><h3>Could a reliable multi-date LOS map be calculated?</h3><div id="pixelTimeseriesSummary" class="plain-note" role="status">Checking the available observations…</div><details><summary>Show the technical network checks</summary><div id="pixelTimeseriesStatus" class="muted" role="status"></div><div id="pixelTimeseriesNetworks" class="metriclist"></div></details><p class="muted" style="font-size:11px">This analysis does not need a target point. It is withheld when pairs do not make a connected, sufficiently overlapping and redundant time series. The background is an AOI-derived background, not independently surveyed stable ground.</p></section>
-<section class="candidate-section"><div class="kicker">GUNW · exploratory per-pixel screen</div><h3>How much complete pixel evidence was available?</h3><div id="pixelStackSummary" class="plain-note" role="status">Checking the saved GUNW screen log…</div><details><summary>Show support by track chain</summary><div id="pixelStackChains" class="metriclist"></div><p class="muted" style="font-size:11px">These counts refer to cells with a complete connected series across the pairs in that chain. They are not independent ground samples. Very sparse support cannot represent the whole AOI.</p></details></section>
-<details><summary>Technical stage-by-stage processing status</summary><div id="scienceStages" class="metriclist"></div><p class="muted" style="font-size:11px">Technical module names and gates are preserved here for scientific audit.</p></details>
-<details><summary>Browse all processed image pairs</summary><div class="product-list" id="productList"></div></details><details><summary>Run provenance and scientific limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details>
+<details class="evidence-only"><summary>How much usable data each pair contains</summary><svg id="supportChart" class="chart" role="img" aria-label="Usable pixel support by acquisition pair"></svg><p class="muted" style="font-size:11px">Pixel counts are per product. One map cell may appear in several pairs, so these bars are not unique ground area or a movement trend.</p></details>
+<details class="science-only"><summary>Pair measurements (technical view)</summary><label>Measurement <select id="measurementMetric" aria-label="Select one measurement and its units"></select></label><label>Satellite track <select id="measurementTrack" aria-label="Choose a satellite track"></select></label><svg id="measurementChart" class="chart" role="img" aria-label="Pairwise measurement statistics, not a cumulative time series"></svg><p class="muted" style="font-size:11px">GUNW LOS and GOFF offsets are different measurement families. Bars are separate acquisition pairs, not a connected cumulative trajectory. bars are not connected into a cumulative trend. detection floors are noise bounds, not observed motion.</p></details>
+<details class="science-only"><summary>Why no cumulative network result was produced</summary><div class="kicker">GUNW common-reference diagnostic</div><label>Network <select id="cumulativeNetwork" aria-label="Select eligible common-reference network"></select></label><div id="cumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="cumulativeChart" class="chart" role="img" aria-label="Cumulative LOS diagnostic using actual acquisition epochs"></svg><div class="kicker" style="margin-top:14px">GOFF common-reference diagnostic</div><label>Network / component <select id="goffCumulativeNetwork" aria-label="Select GOFF common-reference network and offset component"></select></label><div id="goffCumulativeStatus" class="muted" role="status">Checking eligibility…</div><svg id="goffCumulativeChart" class="chart" role="img" aria-label="Cumulative GOFF offset diagnostic using actual acquisition epochs"></svg><p class="muted" style="font-size:11px">A withheld chart means the observations did not meet the network and reference checks. It does not mean zero movement. Any shown series is an AOI-relative research diagnostic, not an independently surveyed stable-ground measurement.</p></details>
+<section class="candidate-section"><div class="kicker">Find Displacements · whole-area scan</div><h3>Where did the screen find unusual SAR patterns?</h3><p class="muted" style="font-size:12px">The two screens below use different methods. Their counts are not added together, and neither is confirmation of ground movement.</p><div id="aoiCandidateStatus" class="muted" role="status"></div><div id="aoiCandidateList" class="metriclist"></div><details class="evidence-only"><summary id="legacyCandidateSummary">Inspect GOFF repeated-region candidates</summary><div id="aoiLegacyCandidateList" class="metriclist"></div></details><details class="evidence-only"><summary id="extendedCandidateSummary">Inspect extended candidate records</summary><div id="aoiExtendedCandidateList" class="metriclist"></div></details></section>
+<section class="candidate-section"><div class="kicker">GUNW · target-free LOS analysis</div><h3>Could a reliable multi-date LOS map be calculated?</h3><div id="pixelTimeseriesSummary" class="plain-note" role="status">Checking the available observations…</div><details class="science-only"><summary>Show the technical network checks</summary><div id="pixelTimeseriesStatus" class="muted" role="status"></div><div id="pixelTimeseriesNetworks" class="metriclist"></div></details><p class="muted" style="font-size:11px">This analysis does not need a target point. It is withheld when pairs do not make a connected, sufficiently overlapping and redundant time series. The background is an AOI-derived background, not independently surveyed stable ground.</p></section>
+<section class="candidate-section evidence-only"><div class="kicker">GUNW · exploratory per-pixel screen</div><h3>How much complete pixel evidence was available?</h3><div id="pixelStackSummary" class="plain-note" role="status">Checking the saved GUNW screen log…</div><details class="science-only"><summary>Show support by track chain</summary><div id="pixelStackChains" class="metriclist"></div><p class="muted" style="font-size:11px">These counts refer to cells with a complete connected series across the pairs in that chain. They are not independent ground samples. Very sparse support cannot represent the whole AOI.</p></details></section>
+<details class="science-only"><summary>Technical stage-by-stage processing status</summary><div id="scienceStages" class="metriclist"></div><p class="muted" style="font-size:11px">Technical module names and gates are preserved here for scientific audit.</p></details>
+<details class="evidence-only"><summary>Browse all processed image pairs</summary><div class="product-list" id="productList"></div></details><details class="science-only"><summary>Run provenance and scientific limitations</summary><div id="provenance" class="muted" style="font-size:11px;overflow-wrap:anywhere"></div></details>
 </aside></div>
 <footer class="foot">Map data attribution: © OpenStreetMap contributors. Raster preview is reprojected from the validated clipped GeoTIFF; native raster and per-product records remain the scientific source assets. This is a research viewer, not a hazard-alert service.</footer>
 </main><script src="./dashboard-data.js"></script><script type="module">
@@ -716,7 +957,19 @@ function renderGoffCommonReferenceChart(){
  addText(left,H-17,rows[0].epoch,'start');addText(W-right,H-17,rows[rows.length-1].epoch,'end');addText(W-right,14,'White bars: fit-only 95% interval','end');
 }
 function select(i){if(!n)return;selected=(i+n)%n;renderProduct();}function stop(){playing=false;if(timer)clearInterval(timer);timer=null;$('play').textContent='Play';}function play(){if(!n)return;if(playing){stop();return;}playing=true;$('play').textContent='Pause';timer=setInterval(()=>select((selected+1)%n),Number($('speed').value||1500));}
-$('candidateOverlaySelect').addEventListener('change',applyCandidateOverlay);$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('goffCumulativeNetwork').addEventListener('change',renderGoffCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('derivedLayerSelect').addEventListener('change',renderDerivedLayer);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});$('presentation').addEventListener('click',async()=>{try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen();}catch(e){$('presentation').textContent='Fullscreen unavailable';}});window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderGoffCommonReferenceChart();renderAoiCandidateScreen();renderAOIPixelTimeseriesStatus();renderPixelStackDiagnostic();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
+const sgModeButtons=Array.from(document.querySelectorAll('[data-sg-mode]'));
+const sgModeDescriptions={public:'A plain-language overview of the AOI, observation coverage and candidate evidence.',evidence:'Explore the real acquisition pairs, map layers, playback and spatial candidate records.',science:'Inspect pair measurements, network eligibility, data support, stage diagnostics and run provenance.'};
+function setSgDashboardMode(mode){
+ if(!Object.prototype.hasOwnProperty.call(sgModeDescriptions,mode))return;
+ document.body.dataset.dashboardMode=mode;
+ sgModeButtons.forEach(button=>{const selected=button.dataset.sgMode===mode;button.setAttribute('aria-selected',String(selected));button.setAttribute('aria-pressed',String(selected));});
+ const caption=$('modeCaption');if(caption)caption.textContent=sgModeDescriptions[mode];
+}
+sgModeButtons.forEach((button,index)=>{button.addEventListener('click',()=>setSgDashboardMode(button.dataset.sgMode));button.addEventListener('keydown',event=>{if(event.key!=='ArrowRight'&&event.key!=='ArrowLeft')return;event.preventDefault();const next=(index+(event.key==='ArrowRight'?1:-1)+sgModeButtons.length)%sgModeButtons.length;sgModeButtons[next].focus();setSgDashboardMode(sgModeButtons[next].dataset.sgMode);});});
+setSgDashboardMode('public');
+$('candidateOverlaySelect').addEventListener('change',applyCandidateOverlay);$('timeline').addEventListener('input',e=>{stop();select(Number(e.target.value));});$('productSelect').addEventListener('change',e=>{stop();select(Number(e.target.value));});$('previous').addEventListener('click',()=>{stop();select(selected-1);});$('next').addEventListener('click',()=>{stop();select(selected+1);});$('play').addEventListener('click',play);$('speed').addEventListener('change',()=>{if(playing){stop();play();}});$('measurementTrack').addEventListener('change',renderMeasurementChart);$('measurementMetric').addEventListener('change',renderMeasurementChart);$('cumulativeNetwork').addEventListener('change',renderCommonReferenceChart);$('goffCumulativeNetwork').addEventListener('change',renderGoffCommonReferenceChart);$('bandSelect').addEventListener('change',renderProduct);$('derivedLayerSelect').addEventListener('change',renderDerivedLayer);$('opacity').addEventListener('input',()=>{if(M&&activeLayer&&M.getLayer('raster-'+activeLayer))M.setPaintProperty('raster-'+activeLayer,'raster-opacity',Number($('opacity').value)/100);});function syncSgPresentation(){const active=Boolean(document.fullscreenElement)||document.body.classList.contains('presentation-active');document.body.classList.toggle('presentation-active',active);$('presentation').textContent=active?'Exit presentation':'Enter presentation';$('presentation').setAttribute('aria-pressed',String(active));}
+$('presentation').addEventListener('click',async()=>{const active=document.body.classList.contains('presentation-active')||Boolean(document.fullscreenElement);if(active){document.body.classList.remove('presentation-active');if(document.fullscreenElement){try{await document.exitFullscreen();}catch(e){}}syncSgPresentation();return;}document.body.classList.add('presentation-active');syncSgPresentation();try{if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();}catch(e){$('presentation').title='The browser blocked full screen; the presentation layout remains active.';}syncSgPresentation();});
+document.addEventListener('fullscreenchange',syncSgPresentation);window.addEventListener('beforeunload',()=>{stop();if(compareMapAInstance)compareMapAInstance.remove();if(compareMapBInstance)compareMapBInstance.remove();});renderList();renderChart();renderMeasurementChart();renderCommonReferenceChart();renderGoffCommonReferenceChart();renderAoiCandidateScreen();renderAOIPixelTimeseriesStatus();renderPixelStackDiagnostic();renderSciencePipeline();initComparisonControls();if(n)renderProduct();else $('mapTitle').textContent='No observations available';})();
 </script></body></html>'''
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
