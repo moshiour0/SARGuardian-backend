@@ -925,6 +925,13 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
 
             summary_path = root / "aoi-run-summary.json"
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary["aoi_wide_displacement_screen"] = {
+                "status": "COMPLETED_EXPLORATORY_RANKING",
+                "gunw_per_pixel_stack": {
+                    "status": "COMPLETED_NO_DETECTION",
+                    "interpretation": "Legacy stack status from a broad, non-network-specific run.",
+                },
+            }
             summary["science_diagnostics"] = {
                 "pixel_stack": {
                     "status": "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
