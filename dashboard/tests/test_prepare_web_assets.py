@@ -1018,7 +1018,7 @@ const obs = [
   {product_type: "GUNW", secondary_date: "2026-07-19", id: "GUNW-1"}
 ];
 let activeFamily = "GUNW";
-let selected = 1;
+let selected = familyIndices()[0];
 function familyPosition() {
   const indices = familyIndices();
   const position = indices.indexOf(selected);
