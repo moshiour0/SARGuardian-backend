@@ -88,7 +88,7 @@ def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, A
 
 def classify_pixel_stack(returncode: int, output: str) -> str:
     lower = output.lower()
-    marker = re.search(r"(?m)^PIXEL_STACK_STATUS=(\\S+)\\s*$", output)
+    marker = re.search(r"(?m)^PIXEL_STACK_STATUS=(\S+)\s*$", output)
     if marker and marker.group(1) == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK":
         # The exact-network gate is authoritative. An older or auxiliary
         # per-chain text verdict must never turn NOT TESTABLE into NO DETECTION.
