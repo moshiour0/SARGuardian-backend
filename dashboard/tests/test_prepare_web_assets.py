@@ -1008,7 +1008,7 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
 
         if shutil.which("node"):
             family_start = viewer.index("function familyIndices(family=activeFamily)")
-            family_end = viewer.index("\\nfunction familyPosition()", family_start)
+            family_end = viewer.index("function familyPosition()", family_start)
             family_helper = viewer[family_start:family_end]
             playback_logic = family_helper + """
 const obs = [
