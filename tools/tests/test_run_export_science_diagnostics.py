@@ -47,6 +47,11 @@ def test_candidate_checker_option_detection_does_not_confuse_aoi_csv_with_aoi():
 
 def test_pixel_stack_result_is_not_misreported_as_hazard_confirmation():
     assert classify_pixel_stack(0, "VERDICT: NO DETECTION. Cluster is within noise null.") == "COMPLETED_NO_DETECTION"
+    assert classify_pixel_stack(
+        0,
+        "PIXEL_STACK_STATUS=WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK\n"
+        "VERDICT: NO DETECTION. Legacy text must not override the strict gate.",
+    ) == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK"
     assert classify_pixel_stack(0, "cluster exceeds the noise-only 95th percentile") == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
     assert classify_pixel_stack(0, "VERDICT: NO DETECTION in chain A; chain B cluster exceeds the noise-only 95th percentile") == "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
     assert classify_pixel_stack(1, "No contiguous chain of 2+ pairs; nothing to stack.") == "INSUFFICIENT_TEMPORAL_COVERAGE"

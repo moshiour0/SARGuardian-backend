@@ -88,14 +88,21 @@ def collect_pr_gunw_exports(exports_root: Path, target_dir: Path) -> dict[str, A
 
 def classify_pixel_stack(returncode: int, output: str) -> str:
     lower = output.lower()
+    marker = re.search(r"(?m)^PIXEL_STACK_STATUS=(\S+)\s*$", output)
+    if marker and marker.group(1) == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK":
+        # The exact-network gate is authoritative. An older or auxiliary
+        # per-chain text verdict must never turn NOT TESTABLE into NO DETECTION.
+        return marker.group(1)
     if returncode == 0:
         # One invocation can report multiple temporal/geometry chains.
-        # A candidate in any chain must not be hidden by another chain's null.
+        # A candidate in any eligible chain must not be hidden by another chain's null.
         if "cluster exceeds the noise-only 95th percentile" in lower:
             return "COMPLETED_CANDIDATE_REQUIRES_CROSS_CHECK"
         if "verdict: no detection" in lower:
             return "COMPLETED_NO_DETECTION"
         return "COMPLETED"
+    if marker and marker.group(1) == "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK":
+        return marker.group(1)
     if any(fragment in lower for fragment in KNOWN_INSUFFICIENT):
         return "INSUFFICIENT_TEMPORAL_COVERAGE"
     return "FAIL"
