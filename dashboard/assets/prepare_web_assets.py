@@ -593,7 +593,7 @@ body.presentation-active .story-card strong{font-size:22px}
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
 
-.advanced-controls{display:flex}
+
 body[data-dashboard-mode=public] .advanced-controls{display:none!important}
 body[data-dashboard-mode=evidence] .public-only,
 body[data-dashboard-mode=science] .public-only{display:none!important}
