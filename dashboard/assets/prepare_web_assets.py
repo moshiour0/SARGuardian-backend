@@ -593,6 +593,22 @@ body.presentation-active .story-card strong{font-size:22px}
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
 }
 
+.public-candidate-results{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.public-candidate-results-title{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.public-candidate-results-title strong{font-size:15px}
+.public-candidate-results-title span,.public-candidate-footnote{font-size:11px;line-height:1.5;color:var(--muted)}
+.public-candidate-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.public-candidate-card{min-width:0;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(5,19,26,.68);display:flex;flex-direction:column;gap:6px}
+.public-candidate-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.public-candidate-head strong{display:block;font-size:12px;overflow-wrap:anywhere}
+.public-candidate-track{font-size:10px;color:var(--muted);white-space:nowrap}
+.public-candidate-location{font-size:13px;font-weight:650;letter-spacing:.01em}
+.public-candidate-stats{display:flex;flex-wrap:wrap;gap:5px 10px;font-size:10px;color:var(--muted)}
+.public-candidate-card>small{font-size:10px;line-height:1.4;color:var(--muted)}
+.candidate-focus{align-self:flex-start;margin-top:3px;padding:7px 10px;border:1px solid var(--edge);border-radius:7px;background:rgba(102,226,211,.08);color:var(--text);font-size:11px;cursor:pointer}
+.candidate-focus:hover{border-color:var(--accent);background:rgba(102,226,211,.16)}
+.candidate-focus:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:760px){.public-candidate-list{grid-template-columns:minmax(0,1fr)}.evidence-panel{grid-template-columns:minmax(0,1fr)}}
 </style></head><body><main>
 <header class="site-header">
 <div class="brand-rail"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">SARGuardian</span><span class="brand-note">Earth in sight · NISAR research results</span><span class="dataset-tag">AOI observation report</span></div>
