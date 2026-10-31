@@ -952,6 +952,17 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
             self.assertEqual(diagnostic["pairs_examined"], 15)
             self.assertEqual(diagnostic["exact_networks"], 15)
             self.assertEqual(diagnostic["networks_with_2_plus_pairs"], 0)
+            self.assertEqual(
+                manifest["aoi_wide_displacement_screen"]["gunw_per_pixel_stack"]["status"],
+                "WITHHELD_NO_COMPATIBLE_REPEATED_NETWORK",
+            )
+            self.assertEqual(
+                manifest["aoi_wide_displacement_screen"]["gunw_per_pixel_stack"]["legacy_reported_status"],
+                "COMPLETED_NO_DETECTION",
+            )
+            self.assertTrue(
+                manifest["aoi_wide_displacement_screen"]["gunw_per_pixel_stack"]["legacy_status_superseded"]
+            )
             self.assertEqual(diagnostic["chains"], [])
             self.assertIn("NOT TESTABLE, not NO DETECTION", diagnostic["interpretation"])
             self.assertIn("different measurement networks", diagnostic["interpretation"])
@@ -971,6 +982,11 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
         self.assertIn('aria-selected="true"', viewer)
         self.assertIn("function setSgDashboardMode(mode)", viewer)
         self.assertIn("body[data-dashboard-mode=public] .science-only", viewer)
+        self.assertNotIn("body[data-dashboard-mode=public] .evidence-panel{display:none}", viewer)
+        self.assertIn("public-candidate-results", viewer)
+        self.assertIn("Where did recurring offset patterns appear?", viewer)
+        self.assertIn("runPlainConclusion", viewer)
+        self.assertIn("Locate on map", viewer)
         self.assertIn("body[data-dashboard-mode=evidence] .science-only", viewer)
         self.assertIn("presentation-active", viewer)
         self.assertIn("if(!document.fullscreenElement)document.body.classList.remove('presentation-active')", viewer)
