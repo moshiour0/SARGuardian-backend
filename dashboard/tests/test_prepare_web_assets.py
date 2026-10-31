@@ -1003,6 +1003,7 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
         self.assertIn("function setFamily(family)", viewer)
         self.assertIn("timer=setInterval(()=>select((familyPosition()+1)%familyIndices().length)", viewer)
         self.assertIn("body[data-dashboard-mode=public] .advanced-controls", viewer)
+        self.assertNotIn(".advanced-controls{display:flex}", viewer)
         self.assertIn("function renderPublicLegend(l)", viewer)
         self.assertNotIn("timer=setInterval(()=>select((selected+1)%n)", viewer)
 
