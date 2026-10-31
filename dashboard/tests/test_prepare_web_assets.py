@@ -991,9 +991,58 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
         self.assertIn("body[data-dashboard-mode=public] .science-only", viewer)
         self.assertNotIn("body[data-dashboard-mode=public] .evidence-panel{display:none}", viewer)
         self.assertIn("public-candidate-results", viewer)
-        self.assertIn("Where did recurring offset patterns appear?", viewer)
+        self.assertIn("publicCandidateResults", viewer)
+        self.assertIn("function renderPublicCandidateCards(family=activeFamily)", viewer)
         self.assertIn("runPlainConclusion", viewer)
         self.assertIn("Locate on map", viewer)
+        self.assertIn('data-public-family="GUNW"', viewer)
+        self.assertIn('data-public-family="GOFF"', viewer)
+        self.assertIn('id="publicTimeline"', viewer)
+        self.assertIn('id="publicPlay"', viewer)
+        self.assertIn("function familyIndices(family=activeFamily)", viewer)
+        self.assertIn("function setFamily(family)", viewer)
+        self.assertIn("timer=setInterval(()=>select((familyPosition()+1)%familyIndices().length)", viewer)
+        self.assertIn("body[data-dashboard-mode=public] .advanced-controls", viewer)
+        self.assertIn("function renderPublicLegend(l)", viewer)
+        self.assertNotIn("timer=setInterval(()=>select((selected+1)%n)", viewer)
+
+        if shutil.which("node"):
+            family_start = viewer.index("function familyIndices(family=activeFamily)")
+            family_end = viewer.index("function familyPosition()", family_start)
+            family_helper = viewer[family_start:family_end]
+            playback_logic = family_helper + """
+const obs = [
+  {product_type: "GOFF", secondary_date: "2026-07-19", id: "GOFF-2"},
+  {product_type: "GUNW", secondary_date: "2026-08-14", id: "GUNW-2"},
+  {product_type: "GOFF", secondary_date: "2026-07-07", id: "GOFF-1"},
+  {product_type: "GUNW", secondary_date: "2026-07-19", id: "GUNW-1"}
+];
+let activeFamily = "GUNW";
+let selected = familyIndices()[0];
+function familyPosition() {
+  const indices = familyIndices();
+  const position = indices.indexOf(selected);
+  return position >= 0 ? position : 0;
+}
+function select(position) {
+  const indices = familyIndices();
+  selected = indices[(position + indices.length) % indices.length];
+}
+if (familyIndices().map(i => obs[i].id).join(",") !== "GUNW-1,GUNW-2") {
+  throw new Error("GUNW_SEQUENCE_MIXED_OR_NOT_DATE_SORTED");
+}
+select((familyPosition() + 1) % familyIndices().length);
+if (obs[selected].id !== "GUNW-2") throw new Error("GUNW_NEXT_ESCAPED_FAMILY");
+activeFamily = "GOFF";
+selected = familyIndices()[0];
+if (familyIndices().map(i => obs[i].id).join(",") !== "GOFF-1,GOFF-2") {
+  throw new Error("GOFF_SEQUENCE_MIXED_OR_NOT_DATE_SORTED");
+}
+select((familyPosition() + 1) % familyIndices().length);
+if (obs[selected].id !== "GOFF-2") throw new Error("GOFF_NEXT_ESCAPED_FAMILY");
+"""
+            family_check = subprocess.run(["node", "-e", playback_logic], capture_output=True, text=True)
+            self.assertEqual(family_check.returncode, 0, family_check.stderr)
         self.assertIn("body[data-dashboard-mode=evidence] .science-only", viewer)
         self.assertIn("presentation-active", viewer)
         self.assertIn("if(!document.fullscreenElement)document.body.classList.remove('presentation-active')", viewer)
