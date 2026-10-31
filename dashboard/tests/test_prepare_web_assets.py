@@ -15,7 +15,7 @@ from PIL import Image
 from rasterio.transform import from_bounds
 from rasterio.warp import transform_bounds
 
-from dashboard.assets.prepare_web_assets import prepare_web_dashboard
+from dashboard.assets.prepare_web_assets import prepare_web_dashboard, write_viewer
 
 
 class PrepareWebAssetsTests(unittest.TestCase):
@@ -958,6 +958,27 @@ VERDICT: NOT TESTABLE. No two consecutive pair intervals share the same complete
             viewer = (root / "web-dashboard" / "index.html").read_text(encoding="utf-8")
             self.assertIn("No compatible multi-date GUNW network", viewer)
             self.assertIn("NOT TESTABLE, not NO DETECTION", viewer)
+
+
+    def test_viewer_has_functional_audience_views_and_presentation_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            viewer_path = Path(temporary) / "index.html"
+            write_viewer(viewer_path)
+            viewer = viewer_path.read_text(encoding="utf-8")
+
+        for mode in ("public", "evidence", "science"):
+            self.assertIn(f'data-sg-mode="{mode}"', viewer)
+        self.assertIn('aria-selected="true"', viewer)
+        self.assertIn("function setSgDashboardMode(mode)", viewer)
+        self.assertIn("body[data-dashboard-mode=public] .science-only", viewer)
+        self.assertIn("body[data-dashboard-mode=evidence] .science-only", viewer)
+        self.assertIn("presentation-active", viewer)
+        self.assertIn('id="map"', viewer)
+        self.assertIn('id="timeline"', viewer)
+        self.assertIn('id="aoiCandidateList"', viewer)
+        self.assertIn('id="pixelTimeseriesSummary"', viewer)
+        self.assertIn('id="scienceStages"', viewer)
+        self.assertIn('id="provenance"', viewer)
 
 
 if __name__ == "__main__":
