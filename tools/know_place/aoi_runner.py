@@ -29,7 +29,13 @@ import numpy as np
 from .aoi_request import AOIRequest, AOIRequestError, validate_aoi_request
 from .dashboard import write_dashboard
 from .interactive_map import write_interactive_map
-from .geometry import build_analysis_roi, parse_polygon_wkt, project_wkt_ring
+from .geometry import (
+    build_analysis_roi,
+    build_independent_reference_roi,
+    parse_polygon_wkt,
+    polygon_pair_envelope_wkt,
+    project_wkt_ring,
+)
 from .goff_io import (
     GoffReadError,
     inspect_goff_grid,
@@ -350,6 +356,13 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
 
     try:
         requested_maturities = tuple(request.allowed_maturities)
+        # When a separate background polygon is supplied, search the envelope
+        # spanning both geometries so ASF discovery cannot omit a granule that
+        # covers the measurement area but not the selected reference (or vice versa).
+        search_wkt = (
+            polygon_pair_envelope_wkt(request.aoi_wkt, request.reference_wkt, 4326)
+            if request.reference_wkt else request.aoi_wkt
+        )
         # Query exact maturity-specific GOFF collections. Combining processingLevel
         # with dataMaturity can map both aliases to conflicting collection names.
         short_name_filter: list[str]
@@ -360,7 +373,7 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
             dataset="NISAR",
             shortName=short_name_filter,
             collectionAlias=False,
-            intersectsWith=request.aoi_wkt,
+            intersectsWith=search_wkt,
             start=f"{request.start_date.isoformat()}T00:00:00Z",
             end=f"{request.end_date.isoformat()}T23:59:59Z",
             mainBandPolarization=request.polarization,
@@ -464,7 +477,10 @@ def discover_nisar_goff(request: AOIRequest) -> tuple[list[dict[str, Any]], dict
         "query": {
             "dataset": "NISAR",
             "processing_level": "GOFF",
-            "intersects_wkt_sha256": _sha256_text(request.aoi_wkt),
+            "intersects_wkt_sha256": _sha256_text(search_wkt),
+            "catalog_search_geometry": "measurement_reference_combined_envelope" if request.reference_wkt else "measurement_polygon",
+            "measurement_wkt_sha256": _sha256_text(request.aoi_wkt),
+            "reference_wkt_sha256": _sha256_text(request.reference_wkt) if request.reference_wkt else None,
             "start_utc": f"{request.start_date.isoformat()}T00:00:00Z",
             "end_utc": f"{request.end_date.isoformat()}T23:59:59Z",
             "main_band_polarization": request.polarization,
@@ -684,6 +700,7 @@ def _preview(
     *,
     east_m: np.ndarray | None = None,
     north_m: np.ndarray | None = None,
+    reference_ring_projected: tuple[tuple[float, float], ...] | None = None,
     max_side: int = 72,
 ) -> dict[str, Any]:
     """Make a lightweight magnitude and direction preview; never used for metrics."""
@@ -746,6 +763,9 @@ def _preview(
         result["east_values_m"] = east_values
         result["north_values_m"] = north_values
         result["vector_preview_note"] = "Arrow orientation shows mean east/north direction per block; arrow length is symbolic."
+    if reference_ring_projected is not None:
+        result["reference_ring_xy"] = [[float(px), float(py)] for px, py in reference_ring_projected]
+        result["reference_preview_note"] = "Separate user-drawn background polygon; its stability is not independently validated."
     return result
 
 
@@ -983,21 +1003,41 @@ def run_aoi_analysis(
                 else _grid_lattice_compatible(previous_grid, grid)
             )
             previous_grid_by_chain[chain_id] = grid
-            roi_box_wkt = request.reference_wkt or _processing_extent_wkt(
-                request.aoi_wkt, grid.epsg, request.reference_buffer_m
-            )
+            if request.reference_wkt:
+                # Generic Known Place reference polygons are independent background
+                # regions. Bound the memory check over both polygons, then rasterize
+                # disjoint masks on the exact native GOFF grid.
+                roi_box_wkt = polygon_pair_envelope_wkt(
+                    request.aoi_wkt, request.reference_wkt, grid.epsg,
+                )
+                roi_builder = build_independent_reference_roi
+            else:
+                # Preserve the legacy local-context box/crown path when no explicit
+                # reference polygon is supplied.
+                roi_box_wkt = _processing_extent_wkt(
+                    request.aoi_wkt, grid.epsg, request.reference_buffer_m
+                )
+                roi_builder = build_analysis_roi
             estimated_window_cells = _estimate_roi_window_cells(
                 grid.x_coordinates_m, grid.y_coordinates_m, roi_box_wkt, grid.epsg,
             )
             if estimated_window_cells == 0:
                 raise AOIRunError(
-                    "REFERENCE_BOX_DOES_NOT_INTERSECT_GOFF_GRID",
-                    "The requested AOI/reference context has no grid-cell centres in this GOFF product",
+                    "MEASUREMENT_REFERENCE_WINDOW_DOES_NOT_INTERSECT_GOFF_GRID",
+                    "The measurement/reference polygons have no grid-cell centres in this GOFF product",
                 )
-            roi = build_analysis_roi(
-                grid.x_coordinates_m, grid.y_coordinates_m, grid.epsg,
-                box_wkt=roi_box_wkt, crown_wkt=request.aoi_wkt,
-            )
+            if request.reference_wkt:
+                roi = roi_builder(
+                    grid.x_coordinates_m, grid.y_coordinates_m, grid.epsg,
+                    measurement_wkt=request.aoi_wkt,
+                    reference_wkt=request.reference_wkt,
+                    scope_wkt=request.scope_aoi_wkt,
+                )
+            else:
+                roi = roi_builder(
+                    grid.x_coordinates_m, grid.y_coordinates_m, grid.epsg,
+                    box_wkt=roi_box_wkt, crown_wkt=request.aoi_wkt,
+                )
             xx, yy = np.meshgrid(roi.x_coordinates_m, roi.y_coordinates_m)
             raw = read_raw_goff(
                 source_path, polarization=request.polarization, layer=2,
@@ -1188,6 +1228,14 @@ def run_aoi_analysis(
                 },
                 "background_correction": background_info,
                 "reference_policy": reference_status,
+                "reference_geometry": {
+                    "type": "INDEPENDENT_USER_POLYGON" if roi.reference_mask is not None else "LOCAL_CONTEXT_OUTSIDE_MEASUREMENT",
+                    "measurement_valid_grid_cells": int(roi.crown_mask.sum()),
+                    "reference_grid_cells": int((roi.reference_mask if roi.reference_mask is not None else (roi.box_mask & ~roi.crown_mask)).sum()),
+                    "stability_status": "USER_SELECTED_NOT_INDEPENDENTLY_VERIFIED" if roi.reference_mask is not None else "LOCAL_CONTEXT_STABILITY_ASSUMPTION_NOT_VERIFIED",
+                    "overlap_status": "NO_OVERLAP_OR_TOUCH_VERIFIED_ON_PROJECTED_POLYGONS" if roi.reference_mask is not None else "MEASUREMENT_MASK_SUBTRACTED_FROM_LOCAL_CONTEXT",
+                    "outer_aoi_status": "BOTH_POLYGONS_VERIFIED_INSIDE_OUTER_AOI" if request.scope_aoi_wkt else "OUTER_AOI_NOT_SUPPLIED",
+                },
                 "quality_policy": {
                     "minimum_snr": request.min_snr,
                     "maximum_horizontal_magnitude_m": request.max_horizontal_magnitude_m,
@@ -1282,7 +1330,11 @@ def run_aoi_analysis(
                 high_magnitude_flag=high_magnitude_flag.astype(np.uint8),
                 uncorrected_horizontal_magnitude_m=uncorrected_mag.astype(np.float32),
                 aoi_mask=roi.crown_mask.astype(np.uint8),
-                reference_mask=roi.box_mask.astype(np.uint8),
+                reference_mask=(
+                    roi.reference_mask
+                    if roi.reference_mask is not None
+                    else (roi.box_mask & ~roi.crown_mask)
+                ).astype(np.uint8),
                 x_coordinates_m=roi.x_coordinates_m.astype(np.float64),
                 y_coordinates_m=roi.y_coordinates_m.astype(np.float64),
             )
@@ -1298,6 +1350,7 @@ def run_aoi_analysis(
                     magnitude, roi.x_coordinates_m, roi.y_coordinates_m,
                     roi.crown_ring_projected,
                     east_m=corrected_east, north_m=corrected_north,
+                    reference_ring_projected=roi.reference_ring_projected,
                 ),
                 "interpretation": "Measurement-only output. Hazard classification is not evaluated by this measurement engine.",
             })

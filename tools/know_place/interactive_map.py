@@ -104,6 +104,29 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         ring, aoi_error = [], f"AOI polygon could not be rendered ({type(exc).__name__})"
 
+    reference = request.get("reference", {}) if isinstance(request, dict) else {}
+    reference_wkt = reference.get("polygon_wkt", "") if isinstance(reference, dict) else ""
+    reference_warning = str(reference.get("warning", ""))[:500] if isinstance(reference, dict) else ""
+    try:
+        reference_ring = (
+            [[float(lon), float(lat)] for lon, lat in parse_polygon_wkt(reference_wkt)]
+            if reference_wkt else []
+        )
+        reference_error = None
+    except Exception as exc:
+        reference_ring, reference_error = [], f"Reference polygon could not be rendered ({type(exc).__name__})"
+
+    scope = request.get("scope_aoi", {}) if isinstance(request, dict) else {}
+    scope_wkt = scope.get("wkt", "") if isinstance(scope, dict) else ""
+    try:
+        scope_ring = (
+            [[float(lon), float(lat)] for lon, lat in parse_polygon_wkt(scope_wkt)]
+            if scope_wkt else []
+        )
+        scope_error = None
+    except Exception as exc:
+        scope_ring, scope_error = [], f"Outer AOI polygon could not be rendered ({type(exc).__name__})"
+
     dates = request.get("date_range", {}) if isinstance(request, dict) else {}
     safe_pairs: list[dict[str, Any]] = []
     source_pairs = report.get("pairs", []) if isinstance(report, dict) else []
@@ -126,6 +149,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
                 safe_preview = {
                     "values": [[_finite_number(value) for value in row] for row in values],
                     "bounds": _preview_bounds_wgs84(preview, pair.get("epsg")),
+                    "stride_cells": int(preview.get("stride_cells", 1)) if isinstance(preview.get("stride_cells"), (int, float)) else 1,
                     "support_mask_label": str(preview.get("support_mask_label", ""))[:200],
                 }
         geotiff = pair.get("geotiff_file")
@@ -140,6 +164,7 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
             "label": f"{pair.get('reference_date', '?')} → {pair.get('secondary_date', '?')} | {pair.get('release_id', 'release unknown')} | {pair.get('status', 'UNKNOWN')}",
             "reference_date": str(pair.get("reference_date", "")),
             "secondary_date": str(pair.get("secondary_date", "")),
+            "interval_days": _finite_number(pair.get("interval_days")),
             "release_id": str(pair.get("release_id", "")),
             "status": str(pair.get("status", "UNKNOWN")),
             "epsg": pair.get("epsg"),
@@ -159,6 +184,11 @@ def _map_payload(report: dict[str, Any]) -> dict[str, Any]:
         "aoi_ring_lon_lat": ring,
         "aoi_error": aoi_error,
         "aoi_geometry_note": geometry_note_raw,
+        "scope_aoi_ring_lon_lat": scope_ring,
+        "scope_aoi_error": scope_error,
+        "reference_ring_lon_lat": reference_ring,
+        "reference_error": reference_error,
+        "reference_warning": reference_warning,
         "start_date": str(dates.get("start", "?")) if isinstance(dates, dict) else "?",
         "end_date": str(dates.get("end", "?")) if isinstance(dates, dict) else "?",
         "structural_status": str(report.get("structural_status", "UNKNOWN")),
@@ -179,6 +209,13 @@ def build_interactive_map_html(report: dict[str, Any]) -> str:
     geometry_note_raw = str(aoi.get("geometry_note", ""))[:500] if isinstance(aoi, dict) else ""
     geometry_note = html.escape(geometry_note_raw)
     geometry_note_class = "" if geometry_note_raw else "hidden"
+    scope = request.get("scope_aoi", {}) if isinstance(request, dict) else {}
+    scope_wkt = scope.get("wkt", "") if isinstance(scope, dict) else ""
+    scope_label = html.escape(str(scope_wkt or "not provided")[:220])
+    reference = request.get("reference", {}) if isinstance(request, dict) else {}
+    reference_wkt = reference.get("polygon_wkt", "") if isinstance(reference, dict) else ""
+    reference_warning_raw = str(reference.get("warning", ""))[:500] if isinstance(reference, dict) else ""
+    reference_warning = html.escape(reference_warning_raw)
     start = html.escape(str(dates.get("start", "?"))) if isinstance(dates, dict) else "?"
     end = html.escape(str(dates.get("end", "?"))) if isinstance(dates, dict) else "?"
     template = """<!doctype html>
@@ -196,7 +233,7 @@ header{display:flex;align-items:end;justify-content:space-between;gap:16px;flex-
 button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radius:7px;padding:9px;cursor:pointer}button:hover{background:#214a68}.check{display:flex;gap:8px;align-items:center}.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.status{border:1px solid var(--line);border-radius:8px;padding:8px;overflow-wrap:anywhere}.status small{display:block;color:var(--muted);font-size:11px}.status strong{font-size:12px}.warn{border-left:3px solid var(--warn);padding:8px 10px;margin-top:12px}.legendbar{height:10px;border-radius:99px;background:linear-gradient(90deg,#274c77,#38b2ac,#f6d365,#d73027);margin:6px 0}.hidden{display:none!important}
 @media(max-width:920px){main{padding:12px}.layout{grid-template-columns:minmax(0,1fr);width:100%;max-width:100%}#map{height:55vh;min-height:340px}}
 </style></head><body><main>
-<header><div><div class="eyebrow">SARGuardian / Know Place Analysis</div><h1>Interactive AOI map</h1><p>AOI: <strong>__AOI__</strong></p><p class="muted __GEOMETRY_NOTE_CLASS__" id="geometry-note">__GEOMETRY_NOTE__</p><p>Inclusive UTC window: __START__ → __END__</p></div><div class="muted">Map preview is for presentation and quality review, not scientific remeasurement.</div></header>
+<header><div><div class="eyebrow">SARGuardian / Know Place Analysis</div><h1>Interactive measurement map</h1><p>Outer AOI boundary: <strong>__SCOPE_AOI__</strong></p><p>Measurement polygon: <strong>__AOI__</strong></p><p class="muted __GEOMETRY_NOTE_CLASS__" id="geometry-note">__GEOMETRY_NOTE__</p><p id="reference-note" class="muted">Reference polygon: __REFERENCE_NOTE__</p><p>Inclusive UTC window: __START__ → __END__</p></div><div class="muted">Map preview is for presentation and quality review, not scientific remeasurement.</div></header>
 <div class="status-grid">
 <div class="status"><small>Structural status</small><strong id="structural-status"></strong></div>
 <div class="status"><small>Measurement status</small><strong id="measurement-status"></strong></div>
@@ -209,8 +246,8 @@ button{background:#17344c;color:var(--text);border:1px solid #315b79;border-radi
 <aside class="panel controls">
 <div class="field"><label for="pair-select">Acquisition pair</label><select id="pair-select"></select></div>
 <div class="field"><label for="opacity">Displacement overlay opacity</label><input id="opacity" type="range" min="0" max="1" step="0.05" value="0.72"><span id="opacity-value" class="muted">72%</span></div>
-<label class="check"><input id="show-aoi" type="checkbox" checked> Show AOI boundary</label><button id="fit-aoi" type="button">Zoom to AOI</button>
-<div><h2>Magnitude preview</h2><div class="legendbar"></div><div id="raster-range" class="muted">No raster selected</div><p id="transparency-note">Transparent pixels mean no preview value, not zero motion.</p></div>
+<label class="check"><input id="show-scope-aoi" type="checkbox" checked> Show outer AOI boundary</label><label class="check"><input id="show-aoi" type="checkbox" checked> Show measurement polygon</label><label class="check"><input id="show-reference" type="checkbox" checked> Show reference/background polygon</label><button id="fit-aoi" type="button">Zoom to all polygons</button>
+<div><h2>Magnitude preview</h2><div class="legendbar"></div><div id="raster-range" class="muted">No raster selected</div><p id="transparency-note">Transparent pixels mean no preview value, not zero motion.</p><p id="preview-pixel-readout" class="muted" role="status" aria-live="polite">Click a coloured raster preview block to inspect its block-median value. This is not a native-grid pixel measurement.</p></div>
 <div><h2>Selected interval</h2><p id="pair-label">No pair selected</p><p id="pair-status" class="muted"></p><div class="status-grid">
 <div class="status"><small id="valid-pixels-label">Valid AOI pixels</small><strong id="valid-pixels">—</strong></div>
 <div class="status"><small>Median magnitude</small><strong id="median-magnitude">Unavailable</strong></div>
@@ -227,6 +264,7 @@ const mapData = __MAP_DATA__;
 const el = (id) => document.getElementById(id);
 el("structural-status").textContent = mapData.structural_status;
 el("measurement-status").textContent = mapData.measurement_status;
+el("reference-note").textContent = mapData.reference_error || (mapData.reference_warning || (mapData.reference_ring_lon_lat.length ? "Reference polygon selected; its stability is not independently verified." : "No separate reference polygon supplied; local-context assumptions apply."));
 const paperStatusDisplay = {
   "PARTIAL_AUTHOR_SITE_AND_FOOTPRINT_NUMERICS_MATCH_DISPLACEMENT_NULL_STILL_UNVERIFIED": "PARTIAL — numeric checks match; original null-generator identity unverified"
 };
@@ -242,13 +280,27 @@ if (typeof L === "undefined") {
     maxZoom:19,
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+  let scopeAoiLayer = null;
   let aoiLayer = null;
+  let referenceLayer = null;
+  if (Array.isArray(mapData.scope_aoi_ring_lon_lat) && mapData.scope_aoi_ring_lon_lat.length >= 4) {
+    scopeAoiLayer = L.polygon(mapData.scope_aoi_ring_lon_lat.map((point)=>[point[1],point[0]]), {
+      color:"#f8fbff", weight:3, dashArray:"3 6", fillColor:"#ffffff", fillOpacity:0.015
+    }).addTo(map);
+  }
   if (Array.isArray(mapData.aoi_ring_lon_lat) && mapData.aoi_ring_lon_lat.length >= 4) {
     aoiLayer = L.polygon(mapData.aoi_ring_lon_lat.map((point)=>[point[1],point[0]]), {
       color:"#ffcc66", weight:3, fillColor:"#ffcc66", fillOpacity:0.08
     }).addTo(map);
-    map.fitBounds(aoiLayer.getBounds().pad(0.14));
-  } else map.setView([20,0],2);
+  }
+  if (Array.isArray(mapData.reference_ring_lon_lat) && mapData.reference_ring_lon_lat.length >= 4) {
+    referenceLayer = L.polygon(mapData.reference_ring_lon_lat.map((point)=>[point[1],point[0]]), {
+      color:"#38bdf8", weight:3, dashArray:"7 5", fillColor:"#38bdf8", fillOpacity:0.05
+    }).addTo(map);
+  }
+  const geometryLayers = [scopeAoiLayer, aoiLayer, referenceLayer].filter(Boolean);
+  if (geometryLayers.length) map.fitBounds(L.featureGroup(geometryLayers).getBounds().pad(0.14));
+  else map.setView([20,0],2);
 
   let rasterLayer = null;
   const pairSelect = el("pair-select");
@@ -300,11 +352,33 @@ if (typeof L === "undefined") {
     transparencyNote.textContent=(pair.preview&&pair.preview.support_mask_label)||"Transparent pixels mean no preview value, not zero motion.";
     const image=imageData(pair.preview);
     if(image){
-      rasterLayer=L.imageOverlay(image.url,pair.preview.bounds,{opacity:Number(el("opacity").value),interactive:false}).addTo(map);
+      rasterLayer=L.imageOverlay(image.url,pair.preview.bounds,{opacity:Number(el("opacity").value),interactive:true}).addTo(map);
+      rasterLayer.on("click",(event)=>{
+        const values=pair.preview.values||[];
+        const bounds=pair.preview.bounds||[];
+        if(!values.length||!values[0]||bounds.length!==2||!bounds[0]||!bounds[1])return;
+        const south=Number(bounds[0][0]),west=Number(bounds[0][1]),north=Number(bounds[1][0]),east=Number(bounds[1][1]);
+        const width=values[0].length,height=values.length;
+        if(!(east>west&&north>south&&width>0&&height>0))return;
+        const col=Math.max(0,Math.min(width-1,Math.floor(((event.latlng.lng-west)/(east-west))*width)));
+        const row=Math.max(0,Math.min(height-1,Math.floor(((north-event.latlng.lat)/(north-south))*height)));
+        const magnitude=values[row][col];
+        const stride=Number(pair.preview.stride_cells)||1;
+        const readout=el("preview-pixel-readout");
+        if(typeof magnitude!=="number"||!Number.isFinite(magnitude)){
+          readout.textContent="No valid preview value at this location. Transparent/missing preview cells are not zero movement.";
+          return;
+        }
+        const rate=typeof pair.interval_days==="number"&&pair.interval_days>0?magnitude/pair.interval_days*100:null;
+        const rateText=rate===null?"interval-average rate unavailable":rate.toFixed(2)+" cm/day interval-average rate";
+        readout.textContent="Preview block median: "+magnitude.toFixed(3)+" m displacement; "+rateText+". Date interval: "+pair.reference_date+" → "+pair.secondary_date+" ("+(pair.interval_days===null?"unknown":pair.interval_days.toFixed(3))+" days). Aggregation stride: "+stride+" × "+stride+" native-grid cells. Approximate map position; not a native-pixel value or instantaneous velocity. Use the linked native-grid GeoTIFF for authoritative pixel inspection.";
+      });
+      el("preview-pixel-readout").textContent="Click a coloured raster preview block to inspect its median displacement and interval-average rate. Preview only; the native-grid GeoTIFF is authoritative.";
       el("raster-range").textContent="Preview magnitude range: "+image.lo.toFixed(3)+"–"+image.hi.toFixed(3)+" m";
       el("map-message").textContent="Showing downsampled displacement magnitude for "+pair.reference_date+" → "+pair.secondary_date+".";
     }else{
       el("raster-range").textContent="No valid raster preview";
+      el("preview-pixel-readout").textContent="No preview cells are available for this interval. Missing preview values are not zero movement.";
       el("map-message").textContent="AOI shown, but no preview raster is available for this interval. Check pair status and valid-pixel support.";
     }
   }
@@ -313,24 +387,40 @@ if (typeof L === "undefined") {
     el("opacity-value").textContent=Math.round(Number(el("opacity").value)*100)+"%";
     if(rasterLayer)rasterLayer.setOpacity(Number(el("opacity").value));
   });
+  el("show-scope-aoi").addEventListener("change",()=>{
+    if(!scopeAoiLayer)return;
+    if(el("show-scope-aoi").checked&&!map.hasLayer(scopeAoiLayer))scopeAoiLayer.addTo(map);
+    else if(!el("show-scope-aoi").checked&&map.hasLayer(scopeAoiLayer))map.removeLayer(scopeAoiLayer);
+  });
   el("show-aoi").addEventListener("change",()=>{
     if(!aoiLayer)return;
     if(el("show-aoi").checked&&!map.hasLayer(aoiLayer))aoiLayer.addTo(map);
     else if(!el("show-aoi").checked&&map.hasLayer(aoiLayer))map.removeLayer(aoiLayer);
   });
-  el("fit-aoi").addEventListener("click",()=>aoiLayer?map.fitBounds(aoiLayer.getBounds().pad(0.14)):map.setView([20,0],2));
+  el("show-reference").addEventListener("change",()=>{
+    if(!referenceLayer)return;
+    if(el("show-reference").checked&&!map.hasLayer(referenceLayer))referenceLayer.addTo(map);
+    else if(!el("show-reference").checked&&map.hasLayer(referenceLayer))map.removeLayer(referenceLayer);
+  });
+  el("fit-aoi").addEventListener("click",()=>{
+    const visibleLayers=[scopeAoiLayer,aoiLayer,referenceLayer].filter((layer)=>layer&&map.hasLayer(layer));
+    if(visibleLayers.length)map.fitBounds(L.featureGroup(visibleLayers).getBounds().pad(0.14));
+    else map.setView([20,0],2);
+  });
   if(mapData.pairs.length){pairSelect.value="0";renderPair(0);}
 }
 </script></body></html>"""
     replacements = {
         "__MAP_DATA__": data,
         "__AOI__": aoi_label,
+        "__SCOPE_AOI__": scope_label,
         "__GEOMETRY_NOTE__": geometry_note,
         "__GEOMETRY_NOTE_CLASS__": geometry_note_class,
+        "__REFERENCE_NOTE__": reference_warning or ("Separate reference polygon; stability not independently verified." if reference_wkt else "No separate reference polygon supplied."),
         "__START__": start,
         "__END__": end,
     }
-    return re.sub(r"__(?:MAP_DATA|AOI|GEOMETRY_NOTE|GEOMETRY_NOTE_CLASS|START|END)__", lambda match: replacements[match.group(0)], template)
+    return re.sub(r"__(?:MAP_DATA|AOI|SCOPE_AOI|GEOMETRY_NOTE|GEOMETRY_NOTE_CLASS|REFERENCE_NOTE|START|END)__", lambda match: replacements[match.group(0)], template)
 
 
 def write_interactive_map(report: dict[str, Any], output_path: str | Path) -> Path:

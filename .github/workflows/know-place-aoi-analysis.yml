@@ -3,9 +3,19 @@ name: Know Place AOI analysis — polygon/date-range
 on:
   workflow_dispatch:
     inputs:
-      aoi_wkt:
-        description: "Closed WGS84 POLYGON WKT (longitude latitude; one exterior ring)"
+      backend_science_ref:
+        description: "Immutable 40-character commit SHA containing the backend science code to execute"
         required: true
+        default: "526090db8ae2efb7b800129a9d4d9b7eba87efbf"
+        type: string
+      aoi_wkt:
+        description: "Measurement polygon: closed WGS84 POLYGON WKT (longitude latitude; one exterior ring)"
+        required: true
+        type: string
+      scope_aoi_wkt:
+        description: "Optional outer AOI boundary WKT; measurement and reference polygons must lie strictly inside it"
+        required: false
+        default: ""
         type: string
       start_date:
         description: "Inclusive UTC start date, YYYY-MM-DD"
@@ -80,8 +90,13 @@ on:
         default: ""
         type: string
       reference_wkt:
-        description: "Optional reference/background polygon WKT; blank uses a 2 km local-context component-median reference"
+        description: "Optional independent reference/background polygon WKT; blank uses local-context correction"
         required: false
+        type: string
+      candidate_context_json:
+        description: "Optional provenance JSON for a GOFF candidate imported from Find Displacements; metadata only"
+        required: false
+        default: ""
         type: string
       consent_marker:
         description: "Required: enter exactly [run-know-place] when execute_downloads is true"
@@ -95,8 +110,17 @@ on:
         default: false
   workflow_call:
     inputs:
+      backend_science_ref:
+        description: "Immutable backend science source commit SHA"
+        required: true
+        type: string
       aoi_wkt:
         required: true
+        type: string
+      scope_aoi_wkt:
+        description: "Optional outer AOI boundary WKT; not used as the measurement polygon"
+        required: false
+        default: ""
         type: string
       start_date:
         required: true
@@ -138,6 +162,11 @@ on:
         default: ""
         type: string
       reference_wkt:
+        required: false
+        default: ""
+        type: string
+      candidate_context_json:
+        description: "Optional metadata-only provenance for an imported GOFF candidate"
         required: false
         default: ""
         type: string
@@ -183,10 +212,31 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       GOOGLE_DRIVE_PARENT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_PARENT_FOLDER_ID }}
       OUTPUT_ROOT: know-place-aoi-output
+      BACKEND_SCIENCE_REF: ${{ inputs.backend_science_ref }}
 
     steps:
-      - name: Checkout the selected feature branch
+      - name: Checkout the backend science repository at the pinned commit
         uses: actions/checkout@v4
+        with:
+          repository: moshiour0/SARGuardian-backend
+          ref: ${{ inputs.backend_science_ref }}
+
+      - name: Verify backend source identity and immutable pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$BACKEND_SCIENCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "ERROR=BACKEND_SCIENCE_REF_MUST_BE_IMMUTABLE_40_CHAR_SHA"
+            exit 1
+          fi
+          actual="$(git rev-parse HEAD)"
+          if [[ "$actual" != "$BACKEND_SCIENCE_REF" ]]; then
+            echo "ERROR=BACKEND_SCIENCE_CHECKOUT_SHA_MISMATCH expected=$BACKEND_SCIENCE_REF actual=$actual"
+            exit 1
+          fi
+          echo "BACKEND_SCIENCE_REPOSITORY=moshiour0/SARGuardian-backend"
+          echo "BACKEND_SCIENCE_COMMIT=$actual"
+          printf '%s\n' "$actual" > backend-science-source.txt
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -201,6 +251,7 @@ jobs:
         shell: bash
         env:
           AOI_WKT: ${{ inputs.aoi_wkt }}
+          SCOPE_AOI_WKT: ${{ inputs.scope_aoi_wkt }}
           START_DATE: ${{ inputs.start_date }}
           END_DATE: ${{ inputs.end_date }}
           HAZARD_MODE: ${{ inputs.hazard_mode }}
@@ -212,6 +263,7 @@ jobs:
           DIRECTION: ${{ inputs.direction }}
           ALLOWED_RELEASE_IDS: ${{ inputs.allowed_release_ids }}
           REFERENCE_WKT: ${{ inputs.reference_wkt }}
+          CANDIDATE_CONTEXT_JSON: ${{ inputs.candidate_context_json }}
           CONSENT_MARKER: ${{ inputs.consent_marker || '' }}
         run: |
           set -euo pipefail
@@ -235,6 +287,7 @@ jobs:
               "aoi": {
                   "type": "Polygon",
                   "crs": "EPSG:4326",
+                  "role": "measurement",
                   "wkt": os.environ["AOI_WKT"].strip(),
               },
               "date_range": {
@@ -257,6 +310,20 @@ jobs:
                   "minimum_valid_neighbours": int(os.environ["COHERENCE_NEIGHBOURS"]),
               },
           }
+          scope_aoi = os.environ.get("SCOPE_AOI_WKT", "").strip()
+          if scope_aoi:
+              request["scope_aoi"] = {
+                  "type": "Polygon",
+                  "crs": "EPSG:4326",
+                  "role": "outer_selection_boundary",
+                  "wkt": scope_aoi,
+              }
+          raw_candidate_context = os.environ.get("CANDIDATE_CONTEXT_JSON", "").strip()
+          if raw_candidate_context:
+              candidate_context = json.loads(raw_candidate_context)
+              if not isinstance(candidate_context, dict):
+                  raise SystemExit("CANDIDATE_CONTEXT_JSON_MUST_BE_OBJECT")
+              request["candidate_context"] = candidate_context
           raw_height = os.environ.get("GEOMETRY_HEIGHT_M", "").strip()
           if raw_height:
               try:
@@ -342,8 +409,10 @@ jobs:
           {
             echo "## Know Place AOI analysis"
             echo
-            echo "- Branch: $GITHUB_REF_NAME"
-            echo "- Commit: $GITHUB_SHA"
+            echo "- Caller workflow repository/ref: $GITHUB_REPOSITORY@$GITHUB_REF_NAME"
+            echo "- Caller workflow commit: $GITHUB_SHA"
+            echo "- Backend science repository: moshiour0/SARGuardian-backend"
+            echo "- Backend science commit: $BACKEND_SCIENCE_REF"
             echo "- AOI input: know-place-request.json"
             if [[ "${{ inputs.execute_downloads }}" == "true" ]]; then
               echo "- Source downloads: opted in; exact product hashes and receipts are recorded per run"
@@ -363,6 +432,7 @@ jobs:
         with:
           name: know-place-aoi-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            backend-science-source.txt
             know-place-request.json
             know-place-aoi-output/**
           if-no-files-found: warn

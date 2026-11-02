@@ -27,7 +27,7 @@ def sample_report():
             "date_range": {"start": "2026-06-20", "end": "2026-08-31", "inclusive": True},
         },
         "pairs": [{
-            "reference_date": "2026-07-26", "secondary_date": "2026-08-19",
+            "reference_date": "2026-07-26", "secondary_date": "2026-08-19", "interval_days": 24.0,
             "release_id": "P05023", "status": "METRICS_COMPUTED", "epsg": 32645,
             "valid_aoi_pixels": 147, "aoi_total_grid_cells": 160,
             "valid_aoi_fraction": 147 / 160, "high_magnitude_flagged_pixels": 2,
@@ -36,7 +36,7 @@ def sample_report():
             "map_preview": {
                 "values": [[0.1, 0.2], [None, 0.5]],
                 "min_x_m": 300000.0, "max_y_m": 3100000.0,
-                "pixel_size_x_m": 80.0, "pixel_size_y_m": 80.0,
+                "pixel_size_x_m": 80.0, "pixel_size_y_m": 80.0, "stride_cells": 4,
             },
         }],
     }
@@ -70,12 +70,12 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     report = sample_report()
     rendered = build_interactive_map_html(report)
     payload = _map_payload(report)
-    assert "Interactive AOI map" in rendered
+    assert "Interactive measurement map" in rendered
     assert "tile.openstreetmap.org" in rendered
     assert "pair-select" in rendered
     assert "opacity" in rendered.lower()
     assert "show-aoi" in rendered
-    assert "Zoom to AOI" in rendered
+    assert "Zoom to both polygons" in rendered or "Zoom to all polygons" in rendered
     assert "Download native-grid GeoTIFF" in rendered
     assert "A native-grid GeoTIFF is available only if a link is shown" in rendered
     assert 'id="valid-pixels-label">Valid AOI pixels</small>' in rendered
@@ -87,6 +87,13 @@ def test_interactive_map_has_aoi_pair_controls_preview_download_and_statuses(tmp
     assert "P05023" in rendered
     assert payload["aoi_ring_lon_lat"][0] == [85.0, 28.0]
     assert payload["pairs"][0]["preview"]["bounds"] is not None
+    assert payload["pairs"][0]["preview"]["stride_cells"] == 4
+    assert payload["pairs"][0]["interval_days"] == 24.0
+    assert 'id="preview-pixel-readout"' in rendered
+    assert 'interactive:true' in rendered
+    assert "Preview block median:" in rendered
+    assert "not a native-pixel value or instantaneous velocity" in rendered
+    assert "Download native-grid GeoTIFF" in rendered
     assert payload["pairs"][0]["geotiff_href"] == "../maps/pair_displacement.tif"
     assert payload["hazard_detection_status"] == "NOT_EVALUATED"
     target = write_interactive_map(report, tmp_path / "visuals" / "interactive-map.html")
@@ -149,3 +156,32 @@ def test_interactive_map_inline_javascript_syntax_if_node_available(tmp_path):
     script_path.write_text(match.group(1), encoding="utf-8")
     checked = subprocess.run([shutil.which("node"), "--check", str(script_path)], capture_output=True, text=True, check=False)
     assert checked.returncode == 0, checked.stdout + checked.stderr
+
+def test_interactive_map_keeps_outer_measurement_and_reference_polygons_distinct():
+    report = sample_report()
+    report["request"]["scope_aoi"] = {
+        "type": "Polygon",
+        "crs": "EPSG:4326",
+        "role": "outer_selection_boundary",
+        "wkt": "POLYGON ((84.99 27.99, 85.02 27.99, 85.02 28.02, 84.99 28.02, 84.99 27.99))",
+    }
+    report["request"]["reference"] = {
+        "policy": "external_reference_polygon_component_median",
+        "polygon_wkt": "POLYGON ((84.995 28.001, 85.002 28.001, 85.002 28.008, 84.995 28.008, 84.995 28.001))",
+        "warning": "User-selected comparison area; stability is not independently verified.",
+    }
+    rendered = build_interactive_map_html(report)
+    payload = _map_payload(report)
+
+    assert payload["scope_aoi_ring_lon_lat"][0] == [84.99, 27.99]
+    assert payload["aoi_ring_lon_lat"][0] == [85.0, 28.0]
+    assert payload["reference_ring_lon_lat"][0] == [84.995, 28.001]
+    assert "Outer AOI boundary:" in rendered
+    assert "Measurement polygon:" in rendered
+    assert "Reference polygon:" in rendered
+    assert 'id="show-scope-aoi"' in rendered
+    assert 'id="show-aoi"' in rendered
+    assert 'id="show-reference"' in rendered
+    assert "Zoom to all polygons" in rendered
+    assert "User-selected comparison area; stability is not independently verified." in rendered
+

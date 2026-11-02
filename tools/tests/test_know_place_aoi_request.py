@@ -182,3 +182,108 @@ def test_dispatcher_consent_failure_explains_exact_marker_and_remains_strict():
     assert "run-know-place by itself does not authorize source downloads." in workflow
     assert "No raw source, analysis or Drive operation was performed." in workflow
     assert '"$CONSENT_MARKER" == "run-know-place"' not in workflow
+
+def test_outer_scope_aoi_is_canonicalized_and_kept_separate_from_measurement_polygon():
+    payload = request()
+    outer = "POLYGON ((85.49 28.27, 85.57 28.27, 85.57 28.33, 85.49 28.33, 85.49 28.27))"
+    payload["scope_aoi"] = {
+        "type": "Polygon",
+        "crs": "EPSG:4326",
+        "role": "outer_selection_boundary",
+        "wkt": outer,
+    }
+    parsed = validate_aoi_request(payload)
+    normalized = parsed.to_dict()
+    assert parsed.aoi_wkt != parsed.scope_aoi_wkt
+    assert normalized["aoi"]["role"] == "measurement"
+    assert normalized["scope_aoi"]["role"] == "outer_selection_boundary"
+    assert normalized["scope_aoi"]["wkt"].startswith("POLYGON ((85.490000000")
+
+
+def test_outer_scope_aoi_rejects_invalid_geometry_and_crs():
+    payload = request()
+    payload["scope_aoi"] = {"wkt": "POLYGON ((0 0, 1 1, 1 0, 0 1, 0 0))", "crs": "EPSG:4326"}
+    with pytest.raises(AOIRequestError, match="SCOPE_AOI_GEOMETRY_INVALID"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["scope_aoi"] = {
+        "wkt": "POLYGON ((85.49 28.27, 85.57 28.27, 85.57 28.33, 85.49 28.33, 85.49 28.27))",
+        "crs": "EPSG:3857",
+    }
+    with pytest.raises(AOIRequestError, match="SCOPE_AOI_CRS_MUST_BE_EPSG4326_OR_CRS84"):
+        validate_aoi_request(payload)
+
+def test_goff_candidate_context_is_normalized_and_saved_as_provenance():
+    payload = request()
+    payload["candidate_context"] = {
+        "source": "FIND_DISPLACEMENTS",
+        "candidate_id": "GOFF-CANDIDATE-004",
+        "product_type": "GOFF",
+        "metric": "GOFF_SLANT_RANGE_OFFSET_MM",
+        "evidence_class": "GOFF_OFFSET_ANOMALY_NOT_GROUND_MOTION",
+        "status": "REPEATED_SPATIAL_CANDIDATE",
+        "support_pairs": 3,
+        "pixel_count": 42,
+        "approx_area_m2": 268800.0,
+        "product_ids": ["NISAR_GOFF_P05023_A"],
+        "pair_intervals": [{"reference_date": "2026-07-01", "secondary_date": "2026-07-13"}],
+        "geometry_original_vertices": 1800,
+        "geometry_suggested_vertices": 420,
+        "geometry_simplified": True,
+        "geometry_edited": True,
+        "interpretation": "Offset anomaly candidate; not measured ground motion.",
+    }
+    parsed = validate_aoi_request(payload)
+    normalized = parsed.to_dict()
+    assert normalized["candidate_context"]["candidate_id"] == "GOFF-CANDIDATE-004"
+    assert normalized["candidate_context"]["product_type"] == "GOFF"
+    assert normalized["candidate_context"]["geometry_simplified"] is True
+    assert normalized["candidate_context"]["geometry_edited"] is True
+    assert len(parsed.request_sha256) == 64
+
+
+def test_candidate_context_rejects_gunw_cross_family_handoff_and_oversized_metadata():
+    payload = request()
+    payload["candidate_context"] = {
+        "source": "FIND_DISPLACEMENTS",
+        "candidate_id": "LOS-001",
+        "product_type": "GUNW",
+        "metric": "GUNW_LOS_DISPLACEMENT_MM",
+        "evidence_class": "GUNW_LOS_DISPLACEMENT_ANOMALY_UNCONFIRMED",
+        "status": "REPEATED_SPATIAL_CANDIDATE",
+        "support_pairs": 2,
+        "pixel_count": 12,
+        "approx_area_m2": 80000,
+        "product_ids": [],
+        "pair_intervals": [],
+        "geometry_original_vertices": 100,
+        "geometry_suggested_vertices": 100,
+        "geometry_simplified": False,
+        "interpretation": "LOS anomaly",
+    }
+    with pytest.raises(AOIRequestError, match="CANDIDATE_CONTEXT_MUST_BE_GOFF"):
+        validate_aoi_request(payload)
+
+    payload = request()
+    payload["candidate_context"] = {
+        "source": "FIND_DISPLACEMENTS",
+        "candidate_id": "GOFF-001",
+        "product_type": "GOFF",
+        "metric": "GOFF_SLANT_RANGE_OFFSET_MM",
+        "evidence_class": "GOFF_OFFSET_ANOMALY_NOT_GROUND_MOTION",
+        "status": "REPEATED_SPATIAL_CANDIDATE",
+        "support_pairs": 1,
+        "pixel_count": 10,
+        "approx_area_m2": 1000.0,
+        "geometry_original_vertices": 10,
+        "geometry_suggested_vertices": 10,
+        "geometry_simplified": False,
+        "geometry_edited": False,
+        "interpretation": "Offset anomaly candidate; not measured ground motion.",
+        "pair_intervals": [],
+        "product_ids": ["P" * 600],
+    }
+    with pytest.raises(AOIRequestError, match="CANDIDATE_CONTEXT_PRODUCT_IDS_INVALID"):
+        validate_aoi_request(payload)
+
